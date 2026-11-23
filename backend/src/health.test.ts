@@ -3,9 +3,9 @@ import request from "supertest";
 import { app } from "./index.js";
 
 describe("GET /health", () => {
-  it("returns 200 with { status: 'ok' }", async () => {
+  it("returns 200 with the data envelope", async () => {
     const res = await request(app).get("/health");
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ status: "ok" });
+    expect(res.body).toEqual({ data: { status: "ok" } });
   });
 });
