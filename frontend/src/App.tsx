@@ -8,6 +8,7 @@ import Items from "@/pages/admin/Masters/Items";
 import Suppliers from "@/pages/admin/Masters/Suppliers";
 import OpeningStock from "@/pages/admin/OpeningStock";
 import Purchases from "@/pages/admin/Purchases";
+import ProductionRuns from "@/pages/production/ProductionRuns";
 
 function Home() {
   const { user, logout } = useAuth();
@@ -33,6 +34,7 @@ function Home() {
           </>
         )}
         {canRecordPurchases && <Link to="/admin/purchases">Purchases</Link>}
+        {canRecordPurchases && <Link to="/production/runs">Production</Link>}
       </nav>
       <button onClick={() => logout()} className="mt-4 rounded border border-input px-3 py-1">
         Log out
@@ -98,6 +100,14 @@ export default function App() {
         element={
           <ProtectedRoute roles={["ADMIN", "OWNER", "PRODUCTION"]}>
             <Purchases />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/production/runs"
+        element={
+          <ProtectedRoute roles={["ADMIN", "OWNER", "PRODUCTION"]}>
+            <ProductionRuns />
           </ProtectedRoute>
         }
       />

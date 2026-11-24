@@ -1,0 +1,66 @@
+import { Router } from "express";
+import { requireAuth, requireRole } from "../../middleware/auth.js";
+import { validate } from "../../lib/validate.js";
+import {
+  cancelProductionRun,
+  completeProductionRun,
+  createProductionRun,
+  getProductionRun,
+  listProductionRuns,
+  startProductionRun,
+} from "./service.js";
+import { productionRunCompleteSchema, productionRunCreateSchema, productionRunStartSchema } from "./schema.js";
+import { AppError } from "../../lib/AppError.js";
+
+export const productionRouter = Router();
+
+productionRouter.use(requireAuth);
+
+// Running production is the supervisor's (and admin/owner's) job; the
+// accountant reads runs for costing but never starts/completes/cancels one.
+const canManageRuns = requireRole("ADMIN", "OWNER", "PRODUCTION");
+const canReadRuns = requireRole("ADMIN", "OWNER", "PRODUCTION", "ACCOUNTANT");
+
+productionRouter.get("/", canReadRuns, async (_req, res) => {
+  const runs = await listProductionRuns();
+  res.json({ data: runs });
+});
+
+productionRouter.get("/:id", canReadRuns, async (req, res) => {
+  const run = await getProductionRun(req.params.id as string);
+  res.json({ data: run });
+});
+
+productionRouter.post("/", canManageRuns, validate("body", productionRunCreateSchema), async (req, res) => {
+  const run = await createProductionRun(req.body);
+  res.status(201).json({ data: run });
+});
+
+productionRouter.post(
+  "/:id/start",
+  canManageRuns,
+  validate("body", productionRunStartSchema),
+  async (req, res) => {
+    const run = await startProductionRun(req.params.id as string, req.body.actualConsumption);
+    res.json({ data: run });
+  },
+);
+
+productionRouter.post(
+  "/:id/complete",
+  canManageRuns,
+  validate("body", productionRunCompleteSchema),
+  async (req, res) => {
+    const idempotencyKey = req.get("Idempotency-Key");
+    if (!idempotencyKey) {
+      throw new AppError(400, "missing_idempotency_key", "An Idempotency-Key header is required");
+    }
+    const run = await completeProductionRun(req.params.id as string, idempotencyKey, req.body);
+    res.json({ data: run });
+  },
+);
+
+productionRouter.post("/:id/cancel", canManageRuns, async (req, res) => {
+  const run = await cancelProductionRun(req.params.id as string);
+  res.json({ data: run });
+});
