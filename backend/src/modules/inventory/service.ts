@@ -27,9 +27,27 @@ export async function getReservedQty(db: DbClient, itemId: string): Promise<numb
   return agg._sum.qtyBase ?? 0;
 }
 
+export async function getUnavailableBatchQty(db: DbClient, itemId: string): Promise<number> {
+  const [rawAgg, fgAgg] = await Promise.all([
+    db.rawMaterialBatch.aggregate({
+      where: { itemId, status: { in: ["EXPIRED", "QUARANTINED"] } },
+      _sum: { remainingQtyBase: true },
+    }),
+    db.finishedGoodsBatch.aggregate({
+      where: { itemId, status: { in: ["EXPIRED", "QUARANTINED"] } },
+      _sum: { remainingQtyBase: true },
+    }),
+  ]);
+  return (rawAgg._sum.remainingQtyBase ?? 0) + (fgAgg._sum.remainingQtyBase ?? 0);
+}
+
 export async function getAvailableQty(db: DbClient, itemId: string): Promise<number> {
-  const [onHand, reserved] = await Promise.all([getOnHandQty(db, itemId), getReservedQty(db, itemId)]);
-  return onHand - reserved;
+  const [onHand, reserved, unavailable] = await Promise.all([
+    getOnHandQty(db, itemId),
+    getReservedQty(db, itemId),
+    getUnavailableBatchQty(db, itemId),
+  ]);
+  return Math.max(0, onHand - reserved - unavailable);
 }
 
 export async function getItemOrThrow(itemId: string) {

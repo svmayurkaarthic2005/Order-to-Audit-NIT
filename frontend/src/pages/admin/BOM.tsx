@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Button, Card, EmptyState, ErrorText, Field, Input, PageHeader, Select } from "@/components/ui";
+import { Button, Card, EmptyState, ErrorText, Field, Input, Loading, PageHeader, Select } from "@/components/ui";
 
 type Item = { id: string; sku: string; name: string; type: string };
 type BomLineInput = { rawItemId: string; qtyPerBatch: string };
@@ -35,7 +35,7 @@ export default function BOM() {
     queryKey: ["items", "bom-picker"],
     queryFn: () => api.get<{ items: Item[] }>("/items"),
   });
-  const { data: boms, isLoading } = useQuery({
+  const { data: boms, isLoading, error: bomsError } = useQuery({
     queryKey: ["boms"],
     queryFn: () => api.get<Bom[]>("/boms"),
   });
@@ -221,7 +221,9 @@ export default function BOM() {
       )}
 
       {isLoading ? (
-        <p className="text-sm text-muted-foreground">Loading…</p>
+        <Loading />
+      ) : bomsError ? (
+        <ErrorText>{(bomsError as Error).message}</ErrorText>
       ) : !boms || boms.length === 0 ? (
         <EmptyState>No BOMs yet.</EmptyState>
       ) : (

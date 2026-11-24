@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { Card, EmptyState, LinkButton, Loading, PageHeader, StatusBadge, money } from "@/components/ui";
+import { Card, EmptyState, ErrorText, LinkButton, Loading, PageHeader, StatusBadge, money } from "@/components/ui";
 
 type Order = {
   id: string;
@@ -19,7 +19,7 @@ const STATUS_VARIANT: Record<string, "neutral" | "success" | "warning" | "destru
 };
 
 export default function OrderHistory() {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error } = useQuery({
     queryKey: ["orders"],
     queryFn: () => api.get<{ items: Order[] }>("/orders"),
   });
@@ -41,6 +41,10 @@ export default function OrderHistory() {
 
       {isLoading ? (
         <Loading />
+      ) : error ? (
+        <div className="mt-4">
+          <ErrorText>{(error as Error).message}</ErrorText>
+        </div>
       ) : !data || data.items.length === 0 ? (
         <div className="mt-4">
           <EmptyState>No orders yet. Submit your first one above.</EmptyState>

@@ -3,6 +3,13 @@ import { AppError } from "../../lib/AppError.js";
 import { prisma } from "../../lib/prisma.js";
 import { computeOutputCostPaise } from "./costing.js";
 import { syncAlertsForItems } from "../alerts/service.js";
+import { notify } from "../notifications/service.js";
+import {
+  issueFromRawBatches,
+  recordProductionOutput,
+  refreshBatchStatuses,
+  selectRawBatchesFEFO,
+} from "../batches/service.js";
 
 type TxClient = Prisma.TransactionClient;
 
@@ -54,7 +61,7 @@ export async function createProductionRun(data: { bomHeaderId: string; batchSize
 // completion — this is where the factory's real stock actually moves.
 export async function startProductionRun(
   id: string,
-  actualConsumption: { itemId: string; qtyBase: number }[],
+  actualConsumption: { itemId: string; qtyBase: number; overrideReason?: string }[],
 ) {
   return prisma.$transaction(async (tx) => {
     const run = await tx.productionRun.findUnique({ where: { id }, include: { bomHeader: { include: { lines: { include: { rawItem: true } } } } } });
@@ -97,16 +104,20 @@ export async function startProductionRun(
         throw new AppError(400, "invalid_item", `Item ${consumed.itemId} is not a raw-material line on this BOM`);
       }
       const unitCostPaise = await movingAverageCostPaise(tx, consumed.itemId);
-      await tx.stockMovement.create({
-        data: {
-          itemId: consumed.itemId,
-          qtyBase: -consumed.qtyBase,
-          unitCostPaise,
-          totalCostPaise: -(consumed.qtyBase * unitCostPaise),
-          source: "PRODUCTION_ISSUE",
-          sourceId: id,
-        },
-      });
+
+      // FEFO selection — select eligible batches in expiry order
+      const selections = await selectRawBatchesFEFO(consumed.itemId, consumed.qtyBase);
+      await issueFromRawBatches(
+        tx,
+        selections,
+        consumed.itemId,
+        id,
+        consumed.qtyBase,
+        unitCostPaise,
+        null,
+        consumed.overrideReason,
+      );
+
       await tx.productionRunMaterial.updateMany({
         where: { productionRunId: id, itemId: consumed.itemId },
         data: { actualQtyBase: consumed.qtyBase },
@@ -129,6 +140,7 @@ export async function completeProductionRun(
   data: {
     actualOutputQty: number;
     packagingConsumed: { itemId: string; qtyBase: number; damagedQty: number }[];
+    expiryDate?: Date;
   },
 ) {
   const alreadyApplied = await prisma.stockMovement.findUnique({ where: { idempotencyKey } });
@@ -155,6 +167,7 @@ async function completeProductionRunInTransaction(
   data: {
     actualOutputQty: number;
     packagingConsumed: { itemId: string; qtyBase: number; damagedQty: number }[];
+    expiryDate?: Date;
   },
 ) {
   return prisma.$transaction(async (tx) => {
@@ -227,6 +240,9 @@ async function completeProductionRunInTransaction(
     const totalCostPaise = await computeOutputCostPaise(tx, id, run.batchSize);
     const unitCostPaise = Math.round(totalCostPaise / data.actualOutputQty);
 
+    // Create the finished-goods batch row for FEFO dispatch tracking
+    const fgBatch = await recordProductionOutput(tx, id, run.bomHeader.finishedItemId, data.actualOutputQty, data.expiryDate);
+
     // The idempotency guard: the finished-goods output row carries the
     // caller's key, so a replay is caught before any row is posted twice.
     await tx.stockMovement.create({
@@ -238,12 +254,34 @@ async function completeProductionRunInTransaction(
         source: "PRODUCTION_OUTPUT",
         sourceId: id,
         idempotencyKey,
+        finishedGoodsBatchId: fgBatch.id,
       },
     });
 
     return tx.productionRun.findUniqueOrThrow({ where: { id }, include: includeClause() });
   }).then(async (result) => {
     await syncAlertsForItems([...data.packagingConsumed.map((l) => l.itemId), result.bomHeader.finishedItemId]);
+    await refreshBatchStatuses();
+
+    // Notify on significant yield variance (>3% tolerance)
+    const expected = result.bomHeader.expectedYieldQty * result.batchSize;
+    const actual = data.actualOutputQty;
+    if (expected > 0) {
+      const pctDiff = (actual - expected) / expected; // signed fraction
+      if (Math.abs(pctDiff) > 0.03) {
+        const pctDisplay = (pctDiff * 100).toFixed(1);
+        await notify({
+          recipientRoles: ["OWNER", "PRODUCTION"],
+          type: "PRODUCTION_VARIANCE",
+          title: `Production variance on run #${result.id.slice(0, 8)}`,
+          message: `Actual yield ${actual} vs expected ${expected} (${pctDisplay}% deviation) for ${result.bomHeader.finishedItem.name}`,
+          severity: Math.abs(pctDiff) > 0.1 ? "CRITICAL" : "WARNING",
+          sourceType: "ProductionRun",
+          sourceId: result.id,
+        });
+      }
+    }
+
     return result;
   });
 }

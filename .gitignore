@@ -6,6 +6,7 @@ backend/storage/
 .DS_Store
 backend/node_modules/.tmp/
 frontend/node_modules/.tmp/
+*.tsbuildinfo
 
 # Local Claude Code / skill tooling, not project source
 .agents/

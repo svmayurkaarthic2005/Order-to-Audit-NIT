@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { Button, EmptyState, Loading, PageHeader, StatusBadge, Table, Td, Th, THead } from "@/components/ui";
+import { Button, EmptyState, ErrorText, Loading, PageHeader, StatusBadge, Table, Td, Th, THead } from "@/components/ui";
 
 type AuditEntry = {
   id: string;
@@ -57,7 +57,7 @@ export default function AuditLog() {
   const [actionFilter, setActionFilter] = useState<string>("ALL");
   const [inspectEntry, setInspectEntry] = useState<AuditEntry | null>(null);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error } = useQuery({
     queryKey: ["audit-log"],
     queryFn: () => api.get<AuditEntry[]>("/audit-log"),
   });
@@ -143,6 +143,8 @@ export default function AuditLog() {
 
       {isLoading ? (
         <Loading />
+      ) : error ? (
+        <ErrorText>{(error as Error).message}</ErrorText>
       ) : !data || data.length === 0 ? (
         <EmptyState>No audit entries recorded yet.</EmptyState>
       ) : filtered.length === 0 ? (

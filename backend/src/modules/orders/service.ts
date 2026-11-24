@@ -4,6 +4,7 @@ import { logAudit } from "../../lib/audit.js";
 import { prisma } from "../../lib/prisma.js";
 import { getOnHandQty, getReservedQty } from "../inventory/service.js";
 import { syncAlertsForItems } from "../alerts/service.js";
+import { notify } from "../notifications/service.js";
 
 const PAGE_SIZE = 20;
 
@@ -157,6 +158,35 @@ export async function rejectOrder(id: string, reason: string, actingUserId: stri
     }
     await logAudit(tx, { userId: actingUserId, action: "REJECT", entityType: "SalesOrder", entityId: id, after: { reason } });
     return withOrderInclude(id, tx);
+  }).then(async (result) => {
+    // Fire ORDER_SHORTAGE notifications only when the rejection reason is stock-related
+    if (reason === "insufficient_stock") {
+      const salesman = result.salesmanUser as { id: string; name: string };
+      const customer = result.customer;
+
+      // Notify the salesman directly (user-specific)
+      await notify({
+        recipientUserId: salesman.id,
+        type: "ORDER_SHORTAGE",
+        title: "Your order was rejected: insufficient stock",
+        message: `Your order for ${customer.name} was rejected due to insufficient stock`,
+        severity: "WARNING",
+        sourceType: "SalesOrder",
+        sourceId: id,
+      });
+
+      // Notify ADMIN/OWNER by role (role-broadcast)
+      await notify({
+        recipientRoles: ["OWNER", "ADMIN"],
+        type: "ORDER_SHORTAGE",
+        title: `Order rejected (stock shortage): ${customer.name}`,
+        message: `Order by ${salesman.name} for ${customer.name} was rejected — insufficient stock`,
+        severity: "WARNING",
+        sourceType: "SalesOrder",
+        sourceId: id,
+      });
+    }
+    return result;
   });
   // No alert sync needed: reservation only starts at APPROVED, so rejecting
   // a SUBMITTED order never changed availability.

@@ -23,7 +23,7 @@ export default function Dispatch() {
   const [qtyByInvoice, setQtyByInvoice] = useState<Record<string, string>>({});
   const [errorByInvoice, setErrorByInvoice] = useState<Record<string, string>>({});
 
-  const { data: invoices, isLoading } = useQuery({
+  const { data: invoices, isLoading, error } = useQuery({
     queryKey: ["invoices"],
     queryFn: () => api.get<Invoice[]>("/invoices"),
   });
@@ -53,6 +53,8 @@ export default function Dispatch() {
 
       {isLoading ? (
         <Loading />
+      ) : error ? (
+        <ErrorText>{(error as Error).message}</ErrorText>
       ) : issued.length === 0 ? (
         <EmptyState>No invoices awaiting dispatch.</EmptyState>
       ) : (

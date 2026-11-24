@@ -33,7 +33,7 @@ export default function Purchases() {
     queryKey: ["items", "purchase-picker"],
     queryFn: () => api.get<{ items: Item[] }>("/items"),
   });
-  const { data: purchases, isLoading } = useQuery({
+  const { data: purchases, isLoading, error: purchasesError } = useQuery({
     queryKey: ["purchases"],
     queryFn: () => api.get<{ items: Purchase[] }>("/purchases"),
   });
@@ -153,6 +153,8 @@ export default function Purchases() {
       {/* History table */}
       {isLoading ? (
         <Loading />
+      ) : purchasesError ? (
+        <ErrorText>{(purchasesError as Error).message}</ErrorText>
       ) : !purchases || purchases.items.length === 0 ? (
         <EmptyState>No purchases yet.</EmptyState>
       ) : (

@@ -1,5 +1,6 @@
 import { prisma } from "../../lib/prisma.js";
 import { getAvailableQty, getItemOrThrow } from "../inventory/service.js";
+import { notify } from "../notifications/service.js";
 
 export async function setReorderLevel(itemId: string, reorderLevel: number) {
   await getItemOrThrow(itemId);
@@ -25,11 +26,31 @@ export async function syncAlertsForItems(itemIds: string[]) {
         await prisma.lowStockAlert.create({
           data: { itemId, thresholdAtAlert: item.reorderLevel, availableQtyAtAlert: available },
         });
+        // Notify: stock dropped below threshold
+        await notify({
+          recipientRoles: ["OWNER", "ADMIN", "PRODUCTION"],
+          type: "LOW_STOCK",
+          title: `Low stock: ${item.name}`,
+          message: `${item.name} has fallen below the reorder threshold (available: ${available} ${item.baseUnit}, threshold: ${item.reorderLevel} ${item.baseUnit})`,
+          severity: "WARNING",
+          sourceType: "LowStockAlert",
+          sourceId: itemId, // resolved to real alert id below if needed; item dedup is sufficient
+        });
       }
     } else if (activeAlert) {
       await prisma.lowStockAlert.update({
         where: { id: activeAlert.id },
         data: { status: "RESOLVED", resolvedAt: new Date() },
+      });
+      // Notify: stock restored
+      await notify({
+        recipientRoles: ["OWNER", "ADMIN"],
+        type: "STOCK_REPLENISHED",
+        title: `Stock replenished: ${item.name}`,
+        message: `${item.name} stock is now back above the reorder threshold (available: ${available} ${item.baseUnit})`,
+        severity: "INFO",
+        sourceType: "LowStockAlert",
+        sourceId: activeAlert.id,
       });
     }
   }
@@ -41,6 +62,10 @@ export async function listAlerts(status?: "ACTIVE" | "RESOLVED") {
     include: { item: true },
     orderBy: { createdAt: "desc" },
   });
+}
+
+export async function computeAvailableQty(itemId: string) {
+  return getAvailableQty(prisma, itemId);
 }
 
 // The brief's stock-status table: every active item with its current

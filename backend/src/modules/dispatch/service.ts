@@ -3,6 +3,11 @@ import { AppError } from "../../lib/AppError.js";
 import { logAudit } from "../../lib/audit.js";
 import { prisma } from "../../lib/prisma.js";
 import { syncAlertsForItems } from "../alerts/service.js";
+import {
+  issueFromFinishedBatches,
+  refreshBatchStatuses,
+  selectFinishedBatchesFEFO,
+} from "../batches/service.js";
 
 type TxClient = Prisma.TransactionClient;
 
@@ -20,7 +25,7 @@ export async function listDispatches() {
 // Dispatch.invoiceId is @unique, so the database itself guarantees at most
 // one dispatch per invoice even under concurrent requests — the real
 // protection against double-dispatch, not the pre-check below.
-export async function createDispatch(invoiceId: string, qty: number, actingUserId: string) {
+export async function createDispatch(invoiceId: string, qty: number, actingUserId: string, overrideReason?: string) {
   let dispatchedItemId: string | undefined;
   try {
     const result = await prisma.$transaction(async (tx) => {
@@ -40,16 +45,19 @@ export async function createDispatch(invoiceId: string, qty: number, actingUserI
       const itemId = invoice.items[0]!.itemId;
       dispatchedItemId = itemId;
       const unitCostPaise = await movingAverageCostPaise(tx, itemId);
-      await tx.stockMovement.create({
-        data: {
-          itemId,
-          qtyBase: -qty,
-          unitCostPaise,
-          totalCostPaise: -(qty * unitCostPaise),
-          source: "DISPATCH",
-          sourceId: invoiceId,
-        },
-      });
+
+      const selections = await selectFinishedBatchesFEFO(itemId, qty);
+      await issueFromFinishedBatches(
+        tx,
+        dispatch.id,
+        invoiceId,
+        selections,
+        itemId,
+        qty,
+        unitCostPaise,
+        actingUserId,
+        overrideReason,
+      );
 
       await tx.salesOrder.update({ where: { id: invoice.salesOrderId }, data: { status: "DISPATCHED" } });
 
@@ -65,6 +73,7 @@ export async function createDispatch(invoiceId: string, qty: number, actingUserI
     });
     if (dispatchedItemId) {
       await syncAlertsForItems([dispatchedItemId]);
+      await refreshBatchStatuses();
     }
     return result;
   } catch (err) {

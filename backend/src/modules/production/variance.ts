@@ -1,7 +1,7 @@
 import { AppError } from "../../lib/AppError.js";
 import { prisma } from "../../lib/prisma.js";
 
-const TOLERANCE_PCT = 0.03;
+export const TOLERANCE_PCT = 0.03;
 
 function variancePct(planned: number, actual: number): number {
   return planned === 0 ? 0 : (actual - planned) / planned;

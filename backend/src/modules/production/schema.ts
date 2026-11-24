@@ -11,6 +11,7 @@ export const productionRunStartSchema = z.object({
       z.object({
         itemId: z.string().min(1),
         qtyBase: z.coerce.number().int().positive(),
+        overrideReason: z.string().optional(),
       }),
     )
     .min(1),
@@ -27,4 +28,5 @@ export const productionRunCompleteSchema = z.object({
       }),
     )
     .default([]),
+  expiryDate: z.coerce.date().optional(),
 });

@@ -19,9 +19,13 @@ import { ordersRouter } from "./modules/orders/router.js";
 import { paymentsRouter } from "./modules/payments/router.js";
 import { productionRouter } from "./modules/production/router.js";
 import { purchasesRouter } from "./modules/purchases/router.js";
+import { reconciliationRouter } from "./modules/reconciliation/router.js";
+import { batchesRouter } from "./modules/batches/router.js";
+import { notificationsRouter } from "./modules/notifications/router.js";
 import { reportsRouter } from "./modules/reports/router.js";
 import { suppliersRouter } from "./modules/suppliers/router.js";
 
+// Porulottam ERP backend entry point
 const app = express();
 const PORT = process.env.PORT ? Number(process.env.PORT) : 4000;
 
@@ -61,6 +65,9 @@ app.use("/dispatches", dispatchRouter);
 app.use("/payments", paymentsRouter);
 app.use("/reports", reportsRouter);
 app.use("/audit-log", auditRouter);
+app.use("/batches", batchesRouter);
+app.use("/reconciliation", reconciliationRouter);
+app.use("/notifications", notificationsRouter);
 app.use("/debug", debugRouter);
 
 app.use(errorHandler);

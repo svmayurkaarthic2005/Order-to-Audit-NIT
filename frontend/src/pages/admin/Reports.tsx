@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "@/lib/api";
-import { Card, DateRangeFilter, EmptyState, Loading, PageHeader, StatusBadge, TabBar, Table, Td, Th, THead, buttonClass, money } from "@/components/ui";
+import { Card, DateRangeFilter, EmptyState, ErrorText, Loading, PageHeader, StatusBadge, TabBar, Table, Td, Th, THead, buttonClass, money } from "@/components/ui";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
 
@@ -85,6 +85,15 @@ export default function Reports() {
     "Payments & Collections": collections.isLoading,
   }[tab];
 
+  const currentError = {
+    "Sales Register": salesRegister.error,
+    "GST Summary": gstSummary.error,
+    "Purchase Register": purchaseRegister.error,
+    "Stock Summary": stockSummary.error,
+    "Production": production.error,
+    "Payments & Collections": collections.error,
+  }[tab];
+
   return (
     <div className="w-full min-w-0">
       <PageHeader title="Reports" description="Sales, tax, stock, production and collections, for accounts and audit." />
@@ -128,6 +137,8 @@ export default function Reports() {
 
       {isLoading ? (
         <Loading />
+      ) : currentError ? (
+        <ErrorText>{(currentError as Error).message}</ErrorText>
       ) : (
         <>
           {/* ── Sales Register ── */}

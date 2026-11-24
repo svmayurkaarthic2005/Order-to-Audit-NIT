@@ -8,6 +8,10 @@ export const purchaseCreateSchema = z.object({
         itemId: z.string().min(1),
         qtyBase: z.coerce.number().int().positive(),
         rateBasePaise: z.coerce.number().int().min(0),
+        supplierBatchNo: z.string().optional(),
+        manufactureDate: z.string().optional(),
+        expiryDate: z.string().optional(),
+        qualityDocRef: z.string().optional(),
       }),
     )
     .min(1),

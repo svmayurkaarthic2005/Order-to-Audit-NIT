@@ -98,7 +98,8 @@ model Supplier {
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
 
-  purchases Purchase[]
+  purchases          Purchase[]
+  rawMaterialBatches RawMaterialBatch[]
 }
 
 // A single item master: raw materials, packaging AND finished goods all
@@ -112,20 +113,24 @@ model Item {
   baseUnit     BaseUnit
   hsnCode      String?
   taxRatePct   Int      @default(0) // whole percent, e.g. 5 for 5% GST
-  reorderLevel Int? // base-unit qty; null = no low-stock threshold configured
-  active       Boolean  @default(true)
-  createdAt    DateTime @default(now())
+  reorderLevel           Int?      // base-unit qty; null = no low-stock threshold configured
+  shelfLifeDays          Int?      // null = no expiry tracking for this item
+  expiryWarningDaysJson  Int[]     // thresholds to warn before expiry, e.g. [30,15,7,0]; default []
+  active                 Boolean   @default(true)
+  createdAt              DateTime  @default(now())
 
-  unitConversions    UnitConversion[]
-  stockMovements     StockMovement[]
-  purchaseItems      PurchaseItem[]
-  bomsAsFinished     BomHeader[]            @relation("BomFinishedItem")
-  bomLinesAsRaw      BomLine[]
-  packSizesFinished  PackSize[]
-  runMaterials       ProductionRunMaterial[]
-  orderItems         OrderItem[]
-  invoiceItems       InvoiceItem[]
-  lowStockAlerts     LowStockAlert[]
+  unitConversions      UnitConversion[]
+  stockMovements       StockMovement[]
+  purchaseItems        PurchaseItem[]
+  bomsAsFinished       BomHeader[]             @relation("BomFinishedItem")
+  bomLinesAsRaw        BomLine[]
+  packSizesFinished    PackSize[]
+  runMaterials         ProductionRunMaterial[]
+  orderItems           OrderItem[]
+  invoiceItems         InvoiceItem[]
+  lowStockAlerts       LowStockAlert[]
+  rawMaterialBatches   RawMaterialBatch[]
+  finishedGoodsBatches FinishedGoodsBatch[]
 }
 
 enum AlertStatus {
@@ -224,6 +229,8 @@ model PurchaseItem {
   item          Item     @relation(fields: [itemId], references: [id])
   qtyBase       Int
   rateBasePaise Int // paise per one base unit
+
+  rawMaterialBatch RawMaterialBatch?
 }
 
 // ---------- the ledger: physical stock events only ----------
@@ -243,7 +250,11 @@ model StockMovement {
   // "at most one opening-stock row per item" at the database level —
   // closing the check-then-create race the application-level check alone
   // cannot close.
-  openingStockItemId String?         @unique
+  openingStockItemId   String?         @unique
+  rawMaterialBatchId   String?
+  rawMaterialBatch     RawMaterialBatch?   @relation(fields: [rawMaterialBatchId], references: [id])
+  finishedGoodsBatchId String?
+  finishedGoodsBatch   FinishedGoodsBatch? @relation(fields: [finishedGoodsBatchId], references: [id])
   createdByUserId String?
   createdByUser  User?               @relation(fields: [createdByUserId], references: [id])
   createdAt      DateTime            @default(now())
@@ -267,6 +278,7 @@ model ProductionRun {
   createdAt     DateTime            @default(now())
 
   materials     ProductionRunMaterial[]
+  finishedGoodsBatch FinishedGoodsBatch?
 }
 
 // Planned-vs-actual snapshot. This is the ONLY table that ever holds
@@ -374,6 +386,8 @@ model Dispatch {
   invoice      Invoice  @relation(fields: [invoiceId], references: [id])
   qtyBase      Int
   dispatchedAt DateTime @default(now())
+
+  itemBatches  DispatchItemBatch[]
 }
 
 model Payment {
@@ -382,6 +396,128 @@ model Payment {
   invoice     Invoice  @relation(fields: [invoiceId], references: [id])
   amountPaise Int
   paidAt      DateTime @default(now())
+}
+
+// ---------- batch / lot tracking ----------
+
+enum BatchStatus {
+  NORMAL
+  EXPIRING
+  EXPIRED
+  QUARANTINED
+}
+
+model RawMaterialBatch {
+  id               String    @id @default(uuid())
+  itemId           String
+  item             Item      @relation(fields: [itemId], references: [id])
+  internalBatchNo  String    @unique
+  supplierBatchNo  String?
+  supplierId       String
+  supplier         Supplier  @relation(fields: [supplierId], references: [id])
+  purchaseItemId   String?   @unique
+  purchaseItem     PurchaseItem? @relation(fields: [purchaseItemId], references: [id])
+  receivedQtyBase  Int
+  remainingQtyBase Int
+  receiptDate      DateTime
+  manufactureDate  DateTime?
+  expiryDate       DateTime?
+  qualityDocRef    String?
+  status           BatchStatus @default(NORMAL)
+  createdAt        DateTime  @default(now())
+
+  movements        StockMovement[]
+}
+
+model FinishedGoodsBatch {
+  id               String    @id @default(uuid())
+  itemId           String
+  item             Item      @relation(fields: [itemId], references: [id])
+  internalBatchNo  String    @unique
+  productionRunId  String    @unique
+  productionRun    ProductionRun @relation(fields: [productionRunId], references: [id])
+  manufactureDate  DateTime
+  expiryDate       DateTime?
+  producedQtyBase  Int
+  remainingQtyBase Int
+  status           BatchStatus @default(NORMAL)
+  createdAt        DateTime  @default(now())
+
+  movements        StockMovement[]
+  dispatchBatches  DispatchItemBatch[]
+}
+
+model DispatchItemBatch {
+  id                   String   @id @default(uuid())
+  dispatchId           String
+  dispatch             Dispatch @relation(fields: [dispatchId], references: [id])
+  finishedGoodsBatchId String
+  finishedGoodsBatch   FinishedGoodsBatch @relation(fields: [finishedGoodsBatchId], references: [id])
+  qtyBase              Int
+}
+
+// ---------- notifications ----------
+
+enum NotificationType {
+  LOW_STOCK
+  STOCK_REPLENISHED
+  PRODUCTION_VARIANCE
+  ORDER_SHORTAGE
+  AUDIT_EXCEPTION
+  EXPIRY_WARNING
+}
+
+enum AlertSeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+// Read-only reconciliation findings. Never written to by any
+// ledger-mutating service — only runAllChecks() and reviewException() in
+// the reconciliation module touch this table, and neither ever touches
+// StockMovement/Invoice/Payment/etc. themselves.
+model ReconciliationException {
+  id               String          @id @default(uuid())
+  checkType        String // "STOCK" | "PRODUCTION_VARIANCE" | "PACKAGING" | "INVOICE" | "DISPATCH"
+  sourceType       String
+  sourceId         String
+  expectedValue    String // stringified — these checks compare heterogeneous units (qty, paise, %)
+  actualValue      String
+  differenceValue  String
+  severity         AlertSeverity
+  status           ExceptionStatus @default(OPEN)
+  explanation      String?
+  resolutionNote   String?
+  reviewedByUserId String?
+  reviewedAt       DateTime?
+  createdAt        DateTime        @default(now())
+  // One open exception per (checkType, sourceId) — re-running runAllChecks
+  // updates the existing OPEN row instead of duplicating it.
+  dedupeKey        String          @unique
+}
+
+enum ExceptionStatus {
+  OPEN
+  REVIEWED
+  RESOLVED
+}
+
+model Notification {
+  id              String           @id @default(uuid())
+  recipientUserId String?
+  recipientRoles  Role[]
+  type            NotificationType
+  title           String
+  message         String
+  severity        AlertSeverity    @default(INFO)
+  sourceType      String
+  sourceId        String
+  dedupeKey       String           @unique
+  readAt          DateTime?
+  createdAt       DateTime         @default(now())
+
+  @@index([recipientUserId, readAt])
 }
 
 // ---------- audit ----------

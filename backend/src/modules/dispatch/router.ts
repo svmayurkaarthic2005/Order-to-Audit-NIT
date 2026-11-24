@@ -17,6 +17,6 @@ dispatchRouter.get("/", canReadDispatch, async (_req, res) => {
 });
 
 dispatchRouter.post("/", canManageDispatch, validate("body", dispatchCreateSchema), async (req, res) => {
-  const dispatch = await createDispatch(req.body.invoiceId, req.body.qty, req.user!.id);
+  const dispatch = await createDispatch(req.body.invoiceId, req.body.qty, req.user!.id, req.body.overrideReason);
   res.status(201).json({ data: dispatch });
 });

@@ -8,6 +8,7 @@ import BOM from "@/pages/admin/BOM";
 import Parties from "@/pages/admin/Masters/Parties";
 import Items from "@/pages/admin/Masters/Items";
 import AuditLog from "@/pages/admin/AuditLog";
+import Reconciliation from "@/pages/admin/Reconciliation";
 import Dashboard from "@/pages/admin/Dashboard";
 import Dispatch from "@/pages/admin/Dispatch";
 import Invoices from "@/pages/admin/Invoices";
@@ -15,6 +16,8 @@ import LowStockAlerts from "@/pages/admin/LowStockAlerts";
 import Reports from "@/pages/admin/Reports";
 import OrderQueue from "@/pages/admin/OrderQueue";
 import Purchases from "@/pages/admin/Purchases";
+import Batches from "@/pages/admin/Batches";
+import BatchGenealogy from "@/pages/admin/BatchGenealogy";
 import ProductionRuns from "@/pages/production/ProductionRuns";
 import OrderEntry from "@/pages/salesman/OrderEntry";
 import OrderHistory from "@/pages/salesman/OrderHistory";
@@ -58,6 +61,7 @@ export default function App() {
       <Route path="/admin/dispatch" element={page(<Dispatch />, ["ADMIN", "OWNER", "ACCOUNTANT"])} />
       <Route path="/admin/reports" element={page(<Reports />, ["ADMIN", "OWNER", "ACCOUNTANT"])} />
       <Route path="/admin/audit-log" element={page(<AuditLog />, ["ADMIN", "OWNER", "ACCOUNTANT"])} />
+      <Route path="/admin/reconciliation" element={page(<Reconciliation />, ["ADMIN", "OWNER", "ACCOUNTANT"])} />
 
       {/* Production & Inventory */}
       <Route path="/admin/bom" element={page(<BOM />, ["ADMIN", "OWNER", "ACCOUNTANT"])} />
@@ -67,6 +71,8 @@ export default function App() {
       <Route path="/admin/low-stock" element={<Navigate to="/admin/stock-data" replace />} />
       <Route path="/admin/stock-data" element={page(<LowStockAlerts />, ["ADMIN", "OWNER", "PRODUCTION", "ACCOUNTANT"])} />
       <Route path="/admin/purchases" element={page(<Purchases />, ["ADMIN", "OWNER", "PRODUCTION", "ACCOUNTANT"])} />
+      <Route path="/admin/batches" element={page(<Batches />, ["ADMIN", "OWNER", "PRODUCTION", "ACCOUNTANT"])} />
+      <Route path="/admin/batches/:type/:id/genealogy" element={page(<BatchGenealogy />, ["ADMIN", "OWNER", "PRODUCTION", "ACCOUNTANT"])} />
       <Route path="/production/runs" element={page(<ProductionRuns />, ["ADMIN", "OWNER", "PRODUCTION", "ACCOUNTANT"])} />
 
       {/* Master Data */}

@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useAuth, type Role } from "@/lib/auth";
+import { NotificationBell } from "./NotificationBell";
 
 type NavItem = { to: string; label: string; icon: string; roles: Role[] };
 type NavGroup = { label: string; icon: string; items: NavItem[] };
@@ -110,6 +111,13 @@ const NAV: NavGroup[] = [
         icon: "M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z",
         roles: ["ADMIN", "OWNER", "PRODUCTION", "ACCOUNTANT"],
       },
+      {
+        to: "/admin/batches",
+        label: "Batches & Lots",
+        // Archive / layers / lots icon
+        icon: "M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10",
+        roles: ["ADMIN", "OWNER", "PRODUCTION", "ACCOUNTANT"],
+      },
     ],
   },
 
@@ -170,6 +178,13 @@ const NAV: NavGroup[] = [
         label: "Audit log",
         // Shield with check
         icon: "M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z",
+        roles: ["ADMIN", "OWNER", "ACCOUNTANT"],
+      },
+      {
+        to: "/admin/reconciliation",
+        label: "Reconciliation",
+        // Scale / balance
+        icon: "M12 3v18M5 7l-3 6a3 3 0 006 0l-3-6zm14 0l-3 6a3 3 0 006 0l-3-6zM5 7h14M5 7l2-3h10l2 3",
         roles: ["ADMIN", "OWNER", "ACCOUNTANT"],
       },
     ],
@@ -391,13 +406,15 @@ export function AppShell({ children }: { children: ReactNode }) {
           </Link>
 
           {/* Hamburger / Close — 44 px min touch target */}
-          <button
-            onClick={() => setMobileNavOpen((v) => !v)}
-            className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg text-white/70 transition-colors hover:bg-white/10 hover:text-white active:bg-white/15"
-            aria-label={mobileNavOpen ? "Close navigation" : "Open navigation"}
-            aria-expanded={mobileNavOpen}
-            aria-controls="mobile-nav"
-          >
+          <div className="flex items-center gap-1">
+            <NotificationBell />
+            <button
+              onClick={() => setMobileNavOpen((v) => !v)}
+              className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg text-white/70 transition-colors hover:bg-white/10 hover:text-white active:bg-white/15"
+              aria-label={mobileNavOpen ? "Close navigation" : "Open navigation"}
+              aria-expanded={mobileNavOpen}
+              aria-controls="mobile-nav"
+            >
             {mobileNavOpen ? (
               <svg
                 width="22"
@@ -428,6 +445,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               </svg>
             )}
           </button>
+          </div>
         </header>
 
         {/* Mobile nav drawer */}
@@ -518,6 +536,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
           {/* User chip */}
           <div className="flex items-center gap-3">
+            <NotificationBell />
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
               {initials}
             </div>

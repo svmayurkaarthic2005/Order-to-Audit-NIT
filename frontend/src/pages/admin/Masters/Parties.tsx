@@ -55,7 +55,7 @@ export default function Parties() {
     setRowError(null);
   }
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error } = useQuery({
     queryKey: [config.queryKey, search],
     queryFn: () => api.get<{ items: Party[]; total: number }>(`${config.endpoint}?search=${encodeURIComponent(search)}`),
   });
@@ -162,6 +162,8 @@ export default function Parties() {
 
       {isLoading ? (
         <Loading />
+      ) : error ? (
+        <ErrorText>{(error as Error).message}</ErrorText>
       ) : !data || data.items.length === 0 ? (
         <EmptyState>{search ? `No ${config.emptyNoun} matching "${search}".` : `No ${config.emptyNoun} yet.`}</EmptyState>
       ) : (

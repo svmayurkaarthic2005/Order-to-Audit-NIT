@@ -30,7 +30,7 @@ export default function Invoices() {
   const [amountByInvoice, setAmountByInvoice] = useState<Record<string, string>>({});
   const [paymentErrorByInvoice, setPaymentErrorByInvoice] = useState<Record<string, string>>({});
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error } = useQuery({
     queryKey: ["invoices"],
     queryFn: () => api.get<Invoice[]>("/invoices"),
   });
@@ -85,6 +85,8 @@ export default function Invoices() {
 
       {isLoading ? (
         <Loading />
+      ) : error ? (
+        <ErrorText>{(error as Error).message}</ErrorText>
       ) : !data || data.length === 0 ? (
         <EmptyState>No invoices yet.</EmptyState>
       ) : (

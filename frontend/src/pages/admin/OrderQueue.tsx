@@ -38,7 +38,7 @@ export default function OrderQueue() {
   const [rejectingOrderId, setRejectingOrderId] = useState<string | null>(null);
   const [rejectionReason, setRejectionReason] = useState("");
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error } = useQuery({
     queryKey: ["orders", "queue", tab],
     queryFn: () => api.get<{ items: Order[] }>(`/orders?status=${tab}`),
   });
@@ -111,6 +111,8 @@ export default function OrderQueue() {
 
       {isLoading ? (
         <Loading />
+      ) : error ? (
+        <ErrorText>{(error as Error).message}</ErrorText>
       ) : !data || data.items.length === 0 ? (
         <EmptyState>No {tab.toLowerCase()} orders right now.</EmptyState>
       ) : (

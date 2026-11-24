@@ -36,7 +36,7 @@ export default function Items() {
   const [skuEditedManually, setSkuEditedManually] = useState(false);
   const [rowError, setRowError] = useState<string | null>(null);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error } = useQuery({
     queryKey: ["items", search],
     queryFn: () => api.get<{ items: Item[]; total: number }>(`/items?search=${encodeURIComponent(search)}`),
   });
@@ -185,6 +185,8 @@ export default function Items() {
 
       {isLoading ? (
         <Loading />
+      ) : error ? (
+        <ErrorText>{(error as Error).message}</ErrorText>
       ) : !data || data.items.length === 0 ? (
         <EmptyState>No items yet.</EmptyState>
       ) : (

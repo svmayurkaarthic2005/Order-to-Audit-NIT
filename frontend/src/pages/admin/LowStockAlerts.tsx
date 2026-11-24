@@ -156,7 +156,7 @@ export default function LowStockAlerts() {
   const canRecordOpeningStock = user?.role === "ADMIN" || user?.role === "OWNER";
   const [showOpeningStockForm, setShowOpeningStockForm] = useState(false);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error } = useQuery({
     queryKey: ["alerts", "stock-status"],
     queryFn: () => api.get<StockStatusRow[]>("/alerts/stock-status"),
   });
@@ -205,6 +205,8 @@ export default function LowStockAlerts() {
 
       {isLoading ? (
         <Loading />
+      ) : error ? (
+        <ErrorText>{(error as Error).message}</ErrorText>
       ) : (
         <Table>
           <THead>

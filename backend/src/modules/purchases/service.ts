@@ -1,10 +1,20 @@
 import { AppError } from "../../lib/AppError.js";
 import { prisma } from "../../lib/prisma.js";
 import { syncAlertsForItems } from "../alerts/service.js";
+import { receiveBatch, refreshBatchStatuses } from "../batches/service.js";
 
 const PAGE_SIZE = 20;
 
-type PurchaseItemInput = { itemId: string; qtyBase: number; rateBasePaise: number };
+type PurchaseItemInput = {
+  itemId: string;
+  qtyBase: number;
+  rateBasePaise: number;
+  // Optional batch fields — if provided, a RawMaterialBatch row is created
+  supplierBatchNo?: string;
+  manufactureDate?: string;
+  expiryDate?: string;
+  qualityDocRef?: string;
+};
 
 export async function listPurchases(supplierId: string | undefined, page: number) {
   const where = supplierId ? { supplierId } : {};
@@ -75,6 +85,19 @@ export async function createPurchase(data: { supplierId: string; items: Purchase
     return tx.purchase.findUniqueOrThrow({ where: { id: purchase.id }, include: { items: true } });
   }).then(async (result) => {
     await syncAlertsForItems(result.items.map((i) => i.itemId));
+    // Create batch rows for any line that carried batch details
+    for (const pi of result.items) {
+      const input = data.items.find((d) => d.itemId === pi.itemId);
+      if (input && (input.supplierBatchNo || input.expiryDate || input.manufactureDate || input.qualityDocRef)) {
+        await receiveBatch(pi.id, {
+          supplierBatchNo: input.supplierBatchNo,
+          manufactureDate: input.manufactureDate ? new Date(input.manufactureDate) : undefined,
+          expiryDate: input.expiryDate ? new Date(input.expiryDate) : undefined,
+          qualityDocRef: input.qualityDocRef,
+        });
+      }
+    }
+    await refreshBatchStatuses();
     return result;
   });
 }

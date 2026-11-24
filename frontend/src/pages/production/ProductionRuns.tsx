@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Button, Card, EmptyState, ErrorText, Field, Input, PageHeader, Select, StatusBadge, money } from "@/components/ui";
+import { Button, Card, EmptyState, ErrorText, Field, Input, Loading, PageHeader, Select, StatusBadge, money } from "@/components/ui";
 
 type Bom = {
   id: string;
@@ -52,7 +52,7 @@ export default function ProductionRuns() {
     queryKey: ["boms", "production-picker"],
     queryFn: () => api.get<Bom[]>("/boms"),
   });
-  const { data: runs, isLoading } = useQuery({
+  const { data: runs, isLoading, error: runsError } = useQuery({
     queryKey: ["production-runs"],
     queryFn: () => api.get<Run[]>("/production-runs"),
   });
@@ -208,7 +208,9 @@ export default function ProductionRuns() {
       )}
 
       {isLoading ? (
-        <p className="text-sm text-muted-foreground">Loading…</p>
+        <Loading />
+      ) : runsError ? (
+        <ErrorText>{(runsError as Error).message}</ErrorText>
       ) : !runs || runs.length === 0 ? (
         <EmptyState>No production runs yet.</EmptyState>
       ) : (
