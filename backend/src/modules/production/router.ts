@@ -40,6 +40,13 @@ productionRouter.get("/:id/variance", canReadRuns, async (req, res) => {
 
 productionRouter.get("/:id/cost-breakdown", canReadRuns, async (req, res) => {
   const breakdown = await getProductionRunCostBreakdown(req.params.id as string);
+  // Selling price/margin come from invoice data — PRODUCTION can see the
+  // floor-level cost breakdown but not customer pricing or profitability,
+  // same boundary /invoices and /reports draw elsewhere.
+  if (breakdown && req.user!.role === "PRODUCTION") {
+    res.json({ data: { ...breakdown, sellingPricePaise: null, marginPaise: null } });
+    return;
+  }
   res.json({ data: breakdown });
 });
 
