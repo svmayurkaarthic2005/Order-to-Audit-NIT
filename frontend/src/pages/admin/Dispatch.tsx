@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Button, Card, EmptyState, ErrorText, Input, PageHeader, StatusBadge } from "@/components/ui";
+import { Button, Card, EmptyState, ErrorText, Input, Loading, PageHeader, StatusBadge } from "@/components/ui";
 
 type Invoice = {
   id: string;
@@ -35,18 +35,12 @@ export default function Dispatch() {
   const dispatchMutation = useMutation({
     mutationFn: ({ invoiceId, qty }: { invoiceId: string; qty: number }) => api.post("/dispatches", { invoiceId, qty }),
     onSuccess: (_data, { invoiceId }) => {
-      setErrorByInvoice((prev) => {
-        const { [invoiceId]: _removed, ...rest } = prev;
-        return rest;
-      });
+      setErrorByInvoice((prev) => { const { [invoiceId]: _removed, ...rest } = prev; return rest; });
       queryClient.invalidateQueries({ queryKey: ["dispatches"] });
       queryClient.invalidateQueries({ queryKey: ["invoices"] });
     },
     onError: (err, { invoiceId }) => {
-      setErrorByInvoice((prev) => ({
-        ...prev,
-        [invoiceId]: err instanceof ApiError ? err.message : "Failed to dispatch",
-      }));
+      setErrorByInvoice((prev) => ({ ...prev, [invoiceId]: err instanceof ApiError ? err.message : "Failed to dispatch" }));
     },
   });
 
@@ -54,11 +48,11 @@ export default function Dispatch() {
   const issued = invoices?.filter((inv) => inv.status === "ISSUED") ?? [];
 
   return (
-    <div>
+    <div className="w-full min-w-0">
       <PageHeader title="Dispatch" description="Ship issued invoices and record what left the warehouse." />
 
       {isLoading ? (
-        <p className="text-sm text-muted-foreground">Loading…</p>
+        <Loading />
       ) : issued.length === 0 ? (
         <EmptyState>No invoices awaiting dispatch.</EmptyState>
       ) : (
@@ -67,44 +61,50 @@ export default function Dispatch() {
             const dispatched = dispatchedInvoiceIds.has(inv.id);
             return (
               <li key={inv.id}>
-                <Card className="p-4">
-                  <div className="flex items-start justify-between gap-2">
-                    <p className="font-medium text-foreground">
-                      FY {inv.financialYear} / #{inv.invoiceNumber} — {inv.customer.name}
-                    </p>
-                    {dispatched ? (
-                      <StatusBadge variant="success">Dispatched</StatusBadge>
-                    ) : (
-                      <StatusBadge variant="warning">Pending</StatusBadge>
-                    )}
-                  </div>
-                  <ul className="mt-2 text-sm text-muted-foreground">
-                    {inv.items.map((l, i) => (
-                      <li key={i} className="flex justify-between">
-                        <span>{l.description}</span>
-                        <span className="tabular">{l.qtyBase}</span>
-                      </li>
-                    ))}
-                  </ul>
-                  {!dispatched && canMutate && (
-                    <div className="mt-3 flex items-center gap-2">
-                      <Input
-                        placeholder="Qty"
-                        type="number"
-                        value={qtyByInvoice[inv.id] ?? ""}
-                        onChange={(e) => setQtyByInvoice((prev) => ({ ...prev, [inv.id]: e.target.value }))}
-                        className="h-8 w-24 text-sm"
-                      />
-                      <Button
-                        size="sm"
-                        onClick={() => dispatchMutation.mutate({ invoiceId: inv.id, qty: Number(qtyByInvoice[inv.id] || 0) })}
-                        disabled={dispatchMutation.isPending}
-                      >
-                        Dispatch
-                      </Button>
+                <Card className="overflow-hidden">
+                  <div className="flex items-start justify-between gap-3 border-b border-border/60 bg-secondary/30 px-5 py-4">
+                    <div>
+                      <p className="font-semibold text-foreground">
+                        FY {inv.financialYear} · #{inv.invoiceNumber}
+                      </p>
+                      <p className="mt-0.5 text-sm text-muted-foreground">{inv.customer.name}</p>
                     </div>
-                  )}
-                  {errorByInvoice[inv.id] && <div className="mt-2"><ErrorText>{errorByInvoice[inv.id]}</ErrorText></div>}
+                    <StatusBadge variant={dispatched ? "success" : "warning"}>
+                      {dispatched ? "Dispatched" : "Pending"}
+                    </StatusBadge>
+                  </div>
+                  <div className="px-5 py-4">
+                    <ul className="mb-3 flex flex-col gap-1.5">
+                      {inv.items.map((l, i) => (
+                        <li key={i} className="flex items-center justify-between text-sm">
+                          <span className="text-foreground">{l.description}</span>
+                          <span className="tabular font-medium text-foreground">{l.qtyBase.toLocaleString("en-IN")}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    {!dispatched && canMutate && (
+                      <div className="flex flex-wrap items-center gap-2 border-t border-border/50 pt-3">
+                        <Input
+                          placeholder="Qty to dispatch"
+                          type="number"
+                          value={qtyByInvoice[inv.id] ?? ""}
+                          onChange={(e) => setQtyByInvoice((prev) => ({ ...prev, [inv.id]: e.target.value }))}
+                          className="h-9 w-36"
+                        />
+                        <Button
+                          size="sm"
+                          onClick={() => dispatchMutation.mutate({ invoiceId: inv.id, qty: Number(qtyByInvoice[inv.id] || 0) })}
+                          disabled={dispatchMutation.isPending}
+                        >
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M5 12h14M12 5l7 7-7 7" />
+                          </svg>
+                          Dispatch
+                        </Button>
+                      </div>
+                    )}
+                    {errorByInvoice[inv.id] && <div className="mt-2"><ErrorText>{errorByInvoice[inv.id]}</ErrorText></div>}
+                  </div>
                 </Card>
               </li>
             );

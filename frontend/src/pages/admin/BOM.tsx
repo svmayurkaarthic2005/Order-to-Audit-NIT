@@ -85,7 +85,7 @@ export default function BOM() {
   }
 
   return (
-    <div>
+    <div className="w-full min-w-0">
       <PageHeader title="BOM / recipes" description="Material requirements and expected yield per finished good." />
 
       {canMutate && (
@@ -118,7 +118,7 @@ export default function BOM() {
               <p className="mb-1.5 text-xs font-medium text-muted-foreground">Material lines</p>
               <div className="flex flex-col gap-2">
                 {lines.map((line, i) => (
-                  <div key={i} className="flex gap-2">
+                  <div key={i} className="flex flex-col sm:flex-row gap-2">
                     <Select
                       value={line.rawItemId}
                       required
@@ -138,7 +138,7 @@ export default function BOM() {
                       required
                       value={line.qtyPerBatch}
                       onChange={(e) => updateLine(i, { qtyPerBatch: e.target.value })}
-                      className="w-32"
+                      className="w-full sm:w-32"
                     />
                   </div>
                 ))}
@@ -180,12 +180,12 @@ export default function BOM() {
                 </Select>
               </Field>
             </div>
-            <div className="w-36">
+            <div className="w-full sm:w-36">
               <Field label="Label" required>
                 <Input placeholder="e.g. 500g" required value={packLabel} onChange={(e) => setPackLabel(e.target.value)} />
               </Field>
             </div>
-            <div className="w-28">
+            <div className="w-full sm:w-28">
               <Field label="Multiplier" required>
                 <Input type="number" required value={packMultiplier} onChange={(e) => setPackMultiplier(e.target.value)} />
               </Field>

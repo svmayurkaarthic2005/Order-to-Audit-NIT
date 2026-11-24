@@ -112,6 +112,7 @@ model Item {
   baseUnit     BaseUnit
   hsnCode      String?
   taxRatePct   Int      @default(0) // whole percent, e.g. 5 for 5% GST
+  reorderLevel Int? // base-unit qty; null = no low-stock threshold configured
   active       Boolean  @default(true)
   createdAt    DateTime @default(now())
 
@@ -124,6 +125,32 @@ model Item {
   runMaterials       ProductionRunMaterial[]
   orderItems         OrderItem[]
   invoiceItems       InvoiceItem[]
+  lowStockAlerts     LowStockAlert[]
+}
+
+enum AlertStatus {
+  ACTIVE
+  RESOLVED
+}
+
+// One row per "stock went low" episode for an item. Dedup is a plain
+// find-then-create check (one active alert per item), not a database
+// constraint — ponytail: fine at this scale since the only writers are the
+// stock-mutating services below, each already serialized by their own
+// transaction; a true concurrency guarantee would need a partial unique
+// index on (itemId) WHERE status = 'ACTIVE', worth adding if this is ever
+// observed racing in practice.
+model LowStockAlert {
+  id                  String      @id @default(uuid())
+  itemId              String
+  item                Item        @relation(fields: [itemId], references: [id])
+  thresholdAtAlert    Int
+  availableQtyAtAlert Int
+  status              AlertStatus @default(ACTIVE)
+  resolvedAt          DateTime?
+  createdAt           DateTime    @default(now())
+
+  @@index([itemId, status])
 }
 
 // Non-base display units for an item, e.g. 1 CARTON = 20 PIECE for this

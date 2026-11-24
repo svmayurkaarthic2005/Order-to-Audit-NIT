@@ -70,8 +70,8 @@ async function main() {
   // --- supplier ---
   await prisma.supplier.upsert({
     where: { id: "general-supplier" },
-    update: {},
-    create: { id: "general-supplier", name: "General Raw Material Supplier", state: "Tamil Nadu" },
+    update: { gstin: "33DDDDD0000D1Z5" },
+    create: { id: "general-supplier", name: "General Raw Material Supplier", state: "Tamil Nadu", gstin: "33DDDDD0000D1Z5" },
   });
 
   // --- items: base unit is the smallest unit so quantities stay integers ---

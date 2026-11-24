@@ -1,5 +1,6 @@
 import { AppError } from "../../lib/AppError.js";
 import { prisma } from "../../lib/prisma.js";
+import { syncAlertsForItems } from "../alerts/service.js";
 
 const PAGE_SIZE = 20;
 
@@ -72,6 +73,9 @@ export async function createPurchase(data: { supplierId: string; items: Purchase
     }
 
     return tx.purchase.findUniqueOrThrow({ where: { id: purchase.id }, include: { items: true } });
+  }).then(async (result) => {
+    await syncAlertsForItems(result.items.map((i) => i.itemId));
+    return result;
   });
 }
 
@@ -112,5 +116,8 @@ export async function cancelPurchase(id: string) {
     }
 
     return tx.purchase.findUniqueOrThrow({ where: { id }, include: { items: true } });
+  }).then(async (result) => {
+    await syncAlertsForItems(result.items.map((i) => i.itemId));
+    return result;
   });
 }

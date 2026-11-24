@@ -2,29 +2,13 @@ import type { Prisma } from "@prisma/client";
 import { AppError } from "../../lib/AppError.js";
 import { logAudit } from "../../lib/audit.js";
 import { prisma } from "../../lib/prisma.js";
+import { getOnHandQty, getReservedQty } from "../inventory/service.js";
+import { syncAlertsForItems } from "../alerts/service.js";
 
 const PAGE_SIZE = 20;
 
 type OrderItemInput = { itemId: string; qtyBase: number; ratePaise: number };
 type TxClient = Prisma.TransactionClient;
-
-// An order holds finished-goods stock once it is approved, right up until
-// it is actually dispatched (Phase 15 posts the real stock_movements rows
-// then) — so both statuses count as "reserved" against on-hand.
-const RESERVED_STATUSES = ["APPROVED", "DISPATCHABLE"] as const;
-
-async function getOnHandInTx(tx: TxClient, itemId: string) {
-  const agg = await tx.stockMovement.aggregate({ where: { itemId }, _sum: { qtyBase: true } });
-  return agg._sum.qtyBase ?? 0;
-}
-
-async function getReservedQtyInTx(tx: TxClient, itemId: string) {
-  const agg = await tx.orderItem.aggregate({
-    where: { itemId, salesOrder: { status: { in: [...RESERVED_STATUSES] } } },
-    _sum: { qtyBase: true },
-  });
-  return agg._sum.qtyBase ?? 0;
-}
 
 // Never spread a full User relation into an API response — it carries
 // passwordHash. Only these fields are safe to serialize.
@@ -130,8 +114,8 @@ export async function approveOrder(id: string, actingUserId: string) {
     }
 
     for (const line of fresh.items) {
-      const onHand = await getOnHandInTx(tx, line.itemId);
-      const reserved = await getReservedQtyInTx(tx, line.itemId);
+      const onHand = await getOnHandQty(tx, line.itemId);
+      const reserved = await getReservedQty(tx, line.itemId);
       const available = onHand - reserved;
       if (line.qtyBase > available) {
         throw new AppError(409, "insufficient_stock", "Not enough stock to approve this order", {
@@ -152,6 +136,13 @@ export async function approveOrder(id: string, actingUserId: string) {
     }
     await logAudit(tx, { userId: actingUserId, action: "APPROVE", entityType: "SalesOrder", entityId: id });
     return withOrderInclude(id, tx);
+  }).then(async (result) => {
+    // Reserving stock against this order can push a finished good below its
+    // reorder level, same as physically consuming it — approval changes
+    // availability, not on-hand, but low-stock alerts are defined on
+    // availability.
+    await syncAlertsForItems(result.items.map((i) => i.itemId));
+    return result;
   });
 }
 
@@ -167,4 +158,6 @@ export async function rejectOrder(id: string, reason: string, actingUserId: stri
     await logAudit(tx, { userId: actingUserId, action: "REJECT", entityType: "SalesOrder", entityId: id, after: { reason } });
     return withOrderInclude(id, tx);
   });
+  // No alert sync needed: reservation only starts at APPROVED, so rejecting
+  // a SUBMITTED order never changed availability.
 }

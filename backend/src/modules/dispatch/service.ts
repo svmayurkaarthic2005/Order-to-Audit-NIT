@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { AppError } from "../../lib/AppError.js";
 import { logAudit } from "../../lib/audit.js";
 import { prisma } from "../../lib/prisma.js";
+import { syncAlertsForItems } from "../alerts/service.js";
 
 type TxClient = Prisma.TransactionClient;
 
@@ -20,8 +21,9 @@ export async function listDispatches() {
 // one dispatch per invoice even under concurrent requests — the real
 // protection against double-dispatch, not the pre-check below.
 export async function createDispatch(invoiceId: string, qty: number, actingUserId: string) {
+  let dispatchedItemId: string | undefined;
   try {
-    return await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const invoice = await tx.invoice.findUnique({ where: { id: invoiceId }, include: { items: true } });
       if (!invoice) {
         throw new AppError(404, "not_found", "Invoice not found");
@@ -36,6 +38,7 @@ export async function createDispatch(invoiceId: string, qty: number, actingUserI
       const dispatch = await tx.dispatch.create({ data: { invoiceId, qtyBase: qty } });
 
       const itemId = invoice.items[0]!.itemId;
+      dispatchedItemId = itemId;
       const unitCostPaise = await movingAverageCostPaise(tx, itemId);
       await tx.stockMovement.create({
         data: {
@@ -60,6 +63,10 @@ export async function createDispatch(invoiceId: string, qty: number, actingUserI
 
       return tx.dispatch.findUniqueOrThrow({ where: { id: dispatch.id }, include: { invoice: { include: { customer: true } } } });
     });
+    if (dispatchedItemId) {
+      await syncAlertsForItems([dispatchedItemId]);
+    }
+    return result;
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
       throw new AppError(409, "already_dispatched", "This invoice has already been dispatched");

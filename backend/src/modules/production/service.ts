@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { AppError } from "../../lib/AppError.js";
 import { prisma } from "../../lib/prisma.js";
 import { computeOutputCostPaise } from "./costing.js";
+import { syncAlertsForItems } from "../alerts/service.js";
 
 type TxClient = Prisma.TransactionClient;
 
@@ -113,6 +114,9 @@ export async function startProductionRun(
     }
 
     return tx.productionRun.findUniqueOrThrow({ where: { id }, include: includeClause() });
+  }).then(async (result) => {
+    await syncAlertsForItems(actualConsumption.map((c) => c.itemId));
+    return result;
   });
 }
 
@@ -238,6 +242,9 @@ async function completeProductionRunInTransaction(
     });
 
     return tx.productionRun.findUniqueOrThrow({ where: { id }, include: includeClause() });
+  }).then(async (result) => {
+    await syncAlertsForItems([...data.packagingConsumed.map((l) => l.itemId), result.bomHeader.finishedItemId]);
+    return result;
   });
 }
 
@@ -245,6 +252,7 @@ async function completeProductionRunInTransaction(
 // always something to reverse now, since STARTED (not COMPLETED) is where
 // physical issuance happens. Never a delete.
 export async function cancelProductionRun(id: string) {
+  let reversedItemIds: string[] = [];
   return prisma.$transaction(async (tx) => {
     const run = await tx.productionRun.findUnique({ where: { id } });
     if (!run) {
@@ -260,6 +268,7 @@ export async function cancelProductionRun(id: string) {
     }
 
     const issued = await tx.stockMovement.findMany({ where: { sourceId: id, source: "PRODUCTION_ISSUE" } });
+    reversedItemIds = issued.map((m) => m.itemId);
     for (const movement of issued) {
       await tx.stockMovement.create({
         data: {
@@ -274,5 +283,8 @@ export async function cancelProductionRun(id: string) {
     }
 
     return tx.productionRun.findUniqueOrThrow({ where: { id }, include: includeClause() });
+  }).then(async (result) => {
+    await syncAlertsForItems(reversedItemIds);
+    return result;
   });
 }

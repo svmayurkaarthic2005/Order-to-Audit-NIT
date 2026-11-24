@@ -133,6 +133,10 @@ is written to double as this verification script.
   build relies on, and the decisions the problem statement left open
 - `docs/er-diagram.md` — entity-relationship diagram (Mermaid)
 - `docs/demo-video-script.md` — the ≤8-minute demo script, scene by scene
+- `docs/phase-20-additional-improvements-plan.md` — the plan for the next round of scope
+  (low-stock alerts, notifications, batch/expiry/FEFO, audit reconciliation, explainable costing,
+  evidence-linked reports, salesman UX, pack-size verification), with an existing-vs-missing
+  feature matrix and a phase-by-phase file-level build spec
 
 ## Project structure
 

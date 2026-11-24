@@ -2,6 +2,36 @@ import { Prisma } from "@prisma/client";
 import { AppError } from "../../lib/AppError.js";
 import { prisma } from "../../lib/prisma.js";
 
+type DbClient = typeof prisma | Prisma.TransactionClient;
+
+// Shared by orders/service.ts (reservation at approval time) and
+// alerts/service.ts (low-stock checks) so both read on-hand/reserved the
+// same way instead of keeping two copies of the same aggregate query.
+export async function getOnHandQty(db: DbClient, itemId: string): Promise<number> {
+  const agg = await db.stockMovement.aggregate({ where: { itemId }, _sum: { qtyBase: true } });
+  return agg._sum.qtyBase ?? 0;
+}
+
+// An order holds finished-goods stock once it is approved, right up until
+// it is actually dispatched — so both statuses count as "reserved" against
+// on-hand. Raw materials and packaging are never reserved this way (no
+// draft production run holds stock before it's issued), so this is 0 for
+// them, which is exactly what availability should be for those types.
+const RESERVED_ORDER_STATUSES = ["APPROVED", "DISPATCHABLE"] as const;
+
+export async function getReservedQty(db: DbClient, itemId: string): Promise<number> {
+  const agg = await db.orderItem.aggregate({
+    where: { itemId, salesOrder: { status: { in: [...RESERVED_ORDER_STATUSES] } } },
+    _sum: { qtyBase: true },
+  });
+  return agg._sum.qtyBase ?? 0;
+}
+
+export async function getAvailableQty(db: DbClient, itemId: string): Promise<number> {
+  const [onHand, reserved] = await Promise.all([getOnHandQty(db, itemId), getReservedQty(db, itemId)]);
+  return onHand - reserved;
+}
+
 export async function getItemOrThrow(itemId: string) {
   const item = await prisma.item.findUnique({ where: { id: itemId } });
   if (!item || !item.active) {

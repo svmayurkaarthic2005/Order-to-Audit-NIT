@@ -6,3 +6,9 @@ backend/storage/
 .DS_Store
 backend/node_modules/.tmp/
 frontend/node_modules/.tmp/
+
+# Local Claude Code / skill tooling, not project source
+.agents/
+.claude/
+screenshots/
+skills-lock.json

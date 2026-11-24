@@ -21,6 +21,7 @@ const includeClause = {
   items: { include: { item: true } },
   customer: true,
   creditNotes: true,
+  payments: true,
 } as const;
 
 export async function listInvoices() {

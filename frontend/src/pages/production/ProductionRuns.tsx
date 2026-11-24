@@ -153,7 +153,7 @@ export default function ProductionRuns() {
   }
 
   return (
-    <div>
+    <div className="w-full min-w-0">
       <PageHeader title="Production runs" description="Create batches, issue materials, record output and track variance." />
 
       {canMutate && (
@@ -178,7 +178,7 @@ export default function ProductionRuns() {
                 </Select>
               </Field>
             </div>
-            <div className="w-28">
+            <div className="w-full sm:w-28">
               <Field label="Batch size" required>
                 <Input type="number" required value={batchSize} onChange={(e) => setBatchSize(e.target.value)} />
               </Field>
@@ -267,7 +267,7 @@ export default function ProductionRuns() {
                         return (
                           <li
                             key={m.itemId}
-                            className={`flex items-center justify-between rounded px-2 py-1 ${m.flagged ? "bg-destructive-bg" : ""}`}
+                            className={`flex flex-wrap items-center justify-between gap-1 rounded px-2 py-1 ${m.flagged ? "bg-destructive-bg" : ""}`}
                           >
                             <span className={m.flagged ? "font-medium text-destructive" : "text-muted-foreground"}>{sku}</span>
                             <span className="tabular text-right">
@@ -279,7 +279,7 @@ export default function ProductionRuns() {
                       })}
                       {varianceDetail.yield && (
                         <li
-                          className={`flex items-center justify-between rounded px-2 py-1 ${varianceDetail.yield.flagged ? "bg-destructive-bg" : ""}`}
+                          className={`flex flex-wrap items-center justify-between gap-1 rounded px-2 py-1 ${varianceDetail.yield.flagged ? "bg-destructive-bg" : ""}`}
                         >
                           <span className={varianceDetail.yield.flagged ? "font-medium text-destructive" : "text-muted-foreground"}>
                             Yield
