@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import request from "supertest";
 import { app } from "./index.js";
+import { prisma } from "./lib/prisma.js";
 
 describe("auth + RBAC", () => {
   it("logs in with correct credentials", async () => {
@@ -56,5 +57,27 @@ describe("auth + RBAC", () => {
     const res = await request(app).get("/auth/me").set("Cookie", cookie);
     expect(res.status).toBe(200);
     expect(res.body.data.role).toBe("OWNER");
+  });
+
+  it("a still-valid token for a user deactivated after login is rejected (no stale authorization)", async () => {
+    const loginRes = await request(app)
+      .post("/auth/login")
+      .send({ email: "production@porulottam.test", password: "password123" });
+    const cookie = loginRes.headers["set-cookie"];
+
+    await prisma.user.update({
+      where: { email: "production@porulottam.test" },
+      data: { active: false },
+    });
+
+    try {
+      const res = await request(app).get("/auth/me").set("Cookie", cookie);
+      expect(res.status).toBe(401);
+    } finally {
+      await prisma.user.update({
+        where: { email: "production@porulottam.test" },
+        data: { active: true },
+      });
+    }
   });
 });

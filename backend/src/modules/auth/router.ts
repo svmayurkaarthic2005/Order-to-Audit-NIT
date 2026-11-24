@@ -27,6 +27,6 @@ authRouter.post("/logout", (_req, res) => {
 });
 
 authRouter.get("/me", requireAuth, async (req, res) => {
-  const me = await getMe(req.user!.sub);
+  const me = await getMe(req.user!.id);
   res.json({ data: me });
 });

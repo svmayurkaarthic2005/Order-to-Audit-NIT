@@ -1,28 +1,45 @@
 import type { NextFunction, Request, Response } from "express";
 import { AppError } from "../lib/AppError.js";
 import { AUTH_COOKIE, type JwtPayload, verifyToken } from "../lib/jwt.js";
+import { prisma } from "../lib/prisma.js";
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace Express {
     interface Request {
-      user?: JwtPayload;
+      user?: { id: string; role: JwtPayload["role"] };
     }
   }
 }
 
-export function requireAuth(req: Request, _res: Response, next: NextFunction) {
+// Verifies the token, then re-checks the user against the database on every
+// request — role and active/inactive status are read fresh here, never
+// trusted from the (possibly stale, up to 8h old) token payload. This closes
+// the gap where a deactivated user or a changed role would otherwise keep
+// working until the token naturally expired.
+export async function requireAuth(req: Request, _res: Response, next: NextFunction) {
   const token = req.cookies?.[AUTH_COOKIE];
   if (!token) {
     next(new AppError(401, "unauthenticated", "No session token"));
     return;
   }
+
+  let payload: JwtPayload;
   try {
-    req.user = verifyToken(token);
-    next();
+    payload = verifyToken(token);
   } catch {
     next(new AppError(401, "unauthenticated", "Invalid or expired session"));
+    return;
   }
+
+  const user = await prisma.user.findUnique({ where: { id: payload.sub } });
+  if (!user || !user.active) {
+    next(new AppError(401, "unauthenticated", "User no longer exists or is inactive"));
+    return;
+  }
+
+  req.user = { id: user.id, role: user.role };
+  next();
 }
 
 export function requireRole(...roles: JwtPayload["role"][]) {

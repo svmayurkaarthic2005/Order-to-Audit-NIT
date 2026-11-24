@@ -1,9 +1,7 @@
 import bcrypt from "bcryptjs";
-import { PrismaClient } from "@prisma/client";
 import { AppError } from "../../lib/AppError.js";
 import { signToken } from "../../lib/jwt.js";
-
-const prisma = new PrismaClient();
+import { prisma } from "../../lib/prisma.js";
 
 export async function login(email: string, password: string) {
   const user = await prisma.user.findUnique({ where: { email } });
