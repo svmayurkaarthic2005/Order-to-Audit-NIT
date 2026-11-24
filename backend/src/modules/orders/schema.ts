@@ -13,6 +13,10 @@ export const orderCreateSchema = z.object({
     .min(1),
 });
 
+export const orderRejectSchema = z.object({
+  reason: z.string().min(1),
+});
+
 export const orderListQuerySchema = z.object({
   salesmanId: z.string().optional(),
   status: z.enum(["SUBMITTED", "APPROVED", "REJECTED", "DISPATCHABLE", "DISPATCHED"]).optional(),

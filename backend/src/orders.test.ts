@@ -151,3 +151,105 @@ describe("salesman order entry", () => {
     expect(createRes.status).toBe(403);
   });
 });
+
+describe("order approval", () => {
+  afterAll(async () => {
+    const testOrderItems = await prisma.orderItem.findMany({
+      where: { item: { sku: { startsWith: TEST_SKU_PREFIX } } },
+      select: { salesOrderId: true },
+    });
+    const orderIds = [...new Set(testOrderItems.map((o) => o.salesOrderId))];
+    await prisma.orderItem.deleteMany({ where: { salesOrderId: { in: orderIds } } });
+    await prisma.salesOrder.deleteMany({ where: { id: { in: orderIds } } });
+    await prisma.item.updateMany({ where: { sku: { startsWith: TEST_SKU_PREFIX } }, data: { active: false } });
+  });
+
+  async function makeStockedFinishedGood(cookie: string, openingQty: number) {
+    const itemId = await makeTestFinishedGood(cookie);
+    await request(app)
+      .post("/inventory/opening-stock")
+      .set("Cookie", cookie)
+      .send({ itemId, qtyBase: openingQty, totalCostPaise: openingQty * 10 });
+    return itemId;
+  }
+
+  async function makeOrder(cookie: string, itemId: string, qtyBase: number) {
+    const retailerA = await prisma.customer.findFirstOrThrow({ where: { name: { contains: "Retailer A" } } });
+    const res = await request(app)
+      .post("/orders")
+      .set("Cookie", cookie)
+      .send({ customerId: retailerA.id, items: [{ itemId, qtyBase, ratePaise: 100 }] });
+    return res.body.data.id as string;
+  }
+
+  it("reproduces the benchmark's exact shortage: 238 on hand, approve 150, next order short by 32 on a 120 request", async () => {
+    const adminCookie = await loginAs("admin@porulottam.test");
+    const itemId = await makeStockedFinishedGood(adminCookie, 238);
+    const salesmanCookie = await loginAs("salesman@porulottam.test");
+
+    const firstOrderId = await makeOrder(salesmanCookie, itemId, 150);
+    const approveRes = await request(app).post(`/orders/${firstOrderId}/approve`).set("Cookie", adminCookie);
+    expect(approveRes.status).toBe(200);
+    expect(approveRes.body.data.status).toBe("APPROVED");
+
+    const secondOrderId = await makeOrder(salesmanCookie, itemId, 120);
+    const secondApproveRes = await request(app).post(`/orders/${secondOrderId}/approve`).set("Cookie", adminCookie);
+    expect(secondApproveRes.status).toBe(409);
+    expect(secondApproveRes.body.error.code).toBe("insufficient_stock");
+    expect(secondApproveRes.body.error.details.shortfall).toBe(32); // 238 - 150 = 88 available, 120 - 88 = 32 short
+  });
+
+  it("rejecting an order sets the reason and frees no stock it never held", async () => {
+    const adminCookie = await loginAs("admin@porulottam.test");
+    const itemId = await makeStockedFinishedGood(adminCookie, 10);
+    const salesmanCookie = await loginAs("salesman@porulottam.test");
+    const orderId = await makeOrder(salesmanCookie, itemId, 5);
+
+    const res = await request(app).post(`/orders/${orderId}/reject`).set("Cookie", adminCookie).send({ reason: "customer cancelled" });
+    expect(res.status).toBe(200);
+    expect(res.body.data.status).toBe("REJECTED");
+    expect(res.body.data.rejectionReason).toBe("customer cancelled");
+  });
+
+  it("approving an already-decided order returns 409", async () => {
+    const adminCookie = await loginAs("admin@porulottam.test");
+    const itemId = await makeStockedFinishedGood(adminCookie, 10);
+    const salesmanCookie = await loginAs("salesman@porulottam.test");
+    const orderId = await makeOrder(salesmanCookie, itemId, 5);
+
+    await request(app).post(`/orders/${orderId}/approve`).set("Cookie", adminCookie);
+    const res = await request(app).post(`/orders/${orderId}/approve`).set("Cookie", adminCookie);
+    expect(res.status).toBe(409);
+  });
+
+  it("closes the approval race: two concurrent approvals racing for the last units — only one succeeds", async () => {
+    const adminCookie = await loginAs("admin@porulottam.test");
+    const itemId = await makeStockedFinishedGood(adminCookie, 100);
+    const salesmanCookie = await loginAs("salesman@porulottam.test");
+
+    const orderAId = await makeOrder(salesmanCookie, itemId, 70);
+    const orderBId = await makeOrder(salesmanCookie, itemId, 70); // together, 140 > 100 on hand
+
+    const [a, b] = await Promise.all([
+      request(app).post(`/orders/${orderAId}/approve`).set("Cookie", adminCookie),
+      request(app).post(`/orders/${orderBId}/approve`).set("Cookie", adminCookie),
+    ]);
+    const statuses = [a.status, b.status].sort();
+    expect(statuses).toEqual([200, 409]);
+
+    const approvedCount = await prisma.salesOrder.count({ where: { id: { in: [orderAId, orderBId] }, status: "APPROVED" } });
+    expect(approvedCount).toBe(1);
+  });
+
+  it("a salesman cannot approve or reject an order", async () => {
+    const adminCookie = await loginAs("admin@porulottam.test");
+    const itemId = await makeStockedFinishedGood(adminCookie, 10);
+    const salesmanCookie = await loginAs("salesman@porulottam.test");
+    const orderId = await makeOrder(salesmanCookie, itemId, 5);
+
+    const approveRes = await request(app).post(`/orders/${orderId}/approve`).set("Cookie", salesmanCookie);
+    expect(approveRes.status).toBe(403);
+    const rejectRes = await request(app).post(`/orders/${orderId}/reject`).set("Cookie", salesmanCookie).send({ reason: "x" });
+    expect(rejectRes.status).toBe(403);
+  });
+});

@@ -1,8 +1,8 @@
 import { Router } from "express";
 import { requireAuth, requireRole } from "../../middleware/auth.js";
 import { validate } from "../../lib/validate.js";
-import { createOrder, getOrder, listOrders } from "./service.js";
-import { orderCreateSchema, orderListQuerySchema } from "./schema.js";
+import { approveOrder, createOrder, getOrder, listOrders, rejectOrder } from "./service.js";
+import { orderCreateSchema, orderListQuerySchema, orderRejectSchema } from "./schema.js";
 
 export const ordersRouter = Router();
 
@@ -10,6 +10,7 @@ ordersRouter.use(requireAuth);
 
 const canCreateOrders = requireRole("SALESMAN", "ADMIN", "OWNER");
 const canReadOrders = requireRole("SALESMAN", "ADMIN", "OWNER");
+const canApproveOrders = requireRole("ADMIN", "OWNER");
 
 ordersRouter.get("/", canReadOrders, validate("query", orderListQuerySchema), async (req, res) => {
   const { salesmanId, status, page } = req.validatedQuery as { salesmanId?: string; status?: string; page: number };
@@ -34,4 +35,14 @@ ordersRouter.post("/", canCreateOrders, validate("body", orderCreateSchema), asy
   // order on another salesman's behalf, whatever the request body says.
   const order = await createOrder(req.user!.id, req.body);
   res.status(201).json({ data: order });
+});
+
+ordersRouter.post("/:id/approve", canApproveOrders, async (req, res) => {
+  const order = await approveOrder(req.params.id as string);
+  res.json({ data: order });
+});
+
+ordersRouter.post("/:id/reject", canApproveOrders, validate("body", orderRejectSchema), async (req, res) => {
+  const order = await rejectOrder(req.params.id as string, req.body.reason);
+  res.json({ data: order });
 });
