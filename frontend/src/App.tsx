@@ -22,7 +22,9 @@ import OrderHistory from "@/pages/salesman/OrderHistory";
 function Home() {
   const { user, logout } = useAuth();
   const isAdmin = user?.role === "ADMIN" || user?.role === "OWNER";
-  const canRecordPurchases = isAdmin || user?.role === "PRODUCTION";
+  const isAccountant = user?.role === "ACCOUNTANT";
+  const canViewAdminScreens = isAdmin || isAccountant;
+  const canRecordPurchases = isAdmin || isAccountant || user?.role === "PRODUCTION";
   const canOrder = isAdmin || user?.role === "SALESMAN";
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-2 bg-background text-foreground">
@@ -34,12 +36,12 @@ function Home() {
         Signed in as <strong>{user?.name}</strong> ({user?.role})
       </p>
       <nav className="mt-4 flex gap-4 text-sm underline">
-        {isAdmin && (
+        {canViewAdminScreens && (
           <>
             <Link to="/admin/customers">Customers</Link>
             <Link to="/admin/suppliers">Suppliers</Link>
             <Link to="/admin/items">Items</Link>
-            <Link to="/admin/opening-stock">Opening Stock</Link>
+            {isAdmin && <Link to="/admin/opening-stock">Opening Stock</Link>}
             <Link to="/admin/bom">BOM</Link>
             <Link to="/admin/orders">Order Queue</Link>
             <Link to="/admin/invoices">Invoices</Link>
@@ -76,7 +78,7 @@ export default function App() {
       <Route
         path="/admin/customers"
         element={
-          <ProtectedRoute roles={["ADMIN", "OWNER"]}>
+          <ProtectedRoute roles={["ADMIN", "OWNER", "ACCOUNTANT"]}>
             <Customers />
           </ProtectedRoute>
         }
@@ -84,7 +86,7 @@ export default function App() {
       <Route
         path="/admin/suppliers"
         element={
-          <ProtectedRoute roles={["ADMIN", "OWNER"]}>
+          <ProtectedRoute roles={["ADMIN", "OWNER", "ACCOUNTANT"]}>
             <Suppliers />
           </ProtectedRoute>
         }
@@ -92,7 +94,7 @@ export default function App() {
       <Route
         path="/admin/items"
         element={
-          <ProtectedRoute roles={["ADMIN", "OWNER"]}>
+          <ProtectedRoute roles={["ADMIN", "OWNER", "ACCOUNTANT"]}>
             <Items />
           </ProtectedRoute>
         }
@@ -108,7 +110,7 @@ export default function App() {
       <Route
         path="/admin/bom"
         element={
-          <ProtectedRoute roles={["ADMIN", "OWNER"]}>
+          <ProtectedRoute roles={["ADMIN", "OWNER", "ACCOUNTANT"]}>
             <BOM />
           </ProtectedRoute>
         }
@@ -116,7 +118,7 @@ export default function App() {
       <Route
         path="/admin/orders"
         element={
-          <ProtectedRoute roles={["ADMIN", "OWNER"]}>
+          <ProtectedRoute roles={["ADMIN", "OWNER", "ACCOUNTANT"]}>
             <OrderQueue />
           </ProtectedRoute>
         }
@@ -132,7 +134,7 @@ export default function App() {
       <Route
         path="/admin/dispatch"
         element={
-          <ProtectedRoute roles={["ADMIN", "OWNER"]}>
+          <ProtectedRoute roles={["ADMIN", "OWNER", "ACCOUNTANT"]}>
             <Dispatch />
           </ProtectedRoute>
         }
@@ -140,7 +142,7 @@ export default function App() {
       <Route
         path="/admin/payments"
         element={
-          <ProtectedRoute roles={["ADMIN", "OWNER"]}>
+          <ProtectedRoute roles={["ADMIN", "OWNER", "ACCOUNTANT"]}>
             <Payments />
           </ProtectedRoute>
         }
@@ -172,7 +174,7 @@ export default function App() {
       <Route
         path="/admin/purchases"
         element={
-          <ProtectedRoute roles={["ADMIN", "OWNER", "PRODUCTION"]}>
+          <ProtectedRoute roles={["ADMIN", "OWNER", "PRODUCTION", "ACCOUNTANT"]}>
             <Purchases />
           </ProtectedRoute>
         }
@@ -180,7 +182,7 @@ export default function App() {
       <Route
         path="/production/runs"
         element={
-          <ProtectedRoute roles={["ADMIN", "OWNER", "PRODUCTION"]}>
+          <ProtectedRoute roles={["ADMIN", "OWNER", "PRODUCTION", "ACCOUNTANT"]}>
             <ProductionRuns />
           </ProtectedRoute>
         }

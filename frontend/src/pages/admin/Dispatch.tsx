@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, ApiError } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 
 type Invoice = {
   id: string;
@@ -15,6 +16,8 @@ type Invoice = {
 type Dispatch = { id: string; qtyBase: number; dispatchedAt: string; invoice: { id: string } };
 
 export default function Dispatch() {
+  const { user } = useAuth();
+  const canMutate = user?.role !== "ACCOUNTANT";
   const queryClient = useQueryClient();
   const [qtyByInvoice, setQtyByInvoice] = useState<Record<string, string>>({});
   const [errorByInvoice, setErrorByInvoice] = useState<Record<string, string>>({});
@@ -76,6 +79,8 @@ export default function Dispatch() {
                   </ul>
                   {dispatched ? (
                     <p className="mt-2 text-sm text-primary">Dispatched</p>
+                  ) : !canMutate ? (
+                    <p className="mt-2 text-sm text-muted-foreground">Not dispatched</p>
                   ) : (
                     <div className="mt-2 flex items-center gap-2">
                       <input

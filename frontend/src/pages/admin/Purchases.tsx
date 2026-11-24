@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, ApiError } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 
 type Supplier = { id: string; name: string };
 type Item = { id: string; sku: string; name: string; baseUnit: string; type: string };
@@ -16,6 +17,8 @@ type Purchase = {
 const emptyLine: Line = { itemId: "", qtyBase: "", rateBasePaise: "" };
 
 export default function Purchases() {
+  const { user } = useAuth();
+  const canMutate = user?.role !== "ACCOUNTANT";
   const queryClient = useQueryClient();
   const [supplierId, setSupplierId] = useState("");
   const [lines, setLines] = useState<Line[]>([{ ...emptyLine }]);
@@ -68,6 +71,7 @@ export default function Purchases() {
     <main className="mx-auto max-w-2xl p-6 text-foreground">
       <h1 className="mb-4 text-2xl font-semibold">Purchases</h1>
 
+      {canMutate && (
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -141,6 +145,7 @@ export default function Purchases() {
           Record purchase
         </button>
       </form>
+      )}
 
       {isLoading ? (
         <p className="text-muted-foreground">Loading…</p>
@@ -154,7 +159,7 @@ export default function Purchases() {
                 {p.supplier.name} — {p.items.length} line(s)
                 {p.cancelledAt && <span className="ml-2 text-destructive">(cancelled)</span>}
               </span>
-              {!p.cancelledAt && (
+              {canMutate && !p.cancelledAt && (
                 <button onClick={() => cancelMutation.mutate(p.id)} className="text-sm text-destructive hover:underline">
                   Cancel
                 </button>

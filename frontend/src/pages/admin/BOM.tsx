@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, ApiError } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 
 type Item = { id: string; sku: string; name: string; type: string };
 type BomLineInput = { rawItemId: string; qtyPerBatch: string };
@@ -16,6 +17,8 @@ type Bom = {
 const emptyLine: BomLineInput = { rawItemId: "", qtyPerBatch: "" };
 
 export default function BOM() {
+  const { user } = useAuth();
+  const canMutate = user?.role !== "ACCOUNTANT";
   const queryClient = useQueryClient();
   const [finishedItemId, setFinishedItemId] = useState("");
   const [expectedYieldQty, setExpectedYieldQty] = useState("");
@@ -84,6 +87,7 @@ export default function BOM() {
     <main className="mx-auto max-w-2xl p-6 text-foreground">
       <h1 className="mb-4 text-2xl font-semibold">BOM (Recipes)</h1>
 
+      {canMutate && (
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -158,7 +162,9 @@ export default function BOM() {
           Create BOM
         </button>
       </form>
+      )}
 
+      {canMutate && (
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -204,6 +210,7 @@ export default function BOM() {
           Create pack size
         </button>
       </form>
+      )}
 
       {isLoading ? (
         <p className="text-muted-foreground">Loading…</p>

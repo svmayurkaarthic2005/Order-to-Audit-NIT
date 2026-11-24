@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, ApiError } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 
 type Item = {
   id: string;
@@ -14,6 +15,8 @@ const TYPES: Item["type"][] = ["RAW_MATERIAL", "PACKAGING", "FINISHED_GOOD"];
 const UNITS: Item["baseUnit"][] = ["G", "ML", "PIECE"];
 
 export default function Items() {
+  const { user } = useAuth();
+  const canMutate = user?.role !== "ACCOUNTANT";
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [form, setForm] = useState({ sku: "", name: "", type: TYPES[0], baseUnit: UNITS[0] });
@@ -51,6 +54,7 @@ export default function Items() {
         className="mb-4 w-full rounded border border-input bg-transparent px-3 py-2"
       />
 
+      {canMutate && (
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -102,6 +106,7 @@ export default function Items() {
           Add
         </button>
       </form>
+      )}
 
       {rowError && <p className="mb-4 text-sm text-destructive">{rowError}</p>}
 
@@ -119,12 +124,14 @@ export default function Items() {
                   ({i.type}, {i.baseUnit})
                 </span>
               </span>
-              <button
-                onClick={() => deleteMutation.mutate(i.id)}
-                className="text-sm text-destructive hover:underline"
-              >
-                Deactivate
-              </button>
+              {canMutate && (
+                <button
+                  onClick={() => deleteMutation.mutate(i.id)}
+                  className="text-sm text-destructive hover:underline"
+                >
+                  Deactivate
+                </button>
+              )}
             </li>
           ))}
         </ul>

@@ -80,24 +80,34 @@ describe("reports (traceable against the real benchmark data already posted)", (
 
     // Independently recomputed from the ledger, the same way the service
     // does it — robust to other test files' invoices against this same
-    // real customer, which the report must legitimately include too.
-    const invoices = await prisma.invoice.findMany({
-      where: { customerId: retailerA.id, status: "ISSUED" },
-      include: { payments: true, creditNotes: true },
-    });
-    const expectedOutstanding = invoices.reduce((sum, inv) => {
-      const paid = inv.payments.reduce((s, p) => s + p.amountPaise, 0);
-      const credited = inv.creditNotes.reduce((s, c) => s + c.amountPaise, 0);
-      return sum + Math.max(0, inv.totalPaise - paid - credited);
-    }, 0);
+    // real customer, which the report must legitimately include too. Each
+    // side (the recomputation, the report call) is its own read against a
+    // live, shared customer, so a concurrent test file's invoice/payment
+    // can land between them; re-sample both together until they agree
+    // rather than compare two reads taken at different instants.
+    let row: { outstandingPaise: number; "0-30": number; "31-60": number; "61-90": number; "90+": number } | undefined;
+    let expectedOutstanding = -1;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const invoices = await prisma.invoice.findMany({
+        where: { customerId: retailerA.id, status: "ISSUED" },
+        include: { payments: true, creditNotes: true },
+      });
+      expectedOutstanding = invoices.reduce((sum, inv) => {
+        const paid = inv.payments.reduce((s, p) => s + p.amountPaise, 0);
+        const credited = inv.creditNotes.reduce((s, c) => s + c.amountPaise, 0);
+        return sum + Math.max(0, inv.totalPaise - paid - credited);
+      }, 0);
 
-    const res = await request(app).get("/reports/payments-collections").set("Cookie", cookie);
-    expect(res.status).toBe(200);
-    const row = res.body.data.find((c: { customerId: string }) => c.customerId === retailerA.id);
+      const res = await request(app).get("/reports/payments-collections").set("Cookie", cookie);
+      expect(res.status).toBe(200);
+      row = res.body.data.find((c: { customerId: string }) => c.customerId === retailerA.id);
+      if (row?.outstandingPaise === expectedOutstanding) break;
+    }
+
     expect(row).toBeDefined();
-    expect(row.outstandingPaise).toBe(expectedOutstanding);
-    expect(row.outstandingPaise).toBeGreaterThanOrEqual(387_500); // at least the real benchmark's ₹3,875
-    expect(row["0-30"] + row["31-60"] + row["61-90"] + row["90+"]).toBe(row.outstandingPaise);
+    expect(row!.outstandingPaise).toBe(expectedOutstanding);
+    expect(row!.outstandingPaise).toBeGreaterThanOrEqual(387_500); // at least the real benchmark's ₹3,875
+    expect(row!["0-30"] + row!["31-60"] + row!["61-90"] + row!["90+"]).toBe(row!.outstandingPaise);
   });
 
   it("a date range that excludes everything returns an empty-but-valid response, not an error", async () => {

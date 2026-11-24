@@ -9,7 +9,7 @@ export const ordersRouter = Router();
 ordersRouter.use(requireAuth);
 
 const canCreateOrders = requireRole("SALESMAN", "ADMIN", "OWNER");
-const canReadOrders = requireRole("SALESMAN", "ADMIN", "OWNER");
+const canReadOrders = requireRole("SALESMAN", "ADMIN", "OWNER", "ACCOUNTANT");
 const canApproveOrders = requireRole("ADMIN", "OWNER");
 
 ordersRouter.get("/", canReadOrders, validate("query", orderListQuerySchema), async (req, res) => {

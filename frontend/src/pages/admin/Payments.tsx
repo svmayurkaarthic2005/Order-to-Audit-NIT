@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, ApiError } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 
 type Invoice = {
   id: string;
@@ -12,6 +13,8 @@ type Invoice = {
 };
 
 export default function Payments() {
+  const { user } = useAuth();
+  const canMutate = user?.role !== "ACCOUNTANT";
   const queryClient = useQueryClient();
   const [amountByInvoice, setAmountByInvoice] = useState<Record<string, string>>({});
   const [errorByInvoice, setErrorByInvoice] = useState<Record<string, string>>({});
@@ -65,24 +68,26 @@ export default function Payments() {
                     <> · Outstanding ₹{(outstandingByInvoice[inv.id] / 100).toFixed(2)}</>
                   )}
                 </p>
-                <div className="mt-2 flex items-center gap-2">
-                  <input
-                    placeholder="Amount (paise)"
-                    type="number"
-                    value={amountByInvoice[inv.id] ?? ""}
-                    onChange={(e) => setAmountByInvoice((prev) => ({ ...prev, [inv.id]: e.target.value }))}
-                    className="w-36 rounded border border-input bg-transparent px-2 py-1 text-sm"
-                  />
-                  <button
-                    onClick={() =>
-                      paymentMutation.mutate({ invoiceId: inv.id, amountPaise: Number(amountByInvoice[inv.id] || 0) })
-                    }
-                    disabled={paymentMutation.isPending}
-                    className="rounded bg-primary px-3 py-1 text-sm text-primary-foreground disabled:opacity-50"
-                  >
-                    Record payment
-                  </button>
-                </div>
+                {canMutate && (
+                  <div className="mt-2 flex items-center gap-2">
+                    <input
+                      placeholder="Amount (paise)"
+                      type="number"
+                      value={amountByInvoice[inv.id] ?? ""}
+                      onChange={(e) => setAmountByInvoice((prev) => ({ ...prev, [inv.id]: e.target.value }))}
+                      className="w-36 rounded border border-input bg-transparent px-2 py-1 text-sm"
+                    />
+                    <button
+                      onClick={() =>
+                        paymentMutation.mutate({ invoiceId: inv.id, amountPaise: Number(amountByInvoice[inv.id] || 0) })
+                      }
+                      disabled={paymentMutation.isPending}
+                      className="rounded bg-primary px-3 py-1 text-sm text-primary-foreground disabled:opacity-50"
+                    >
+                      Record payment
+                    </button>
+                  </div>
+                )}
                 {errorByInvoice[inv.id] && <p className="mt-1 text-sm text-destructive">{errorByInvoice[inv.id]}</p>}
               </li>
             ))}

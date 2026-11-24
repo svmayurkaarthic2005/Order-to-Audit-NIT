@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, ApiError } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 
 type Bom = {
   id: string;
@@ -24,6 +25,8 @@ type VarianceLine = { itemId: string; planned: number; actual: number; varianceP
 type Variance = { materials: VarianceLine[]; yield: VarianceLine | null };
 
 export default function ProductionRuns() {
+  const { user } = useAuth();
+  const canMutate = user?.role !== "ACCOUNTANT";
   const queryClient = useQueryClient();
   const [bomId, setBomId] = useState("");
   const [batchSize, setBatchSize] = useState("1");
@@ -137,6 +140,7 @@ export default function ProductionRuns() {
     <main className="mx-auto max-w-2xl p-6 text-foreground">
       <h1 className="mb-4 text-2xl font-semibold">Production Runs</h1>
 
+      {canMutate && (
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -180,6 +184,7 @@ export default function ProductionRuns() {
           Create (DRAFT)
         </button>
       </form>
+      )}
 
       {isLoading ? (
         <p className="text-muted-foreground">Loading…</p>
@@ -211,17 +216,17 @@ export default function ProductionRuns() {
               )}
 
               <div className="mt-2 flex gap-3 text-sm">
-                {run.status === "DRAFT" && (
+                {canMutate && run.status === "DRAFT" && (
                   <button onClick={() => openStartForm(run)} className="text-primary underline">
                     Start
                   </button>
                 )}
-                {run.status === "STARTED" && (
+                {canMutate && run.status === "STARTED" && (
                   <button onClick={() => openCompleteForm(run)} className="text-primary underline">
                     Complete
                   </button>
                 )}
-                {(run.status === "DRAFT" || run.status === "STARTED") && (
+                {canMutate && (run.status === "DRAFT" || run.status === "STARTED") && (
                   <button onClick={() => cancelMutation.mutate(run.id)} className="text-destructive underline">
                     Cancel
                   </button>

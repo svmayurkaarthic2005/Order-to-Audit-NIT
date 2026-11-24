@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { api, ApiError } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 
 type Order = {
   id: string;
@@ -15,6 +16,8 @@ type Order = {
 const TABS = ["SUBMITTED", "APPROVED", "REJECTED"] as const;
 
 export default function OrderQueue() {
+  const { user } = useAuth();
+  const canMutate = user?.role !== "ACCOUNTANT";
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<(typeof TABS)[number]>("SUBMITTED");
   const [shortfallByOrder, setShortfallByOrder] = useState<Record<string, string>>({});
@@ -109,7 +112,7 @@ export default function OrderQueue() {
                   <p className="mt-2 rounded bg-destructive/10 p-2 text-sm text-destructive">{shortfallByOrder[o.id]}</p>
                 )}
 
-                {o.status === "SUBMITTED" && (
+                {canMutate && o.status === "SUBMITTED" && (
                   <div className="mt-2 flex gap-3 text-sm">
                     <button
                       onClick={() => approveMutation.mutate(o.id)}
@@ -124,7 +127,7 @@ export default function OrderQueue() {
                   </div>
                 )}
 
-                {o.status === "APPROVED" && (
+                {canMutate && o.status === "APPROVED" && (
                   <div className="mt-2 flex gap-3 text-sm">
                     <button
                       onClick={() => invoiceMutation.mutate(o.id)}
@@ -136,7 +139,7 @@ export default function OrderQueue() {
                   </div>
                 )}
 
-                {rejectingOrderId === o.id && (
+                {canMutate && rejectingOrderId === o.id && (
                   <form
                     onSubmit={(e) => {
                       e.preventDefault();
