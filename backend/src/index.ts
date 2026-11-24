@@ -5,6 +5,7 @@ import { errorHandler } from "./middleware/errorHandler.js";
 import { authRouter } from "./modules/auth/router.js";
 import { customersRouter } from "./modules/customers/router.js";
 import { debugRouter } from "./modules/debug/router.js";
+import { inventoryRouter } from "./modules/inventory/router.js";
 import { itemsRouter } from "./modules/items/router.js";
 import { suppliersRouter } from "./modules/suppliers/router.js";
 
@@ -23,6 +24,7 @@ app.use("/auth", authRouter);
 app.use("/customers", customersRouter);
 app.use("/suppliers", suppliersRouter);
 app.use("/items", itemsRouter);
+app.use("/inventory", inventoryRouter);
 app.use("/debug", debugRouter);
 
 app.use(errorHandler);

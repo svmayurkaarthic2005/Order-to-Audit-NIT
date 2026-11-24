@@ -5,6 +5,7 @@ import Login from "@/pages/Login";
 import Customers from "@/pages/admin/Masters/Customers";
 import Items from "@/pages/admin/Masters/Items";
 import Suppliers from "@/pages/admin/Masters/Suppliers";
+import OpeningStock from "@/pages/admin/OpeningStock";
 
 function Home() {
   const { user, logout } = useAuth();
@@ -23,6 +24,7 @@ function Home() {
           <Link to="/admin/customers">Customers</Link>
           <Link to="/admin/suppliers">Suppliers</Link>
           <Link to="/admin/items">Items</Link>
+          <Link to="/admin/opening-stock">Opening Stock</Link>
         </nav>
       )}
       <button onClick={() => logout()} className="mt-4 rounded border border-input px-3 py-1">
@@ -65,6 +67,14 @@ export default function App() {
         element={
           <ProtectedRoute roles={["ADMIN", "OWNER"]}>
             <Items />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin/opening-stock"
+        element={
+          <ProtectedRoute roles={["ADMIN", "OWNER"]}>
+            <OpeningStock />
           </ProtectedRoute>
         }
       />
