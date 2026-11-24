@@ -13,13 +13,19 @@ purchasesRouter.use(requireAuth);
 // problem statement's role table — not admin/owner alone.
 const canRecordPurchases = requireRole("ADMIN", "OWNER", "PRODUCTION");
 
-purchasesRouter.get("/", validate("query", purchaseListQuerySchema), async (req, res) => {
+// Purchase records carry supplier rates (cost data) and are read by the
+// accountant for the purchase register report, plus whoever can record
+// them — never the salesman, who has no business reason to see supplier
+// costs.
+const canReadPurchases = requireRole("ADMIN", "OWNER", "PRODUCTION", "ACCOUNTANT");
+
+purchasesRouter.get("/", canReadPurchases, validate("query", purchaseListQuerySchema), async (req, res) => {
   const { supplierId, page } = req.validatedQuery as { supplierId?: string; page: number };
   const result = await listPurchases(supplierId, page);
   res.json({ data: result });
 });
 
-purchasesRouter.get("/:id", async (req, res) => {
+purchasesRouter.get("/:id", canReadPurchases, async (req, res) => {
   const purchase = await getPurchase(req.params.id as string);
   res.json({ data: purchase });
 });

@@ -83,7 +83,18 @@ export async function cancelPurchase(id: string) {
     if (!purchase) {
       throw new AppError(404, "not_found", "Purchase not found");
     }
-    if (purchase.cancelledAt) {
+
+    // Atomic, conditional on cancelledAt still being null: two concurrent
+    // cancel requests both reading cancelledAt:null before either writes
+    // would otherwise both pass a plain if-check and both post reversal
+    // rows. Only the request whose UPDATE actually flips the row (count 1)
+    // may proceed to post reversals; the loser sees count 0 and gets a
+    // clean 409, with no reversal row of its own.
+    const { count } = await tx.purchase.updateMany({
+      where: { id, cancelledAt: null },
+      data: { cancelledAt: new Date() },
+    });
+    if (count === 0) {
       throw new AppError(409, "already_cancelled", "Purchase is already cancelled");
     }
 
@@ -100,6 +111,6 @@ export async function cancelPurchase(id: string) {
       });
     }
 
-    return tx.purchase.update({ where: { id }, data: { cancelledAt: new Date() }, include: { items: true } });
+    return tx.purchase.findUniqueOrThrow({ where: { id }, include: { items: true } });
   });
 }

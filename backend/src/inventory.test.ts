@@ -117,4 +117,18 @@ describe("inventory ledger", () => {
       .send({ itemId: "any", qtyBase: 1, totalCostPaise: 1 });
     expect(res.status).toBe(403);
   });
+
+  it("hides movingAverageCostPaise from the salesman role, but shows it to admin", async () => {
+    const flour = await prisma.item.findUniqueOrThrow({ where: { sku: "RM-FLOUR" } });
+
+    const salesmanCookie = await loginAs("salesman@porulottam.test");
+    const salesmanRes = await request(app).get(`/inventory/${flour.id}/on-hand`).set("Cookie", salesmanCookie);
+    expect(salesmanRes.status).toBe(200);
+    expect(salesmanRes.body.data.qtyBase).toBeGreaterThan(0); // qty is still visible
+    expect(salesmanRes.body.data.movingAverageCostPaise).toBeUndefined();
+
+    const adminCookie = await loginAs("admin@porulottam.test");
+    const adminRes = await request(app).get(`/inventory/${flour.id}/on-hand`).set("Cookie", adminCookie);
+    expect(adminRes.body.data.movingAverageCostPaise).toEqual(expect.any(Number));
+  });
 });

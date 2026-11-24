@@ -8,8 +8,18 @@ export const inventoryRouter = Router();
 
 inventoryRouter.use(requireAuth);
 
+// Cost (movingAverageCostPaise) is supplier/business-sensitive — visible to
+// everyone who can see purchases or production, never to the salesman, who
+// only needs the qty/unit to understand stock availability.
+const COST_VISIBLE_ROLES = ["ADMIN", "OWNER", "PRODUCTION", "ACCOUNTANT"];
+
 inventoryRouter.get("/:itemId/on-hand", async (req, res) => {
   const result = await getOnHand(req.params.itemId as string);
+  if (!req.user || !COST_VISIBLE_ROLES.includes(req.user.role)) {
+    const { movingAverageCostPaise: _omit, ...rest } = result;
+    res.json({ data: rest });
+    return;
+  }
   res.json({ data: result });
 });
 

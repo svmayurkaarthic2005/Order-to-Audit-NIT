@@ -143,6 +143,30 @@ describe("purchases", () => {
     expect(res.body.error.code).toBe("already_cancelled");
   });
 
+  it("closes the cancel race: two concurrent cancel requests, only one posts a reversal", async () => {
+    const cookie = await loginAs("admin@porulottam.test");
+    const supplier = await prisma.supplier.findUniqueOrThrow({ where: { id: "general-supplier" } });
+    const itemId = await makeTestItem(cookie);
+
+    const createRes = await request(app)
+      .post("/purchases")
+      .set("Cookie", cookie)
+      .send({ supplierId: supplier.id, items: [{ itemId, qtyBase: 100, rateBasePaise: 10 }] });
+    const purchaseId = createRes.body.data.id;
+
+    const [a, b] = await Promise.all([
+      request(app).post(`/purchases/${purchaseId}/cancel`).set("Cookie", cookie),
+      request(app).post(`/purchases/${purchaseId}/cancel`).set("Cookie", cookie),
+    ]);
+    const statuses = [a.status, b.status].sort();
+    expect(statuses).toEqual([200, 409]);
+
+    const reversals = await prisma.stockMovement.findMany({
+      where: { itemId, source: "PURCHASE_REVERSAL" },
+    });
+    expect(reversals).toHaveLength(1); // not two, despite two concurrent cancel requests
+  });
+
   it("a non-recording role (salesman) creating a purchase returns 403", async () => {
     const cookie = await loginAs("salesman@porulottam.test");
     const res = await request(app)
@@ -162,5 +186,23 @@ describe("purchases", () => {
       .set("Cookie", cookie)
       .send({ supplierId: supplier.id, items: [{ itemId, qtyBase: 10, rateBasePaise: 10 }] });
     expect(res.status).toBe(201);
+  });
+
+  it("a salesman cannot read purchases (no business reason to see supplier costs)", async () => {
+    const cookie = await loginAs("salesman@porulottam.test");
+    const listRes = await request(app).get("/purchases").set("Cookie", cookie);
+    expect(listRes.status).toBe(403);
+  });
+
+  it("an accountant CAN read purchases (purchase register report) but cannot create one", async () => {
+    const cookie = await loginAs("accountant@porulottam.test");
+    const listRes = await request(app).get("/purchases").set("Cookie", cookie);
+    expect(listRes.status).toBe(200);
+
+    const createRes = await request(app)
+      .post("/purchases")
+      .set("Cookie", cookie)
+      .send({ supplierId: "general-supplier", items: [{ itemId: "x", qtyBase: 1, rateBasePaise: 1 }] });
+    expect(createRes.status).toBe(403);
   });
 });
