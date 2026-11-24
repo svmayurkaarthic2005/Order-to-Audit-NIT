@@ -1,0 +1,367 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- enums ----------
+
+enum Role {
+  SALESMAN
+  ADMIN
+  PRODUCTION
+  ACCOUNTANT
+  OWNER
+}
+
+enum BaseUnit {
+  G
+  ML
+  PIECE
+}
+
+enum ItemType {
+  RAW_MATERIAL
+  PACKAGING
+  FINISHED_GOOD
+}
+
+enum ProductionRunStatus {
+  DRAFT
+  STARTED
+  COMPLETED
+  CANCELLED
+}
+
+enum StockMovementSource {
+  OPENING_STOCK
+  PURCHASE
+  PURCHASE_REVERSAL
+  PRODUCTION_ISSUE
+  PRODUCTION_ISSUE_REVERSAL
+  PRODUCTION_OUTPUT
+  PRODUCTION_DAMAGE
+  PRODUCTION_PACKAGING
+  DISPATCH
+  ADJUSTMENT
+}
+
+enum SalesOrderStatus {
+  SUBMITTED
+  APPROVED
+  REJECTED
+  DISPATCHABLE
+  DISPATCHED
+}
+
+enum InvoiceStatus {
+  ISSUED
+  CANCELLED
+}
+
+// ---------- master data ----------
+
+model User {
+  id           String   @id @default(uuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         Role
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  salesOrders     SalesOrder[]
+  stockMovements  StockMovement[]
+  auditLogs       AuditLog[]
+}
+
+model Customer {
+  id        String   @id @default(uuid())
+  name      String
+  gstin     String?
+  state     String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  salesOrders SalesOrder[]
+  invoices    Invoice[]
+}
+
+model Supplier {
+  id        String   @id @default(uuid())
+  name      String
+  gstin     String?
+  state     String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  purchases Purchase[]
+}
+
+// A single item master: raw materials, packaging AND finished goods all
+// live here, each with one immutable base unit. stock_movements posts
+// against this table directly (a real FK), never a polymorphic reference.
+model Item {
+  id           String   @id @default(uuid())
+  sku          String   @unique
+  name         String
+  type         ItemType
+  baseUnit     BaseUnit
+  hsnCode      String?
+  taxRatePct   Int      @default(0) // whole percent, e.g. 5 for 5% GST
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  unitConversions    UnitConversion[]
+  stockMovements     StockMovement[]
+  purchaseItems      PurchaseItem[]
+  bomsAsFinished     BomHeader[]            @relation("BomFinishedItem")
+  bomLinesAsRaw      BomLine[]
+  packSizesFinished  PackSize[]
+  runMaterials       ProductionRunMaterial[]
+  orderItems         OrderItem[]
+  invoiceItems       InvoiceItem[]
+}
+
+// Non-base display units for an item, e.g. 1 CARTON = 20 PIECE for this
+// finished good, or a global 1 KG = 1000 G with itemId left null.
+model UnitConversion {
+  id       String   @id @default(uuid())
+  itemId   String?
+  item     Item?    @relation(fields: [itemId], references: [id])
+  label    String // "kg", "L", "carton", ...
+  factor   Int // how many base units one `label` unit equals
+
+  @@unique([itemId, label])
+}
+
+// ---------- BOM ----------
+
+model BomHeader {
+  id              String   @id @default(uuid())
+  finishedItemId  String
+  finishedItem    Item     @relation("BomFinishedItem", fields: [finishedItemId], references: [id])
+  expectedYieldQty Int // base-unit qty of finished good per batch
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+
+  lines           BomLine[]
+  packSizes       PackSize[]
+  productionRuns  ProductionRun[]
+}
+
+model BomLine {
+  id           String   @id @default(uuid())
+  bomHeaderId  String
+  bomHeader    BomHeader @relation(fields: [bomHeaderId], references: [id])
+  rawItemId    String
+  rawItem      Item      @relation(fields: [rawItemId], references: [id])
+  qtyPerBatch  Int // base-unit qty
+
+  @@unique([bomHeaderId, rawItemId])
+}
+
+model PackSize {
+  id              String    @id @default(uuid())
+  finishedItemId  String
+  finishedItem    Item      @relation(fields: [finishedItemId], references: [id])
+  baseBomId       String
+  baseBom         BomHeader @relation(fields: [baseBomId], references: [id])
+  multiplier      Int       @default(1)
+  label           String
+
+  @@unique([finishedItemId, label])
+}
+
+// ---------- purchases ----------
+
+model Purchase {
+  id             String   @id @default(uuid())
+  supplierId     String
+  supplier       Supplier @relation(fields: [supplierId], references: [id])
+  purchaseDate   DateTime @default(now())
+  cancelledAt    DateTime?
+  createdAt      DateTime @default(now())
+
+  items          PurchaseItem[]
+}
+
+model PurchaseItem {
+  id            String   @id @default(uuid())
+  purchaseId    String
+  purchase      Purchase @relation(fields: [purchaseId], references: [id])
+  itemId        String
+  item          Item     @relation(fields: [itemId], references: [id])
+  qtyBase       Int
+  rateBasePaise Int // paise per one base unit
+}
+
+// ---------- the ledger: physical stock events only ----------
+
+model StockMovement {
+  id             String              @id @default(uuid())
+  itemId         String
+  item           Item                @relation(fields: [itemId], references: [id])
+  qtyBase        Int // signed: + receipt/output, - issue/dispatch
+  unitCostPaise  Int // moving weighted-average cost snapshot at this moment
+  totalCostPaise Int
+  source         StockMovementSource
+  sourceId       String? // id of the purchase/production run/dispatch/etc. that caused this
+  idempotencyKey String?             @unique
+  createdByUserId String?
+  createdByUser  User?               @relation(fields: [createdByUserId], references: [id])
+  createdAt      DateTime            @default(now())
+
+  @@index([itemId])
+}
+
+// ---------- production ----------
+
+model ProductionRun {
+  id            String              @id @default(uuid())
+  bomHeaderId   String
+  bomHeader     BomHeader           @relation(fields: [bomHeaderId], references: [id])
+  batchSize     Int                 @default(1)
+  status        ProductionRunStatus @default(DRAFT)
+  actualOutputQty Int?
+  damagedQty    Int?
+  startedAt     DateTime?
+  completedAt   DateTime?
+  cancelledAt   DateTime?
+  createdAt     DateTime            @default(now())
+
+  materials     ProductionRunMaterial[]
+}
+
+// Planned-vs-actual snapshot. This is the ONLY table that ever holds
+// planned/expected BOM quantities — stock_movements never does.
+model ProductionRunMaterial {
+  id              String        @id @default(uuid())
+  productionRunId String
+  productionRun   ProductionRun @relation(fields: [productionRunId], references: [id])
+  itemId          String
+  item            Item          @relation(fields: [itemId], references: [id])
+  plannedQtyBase  Int
+  actualQtyBase   Int?
+
+  @@unique([productionRunId, itemId])
+}
+
+// ---------- sales ----------
+
+model SalesOrder {
+  id            String           @id @default(uuid())
+  customerId    String
+  customer      Customer         @relation(fields: [customerId], references: [id])
+  salesmanUserId String
+  salesmanUser  User             @relation(fields: [salesmanUserId], references: [id])
+  status        SalesOrderStatus @default(SUBMITTED)
+  rejectionReason String?
+  createdAt     DateTime         @default(now())
+
+  items    OrderItem[]
+  invoices Invoice[]
+}
+
+model OrderItem {
+  id           String     @id @default(uuid())
+  salesOrderId String
+  salesOrder   SalesOrder @relation(fields: [salesOrderId], references: [id])
+  itemId       String
+  item         Item       @relation(fields: [itemId], references: [id])
+  qtyBase      Int
+  ratePaise    Int // paise per one base unit
+}
+
+// ---------- GST invoicing ----------
+
+// One locked row per financial year; invoice creation locks this row inside
+// a transaction to assign the next number, never COUNT(*)+1.
+model InvoiceSequence {
+  financialYear String @id // e.g. "2026-27"
+  lastNumber    Int    @default(0)
+}
+
+model Invoice {
+  id               String        @id @default(uuid())
+  salesOrderId     String
+  salesOrder       SalesOrder    @relation(fields: [salesOrderId], references: [id])
+  customerId       String
+  customer         Customer      @relation(fields: [customerId], references: [id])
+  financialYear    String
+  invoiceNumber    Int
+  taxableValuePaise Int
+  cgstPaise        Int           @default(0)
+  sgstPaise        Int           @default(0)
+  igstPaise        Int           @default(0)
+  totalPaise       Int
+  status           InvoiceStatus @default(ISSUED)
+  pdfStoragePath   String?
+  createdAt        DateTime      @default(now())
+
+  items      InvoiceItem[]
+  dispatch   Dispatch?
+  payments   Payment[]
+  creditNotes CreditNote[]
+
+  @@unique([financialYear, invoiceNumber])
+}
+
+// Frozen snapshot of what was billed. Never updated after creation —
+// corrections go through CreditNote, never a mutation of this row.
+model InvoiceItem {
+  id               String  @id @default(uuid())
+  invoiceId        String
+  invoice          Invoice @relation(fields: [invoiceId], references: [id])
+  itemId           String
+  item             Item    @relation(fields: [itemId], references: [id])
+  description      String
+  qtyBase          Int
+  ratePaise        Int
+  taxableValuePaise Int
+  hsnCode          String?
+  taxRatePct       Int
+}
+
+model CreditNote {
+  id          String   @id @default(uuid())
+  invoiceId   String
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id])
+  reason      String
+  amountPaise Int
+  createdAt   DateTime @default(now())
+}
+
+model Dispatch {
+  id           String   @id @default(uuid())
+  invoiceId    String   @unique
+  invoice      Invoice  @relation(fields: [invoiceId], references: [id])
+  qtyBase      Int
+  dispatchedAt DateTime @default(now())
+}
+
+model Payment {
+  id          String   @id @default(uuid())
+  invoiceId   String
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id])
+  amountPaise Int
+  paidAt      DateTime @default(now())
+}
+
+// ---------- audit ----------
+
+// Append-only. No update/delete route is ever exposed for this model.
+model AuditLog {
+  id         String   @id @default(uuid())
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id])
+  action     String
+  entityType String
+  entityId   String
+  beforeJson String?
+  afterJson  String?
+  createdAt  DateTime @default(now())
+}

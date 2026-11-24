@@ -15,15 +15,17 @@ Order-to-Audit system for a small food manufacturer. NIT Tiruchirappalli interns
 
 ```
 docker compose up -d
-cp .env.example .env   # fill in DATABASE_URL etc.
+cp .env.example backend/.env   # local Postgres runs on host port 5433 (5432 was taken by a native service)
 
-cd backend && npm install && npm run dev
+cd backend && npm install && npm run db:migrate && npm run db:seed && npm run dev
 cd frontend && npm install && npm run dev
 ```
 
-Backend health check: `GET http://localhost:4000/health` → `{"status":"ok"}`
+Backend health check: `GET http://localhost:4000/health` → `{"data":{"status":"ok"}}`
+
+Seeded test logins (role / email, password `password123` for all): salesman@porulottam.test, admin@porulottam.test, production@porulottam.test, accountant@porulottam.test, owner@porulottam.test.
 
 ## Status
 
-Phase 0 complete: project scaffold, local Postgres via Docker, health-check endpoint and test, themed frontend shell.
+Phase 0–2 complete: project scaffold, local Postgres via Docker (port 5433), API conventions/error-handling/validation, full Prisma schema + idempotent seed with the benchmark's opening stock, BOM (expected yield 200, not 238) and customers.
 See the build plan for the full 19-phase roadmap.
