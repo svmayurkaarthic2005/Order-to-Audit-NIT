@@ -140,7 +140,15 @@ export async function approveOrder(id: string) {
       }
     }
 
-    await tx.salesOrder.update({ where: { id }, data: { status: "APPROVED" } });
+    // Conditional on status still being SUBMITTED: a concurrent /reject
+    // could otherwise land between our fresh-status read above and this
+    // write (it needs no advisory lock, since it never touches on-hand),
+    // and an unconditional update here would silently clobber that
+    // rejection back to APPROVED.
+    const { count } = await tx.salesOrder.updateMany({ where: { id, status: "SUBMITTED" }, data: { status: "APPROVED" } });
+    if (count === 0) {
+      throw new AppError(409, "invalid_status", "Only a SUBMITTED order can be approved");
+    }
     return withOrderInclude(id, tx);
   });
 }

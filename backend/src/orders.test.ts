@@ -241,6 +241,23 @@ describe("order approval", () => {
     expect(approvedCount).toBe(1);
   });
 
+  it("closes the approve/reject race: a concurrent approve and reject on the same order never both succeed", async () => {
+    const adminCookie = await loginAs("admin@porulottam.test");
+    const itemId = await makeStockedFinishedGood(adminCookie, 10);
+    const salesmanCookie = await loginAs("salesman@porulottam.test");
+    const orderId = await makeOrder(salesmanCookie, itemId, 5);
+
+    const [approveRes, rejectRes] = await Promise.all([
+      request(app).post(`/orders/${orderId}/approve`).set("Cookie", adminCookie),
+      request(app).post(`/orders/${orderId}/reject`).set("Cookie", adminCookie).send({ reason: "race" }),
+    ]);
+    const statuses = [approveRes.status, rejectRes.status].sort();
+    expect(statuses).toEqual([200, 409]); // exactly one of the two wins, never both
+
+    const order = await prisma.salesOrder.findUniqueOrThrow({ where: { id: orderId } });
+    expect(["APPROVED", "REJECTED"]).toContain(order.status); // whichever won, never corrupted back
+  });
+
   it("a salesman cannot approve or reject an order", async () => {
     const adminCookie = await loginAs("admin@porulottam.test");
     const itemId = await makeStockedFinishedGood(adminCookie, 10);
