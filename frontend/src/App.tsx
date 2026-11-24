@@ -9,11 +9,14 @@ import Suppliers from "@/pages/admin/Masters/Suppliers";
 import OpeningStock from "@/pages/admin/OpeningStock";
 import Purchases from "@/pages/admin/Purchases";
 import ProductionRuns from "@/pages/production/ProductionRuns";
+import OrderEntry from "@/pages/salesman/OrderEntry";
+import OrderHistory from "@/pages/salesman/OrderHistory";
 
 function Home() {
   const { user, logout } = useAuth();
   const isAdmin = user?.role === "ADMIN" || user?.role === "OWNER";
   const canRecordPurchases = isAdmin || user?.role === "PRODUCTION";
+  const canOrder = isAdmin || user?.role === "SALESMAN";
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-2 bg-background text-foreground">
       <h1 className="text-3xl font-semibold">Porulottam ERP</h1>
@@ -35,6 +38,7 @@ function Home() {
         )}
         {canRecordPurchases && <Link to="/admin/purchases">Purchases</Link>}
         {canRecordPurchases && <Link to="/production/runs">Production</Link>}
+        {canOrder && <Link to="/salesman/orders">Orders</Link>}
       </nav>
       <button onClick={() => logout()} className="mt-4 rounded border border-input px-3 py-1">
         Log out
@@ -108,6 +112,22 @@ export default function App() {
         element={
           <ProtectedRoute roles={["ADMIN", "OWNER", "PRODUCTION"]}>
             <ProductionRuns />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/salesman/orders"
+        element={
+          <ProtectedRoute roles={["ADMIN", "OWNER", "SALESMAN"]}>
+            <OrderHistory />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/salesman/orders/new"
+        element={
+          <ProtectedRoute roles={["ADMIN", "OWNER", "SALESMAN"]}>
+            <OrderEntry />
           </ProtectedRoute>
         }
       />

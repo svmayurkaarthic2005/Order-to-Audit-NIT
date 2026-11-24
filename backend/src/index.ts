@@ -8,6 +8,7 @@ import { customersRouter } from "./modules/customers/router.js";
 import { debugRouter } from "./modules/debug/router.js";
 import { inventoryRouter } from "./modules/inventory/router.js";
 import { itemsRouter } from "./modules/items/router.js";
+import { ordersRouter } from "./modules/orders/router.js";
 import { productionRouter } from "./modules/production/router.js";
 import { purchasesRouter } from "./modules/purchases/router.js";
 import { suppliersRouter } from "./modules/suppliers/router.js";
@@ -32,6 +33,7 @@ app.use("/purchases", purchasesRouter);
 app.use("/boms", bomRouter);
 app.use("/pack-sizes", packSizesRouter);
 app.use("/production-runs", productionRouter);
+app.use("/orders", ordersRouter);
 app.use("/debug", debugRouter);
 
 app.use(errorHandler);
