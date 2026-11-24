@@ -1,0 +1,41 @@
+services:
+  - type: web
+    name: porulottam-backend
+    runtime: node
+    rootDir: backend
+    plan: starter
+    buildCommand: npm ci && npx prisma generate && npx prisma migrate deploy && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "4000"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: porulottam-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      # Set to the deployed Vercel frontend URL (e.g. https://porulottam.vercel.app) —
+      # must match exactly, no trailing slash, since it is echoed back as the
+      # CORS Access-Control-Allow-Origin.
+      - key: FRONTEND_ORIGIN
+        sync: false
+      # Supabase Storage for invoice PDFs — leave unset to fall back to local
+      # disk storage (fine for a demo, lost on every redeploy).
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: MANUFACTURER_GSTIN
+        sync: false
+      - key: MANUFACTURER_STATE
+        value: "Tamil Nadu"
+
+databases:
+  - name: porulottam-db
+    plan: starter
+    databaseName: porulottam
+    user: porulottam
