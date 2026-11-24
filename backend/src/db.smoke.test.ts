@@ -21,6 +21,6 @@ describe("database schema + seed", () => {
   });
 
   it("has no finished_goods_stock table — on-hand always comes from the ledger", async () => {
-    expect((prisma as Record<string, unknown>).finishedGoodsStock).toBeUndefined();
+    expect((prisma as unknown as Record<string, unknown>).finishedGoodsStock).toBeUndefined();
   });
 });
