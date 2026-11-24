@@ -1,6 +1,8 @@
 import { AppError } from "../../lib/AppError.js";
 import { prisma } from "../../lib/prisma.js";
+import { uploadInvoicePdf } from "../../lib/storage.js";
 import { calculate } from "../gst/calculate.js";
+import { renderInvoicePdf } from "./pdf.js";
 
 // The factory's own state for CGST+SGST vs IGST determination — never
 // configured per-invoice, so a dev fallback is fine here (same pattern as
@@ -122,4 +124,21 @@ export async function createCreditNote(invoiceId: string, reason: string) {
 
     return tx.invoice.findUniqueOrThrow({ where: { id: invoiceId }, include: includeClause });
   });
+}
+
+// Idempotent: an invoice that already has a stored PDF returns that same
+// URL instead of generating and uploading a duplicate. The PDF is rendered
+// only from the invoice's own frozen fields — never a GST recomputation.
+export async function getOrGenerateInvoicePdfUrl(invoiceId: string): Promise<string> {
+  const invoice = await getInvoice(invoiceId);
+  if (invoice.pdfStoragePath) {
+    return invoice.pdfStoragePath;
+  }
+
+  const pdfBuffer = await renderInvoicePdf(invoice);
+  const key = `${invoice.financialYear}-${invoice.invoiceNumber}-${invoice.id}.pdf`;
+  const url = await uploadInvoicePdf(key, pdfBuffer);
+
+  await prisma.invoice.update({ where: { id: invoiceId }, data: { pdfStoragePath: url } });
+  return url;
 }

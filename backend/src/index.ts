@@ -6,6 +6,7 @@ import { authRouter } from "./modules/auth/router.js";
 import { bomRouter, packSizesRouter } from "./modules/bom/router.js";
 import { customersRouter } from "./modules/customers/router.js";
 import { debugRouter } from "./modules/debug/router.js";
+import { LOCAL_STORAGE_DIR } from "./lib/storage.js";
 import { inventoryRouter } from "./modules/inventory/router.js";
 import { invoicesRouter } from "./modules/invoices/router.js";
 import { itemsRouter } from "./modules/items/router.js";
@@ -24,6 +25,10 @@ app.use(cookieParser());
 app.get("/health", (_req, res) => {
   res.status(200).json({ data: { status: "ok" } });
 });
+
+// Local stand-in for Supabase Storage (see lib/storage.ts) — only used
+// when SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY aren't configured.
+app.use("/storage/invoices", express.static(LOCAL_STORAGE_DIR));
 
 app.use("/auth", authRouter);
 app.use("/customers", customersRouter);

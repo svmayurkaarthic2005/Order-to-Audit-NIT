@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { requireAuth, requireRole } from "../../middleware/auth.js";
 import { validate } from "../../lib/validate.js";
-import { createCreditNote, createInvoice, getInvoice, listInvoices } from "./service.js";
+import { createCreditNote, createInvoice, getInvoice, getOrGenerateInvoicePdfUrl, listInvoices } from "./service.js";
 import { creditNoteCreateSchema, invoiceCreateSchema } from "./schema.js";
 
 export const invoicesRouter = Router();
@@ -19,6 +19,11 @@ invoicesRouter.get("/", canReadInvoices, async (_req, res) => {
 invoicesRouter.get("/:id", canReadInvoices, async (req, res) => {
   const invoice = await getInvoice(req.params.id as string);
   res.json({ data: invoice });
+});
+
+invoicesRouter.get("/:id/pdf", canReadInvoices, async (req, res) => {
+  const url = await getOrGenerateInvoicePdfUrl(req.params.id as string);
+  res.json({ data: { url } });
 });
 
 invoicesRouter.post("/", canManageInvoices, validate("body", invoiceCreateSchema), async (req, res) => {

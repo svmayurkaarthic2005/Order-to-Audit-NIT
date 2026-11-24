@@ -21,11 +21,34 @@ export default function Invoices() {
   const queryClient = useQueryClient();
   const [creditNoteInvoiceId, setCreditNoteInvoiceId] = useState<string | null>(null);
   const [reason, setReason] = useState("");
+  const [whatsappNumberByInvoice, setWhatsappNumberByInvoice] = useState<Record<string, string>>({});
 
   const { data, isLoading } = useQuery({
     queryKey: ["invoices"],
     queryFn: () => api.get<Invoice[]>("/invoices"),
   });
+
+  const pdfMutation = useMutation({
+    mutationFn: (invoiceId: string) => api.get<{ url: string }>(`/invoices/${invoiceId}/pdf`),
+  });
+
+  // The PDF URL is only known after an async request, but window.open must
+  // run synchronously within the click handler or popup blockers silently
+  // swallow it — so the tab is opened immediately and pointed at the real
+  // URL once it resolves, instead of being opened after the await.
+  async function downloadPdf(invoiceId: string) {
+    const tab = window.open("", "_blank");
+    const { url } = await pdfMutation.mutateAsync(invoiceId);
+    if (tab) tab.location.href = url;
+  }
+
+  async function shareOnWhatsApp(inv: Invoice) {
+    const tab = window.open("", "_blank");
+    const { url } = await pdfMutation.mutateAsync(inv.id);
+    const number = (whatsappNumberByInvoice[inv.id] ?? "").replace(/\D/g, "");
+    const message = `Invoice ${inv.financialYear}/${inv.invoiceNumber} for ₹${(inv.totalPaise / 100).toFixed(2)}: ${url}`;
+    if (tab) tab.location.href = `https://wa.me/${number}?text=${encodeURIComponent(message)}`;
+  }
 
   const creditNoteMutation = useMutation({
     mutationFn: ({ invoiceId, reason }: { invoiceId: string; reason: string }) =>
@@ -79,11 +102,25 @@ export default function Invoices() {
                 </p>
               ))}
 
-              {inv.status === "ISSUED" && (
-                <button onClick={() => setCreditNoteInvoiceId(inv.id)} className="mt-2 text-sm text-destructive underline">
-                  Credit note / cancel
+              <div className="mt-2 flex flex-wrap items-center gap-3 text-sm">
+                <button onClick={() => downloadPdf(inv.id)} className="text-primary underline">
+                  Download PDF
                 </button>
-              )}
+                <input
+                  placeholder="WhatsApp number"
+                  value={whatsappNumberByInvoice[inv.id] ?? ""}
+                  onChange={(e) => setWhatsappNumberByInvoice((prev) => ({ ...prev, [inv.id]: e.target.value }))}
+                  className="w-36 rounded border border-input bg-transparent px-2 py-1"
+                />
+                <button onClick={() => shareOnWhatsApp(inv)} className="text-primary underline">
+                  Share on WhatsApp
+                </button>
+                {inv.status === "ISSUED" && (
+                  <button onClick={() => setCreditNoteInvoiceId(inv.id)} className="text-destructive underline">
+                    Credit note / cancel
+                  </button>
+                )}
+              </div>
 
               {creditNoteInvoiceId === inv.id && (
                 <form
