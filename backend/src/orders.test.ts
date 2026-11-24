@@ -123,6 +123,25 @@ describe("salesman order entry", () => {
     expect(listRes.status).toBe(200);
   });
 
+  it("never serializes the salesman's passwordHash in an order response", async () => {
+    const adminCookie = await loginAs("admin@porulottam.test");
+    const itemId = await makeTestFinishedGood(adminCookie);
+    const retailerA = await prisma.customer.findFirstOrThrow({ where: { name: { contains: "Retailer A" } } });
+
+    const cookie = await loginAs("salesman@porulottam.test");
+    const createRes = await request(app)
+      .post("/orders")
+      .set("Cookie", cookie)
+      .send({ customerId: retailerA.id, items: [{ itemId, qtyBase: 1, ratePaise: 100 }] });
+
+    const listRes = await request(app).get("/orders").set("Cookie", cookie);
+    expect(listRes.status).toBe(200);
+    expect(JSON.stringify(listRes.body)).not.toContain("passwordHash");
+
+    const getRes = await request(app).get(`/orders/${createRes.body.data.id}`).set("Cookie", adminCookie);
+    expect(JSON.stringify(getRes.body)).not.toContain("passwordHash");
+  });
+
   it("a production/accountant role cannot read or create orders", async () => {
     const cookie = await loginAs("production@porulottam.test");
     const listRes = await request(app).get("/orders").set("Cookie", cookie);

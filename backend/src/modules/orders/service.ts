@@ -5,6 +5,10 @@ const PAGE_SIZE = 20;
 
 type OrderItemInput = { itemId: string; qtyBase: number; ratePaise: number };
 
+// Never spread a full User relation into an API response — it carries
+// passwordHash. Only these fields are safe to serialize.
+const publicUserSelect = { select: { id: true, name: true, email: true, role: true } };
+
 export async function listOrders(filter: { salesmanId?: string; status?: string }, page: number) {
   const where = {
     ...(filter.salesmanId ? { salesmanUserId: filter.salesmanId } : {}),
@@ -13,7 +17,7 @@ export async function listOrders(filter: { salesmanId?: string; status?: string 
   const [items, total] = await Promise.all([
     prisma.salesOrder.findMany({
       where,
-      include: { items: { include: { item: true } }, customer: true, salesmanUser: true },
+      include: { items: { include: { item: true } }, customer: true, salesmanUser: publicUserSelect },
       skip: (page - 1) * PAGE_SIZE,
       take: PAGE_SIZE,
       orderBy: { createdAt: "desc" },
@@ -26,7 +30,7 @@ export async function listOrders(filter: { salesmanId?: string; status?: string 
 export async function getOrder(id: string) {
   const order = await prisma.salesOrder.findUnique({
     where: { id },
-    include: { items: { include: { item: true } }, customer: true, salesmanUser: true },
+    include: { items: { include: { item: true } }, customer: true, salesmanUser: publicUserSelect },
   });
   if (!order) {
     throw new AppError(404, "not_found", "Order not found");
