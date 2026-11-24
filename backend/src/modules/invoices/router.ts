@@ -3,6 +3,7 @@ import { requireAuth, requireRole } from "../../middleware/auth.js";
 import { validate } from "../../lib/validate.js";
 import { createCreditNote, createInvoice, getInvoice, getOrGenerateInvoicePdfUrl, listInvoices } from "./service.js";
 import { creditNoteCreateSchema, invoiceCreateSchema } from "./schema.js";
+import { getOutstandingPaise } from "../payments/service.js";
 
 export const invoicesRouter = Router();
 
@@ -24,6 +25,11 @@ invoicesRouter.get("/:id", canReadInvoices, async (req, res) => {
 invoicesRouter.get("/:id/pdf", canReadInvoices, async (req, res) => {
   const url = await getOrGenerateInvoicePdfUrl(req.params.id as string);
   res.json({ data: { url } });
+});
+
+invoicesRouter.get("/:id/outstanding", canReadInvoices, async (req, res) => {
+  const outstandingPaise = await getOutstandingPaise(req.params.id as string);
+  res.json({ data: { outstandingPaise } });
 });
 
 invoicesRouter.post("/", canManageInvoices, validate("body", invoiceCreateSchema), async (req, res) => {

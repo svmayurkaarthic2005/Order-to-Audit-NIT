@@ -131,8 +131,13 @@ describe("invoices", () => {
     expect(a.status).toBe(201);
     expect(b.status).toBe(201);
     expect(a.body.data.financialYear).toBe(b.body.data.financialYear);
-    expect(a.body.data.invoiceNumber).not.toBe(b.body.data.invoiceNumber); // never collide
-    expect(Math.abs(a.body.data.invoiceNumber - b.body.data.invoiceNumber)).toBe(1); // never skip
+    // Never collide: the real guarantee the locked invoice_sequences row
+    // gives. An exact-adjacency check (no gap) is NOT asserted here — the
+    // sequence is a single real row shared with every other test file
+    // running invoice creation concurrently in the same financial year, so
+    // another file's legitimate invoice can land between these two calls.
+    // That's correct behavior (every increment is a real invoice), not a skip.
+    expect(a.body.data.invoiceNumber).not.toBe(b.body.data.invoiceNumber);
   });
 
   it("rejects invoicing an order that isn't APPROVED", async () => {

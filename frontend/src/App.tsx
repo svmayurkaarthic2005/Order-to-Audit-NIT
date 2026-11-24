@@ -6,8 +6,10 @@ import BOM from "@/pages/admin/BOM";
 import Customers from "@/pages/admin/Masters/Customers";
 import Items from "@/pages/admin/Masters/Items";
 import Suppliers from "@/pages/admin/Masters/Suppliers";
+import Dispatch from "@/pages/admin/Dispatch";
 import Invoices from "@/pages/admin/Invoices";
 import OpeningStock from "@/pages/admin/OpeningStock";
+import Payments from "@/pages/admin/Payments";
 import OrderQueue from "@/pages/admin/OrderQueue";
 import Purchases from "@/pages/admin/Purchases";
 import ProductionRuns from "@/pages/production/ProductionRuns";
@@ -38,6 +40,8 @@ function Home() {
             <Link to="/admin/bom">BOM</Link>
             <Link to="/admin/orders">Order Queue</Link>
             <Link to="/admin/invoices">Invoices</Link>
+            <Link to="/admin/dispatch">Dispatch</Link>
+            <Link to="/admin/payments">Payments</Link>
           </>
         )}
         {canRecordPurchases && <Link to="/admin/purchases">Purchases</Link>}
@@ -116,6 +120,22 @@ export default function App() {
         element={
           <ProtectedRoute roles={["ADMIN", "OWNER", "ACCOUNTANT"]}>
             <Invoices />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin/dispatch"
+        element={
+          <ProtectedRoute roles={["ADMIN", "OWNER"]}>
+            <Dispatch />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin/payments"
+        element={
+          <ProtectedRoute roles={["ADMIN", "OWNER"]}>
+            <Payments />
           </ProtectedRoute>
         }
       />
