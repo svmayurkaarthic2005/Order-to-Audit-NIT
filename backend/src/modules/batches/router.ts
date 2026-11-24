@@ -10,8 +10,11 @@ import {
 
 export const batchesRouter = Router();
 
+// Same visibility as stock itself (alerts/inventory) — never the salesman.
+const canReadBatches = requireRole("ADMIN", "OWNER", "PRODUCTION", "ACCOUNTANT");
+
 /** GET /batches/raw-material?itemId=&status= */
-batchesRouter.get("/raw-material", requireAuth, async (req, res, next) => {
+batchesRouter.get("/raw-material", requireAuth, canReadBatches, async (req, res, next) => {
   try {
     const { itemId, status } = req.query as { itemId?: string; status?: string };
     const data = await listRawBatches(itemId, status);
@@ -22,7 +25,7 @@ batchesRouter.get("/raw-material", requireAuth, async (req, res, next) => {
 });
 
 /** GET /batches/finished-goods?itemId=&status= */
-batchesRouter.get("/finished-goods", requireAuth, async (req, res, next) => {
+batchesRouter.get("/finished-goods", requireAuth, canReadBatches, async (req, res, next) => {
   try {
     const { itemId, status } = req.query as { itemId?: string; status?: string };
     const data = await listFinishedBatches(itemId, status);
@@ -33,7 +36,7 @@ batchesRouter.get("/finished-goods", requireAuth, async (req, res, next) => {
 });
 
 /** GET /batches/raw-material/:id/genealogy */
-batchesRouter.get("/raw-material/:id/genealogy", requireAuth, async (req, res, next) => {
+batchesRouter.get("/raw-material/:id/genealogy", requireAuth, canReadBatches, async (req, res, next) => {
   try {
     const data = await genealogyForward(req.params.id as string);
     res.json({ data });
@@ -43,7 +46,7 @@ batchesRouter.get("/raw-material/:id/genealogy", requireAuth, async (req, res, n
 });
 
 /** GET /batches/dispatch/:id/genealogy */
-batchesRouter.get("/dispatch/:id/genealogy", requireAuth, async (req, res, next) => {
+batchesRouter.get("/dispatch/:id/genealogy", requireAuth, canReadBatches, async (req, res, next) => {
   try {
     const data = await genealogyBackward(req.params.id as string);
     res.json({ data });
