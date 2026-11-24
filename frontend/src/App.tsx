@@ -6,6 +6,7 @@ import BOM from "@/pages/admin/BOM";
 import Customers from "@/pages/admin/Masters/Customers";
 import Items from "@/pages/admin/Masters/Items";
 import Suppliers from "@/pages/admin/Masters/Suppliers";
+import Invoices from "@/pages/admin/Invoices";
 import OpeningStock from "@/pages/admin/OpeningStock";
 import OrderQueue from "@/pages/admin/OrderQueue";
 import Purchases from "@/pages/admin/Purchases";
@@ -36,6 +37,7 @@ function Home() {
             <Link to="/admin/opening-stock">Opening Stock</Link>
             <Link to="/admin/bom">BOM</Link>
             <Link to="/admin/orders">Order Queue</Link>
+            <Link to="/admin/invoices">Invoices</Link>
           </>
         )}
         {canRecordPurchases && <Link to="/admin/purchases">Purchases</Link>}
@@ -106,6 +108,14 @@ export default function App() {
         element={
           <ProtectedRoute roles={["ADMIN", "OWNER"]}>
             <OrderQueue />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin/invoices"
+        element={
+          <ProtectedRoute roles={["ADMIN", "OWNER", "ACCOUNTANT"]}>
+            <Invoices />
           </ProtectedRoute>
         }
       />

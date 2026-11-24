@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { api, ApiError } from "@/lib/api";
 
 type Order = {
@@ -52,9 +53,22 @@ export default function OrderQueue() {
     },
   });
 
+  const invoiceMutation = useMutation({
+    mutationFn: (orderId: string) => api.post("/invoices", { orderId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["orders"] });
+      queryClient.invalidateQueries({ queryKey: ["invoices"] });
+    },
+  });
+
   return (
     <main className="mx-auto max-w-2xl p-6 text-foreground">
-      <h1 className="mb-4 text-2xl font-semibold">Order Queue</h1>
+      <div className="mb-4 flex items-center justify-between">
+        <h1 className="text-2xl font-semibold">Order Queue</h1>
+        <Link to="/admin/invoices" className="text-sm text-primary underline">
+          Invoices
+        </Link>
+      </div>
 
       <div className="mb-4 flex gap-2 border-b border-border">
         {TABS.map((t) => (
@@ -106,6 +120,18 @@ export default function OrderQueue() {
                     </button>
                     <button onClick={() => setRejectingOrderId(o.id)} className="text-destructive underline">
                       Reject
+                    </button>
+                  </div>
+                )}
+
+                {o.status === "APPROVED" && (
+                  <div className="mt-2 flex gap-3 text-sm">
+                    <button
+                      onClick={() => invoiceMutation.mutate(o.id)}
+                      disabled={invoiceMutation.isPending}
+                      className="rounded bg-primary px-3 py-1 text-primary-foreground disabled:opacity-50"
+                    >
+                      {invoiceMutation.isPending && invoiceMutation.variables === o.id ? "Creating invoice…" : "Create invoice"}
                     </button>
                   </div>
                 )}

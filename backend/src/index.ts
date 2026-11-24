@@ -7,6 +7,7 @@ import { bomRouter, packSizesRouter } from "./modules/bom/router.js";
 import { customersRouter } from "./modules/customers/router.js";
 import { debugRouter } from "./modules/debug/router.js";
 import { inventoryRouter } from "./modules/inventory/router.js";
+import { invoicesRouter } from "./modules/invoices/router.js";
 import { itemsRouter } from "./modules/items/router.js";
 import { ordersRouter } from "./modules/orders/router.js";
 import { productionRouter } from "./modules/production/router.js";
@@ -34,6 +35,7 @@ app.use("/boms", bomRouter);
 app.use("/pack-sizes", packSizesRouter);
 app.use("/production-runs", productionRouter);
 app.use("/orders", ordersRouter);
+app.use("/invoices", invoicesRouter);
 app.use("/debug", debugRouter);
 
 app.use(errorHandler);
