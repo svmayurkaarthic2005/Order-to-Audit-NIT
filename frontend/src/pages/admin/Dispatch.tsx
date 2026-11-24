@@ -89,7 +89,7 @@ export default function Dispatch() {
                           type="number"
                           value={qtyByInvoice[inv.id] ?? ""}
                           onChange={(e) => setQtyByInvoice((prev) => ({ ...prev, [inv.id]: e.target.value }))}
-                          className="h-9 w-36"
+                          className="h-9 w-44 sm:w-48"
                         />
                         <Button
                           size="sm"

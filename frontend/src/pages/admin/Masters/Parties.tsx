@@ -106,23 +106,54 @@ export default function Parties() {
           </div>
           <form
             onSubmit={(e) => { e.preventDefault(); createMutation.mutate(); }}
-            className="flex flex-wrap items-end gap-3 p-5"
+            className="p-5"
           >
-            <div className="flex-1 min-w-[180px]">
-              <label className="mb-1.5 block text-sm font-medium text-foreground">Name *</label>
-              <Input placeholder={config.namePlaceholder} required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-12">
+              <div className="sm:col-span-2 lg:col-span-6">
+                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Name <span className="text-destructive">*</span>
+                </label>
+                <Input
+                  placeholder={config.namePlaceholder}
+                  required
+                  value={form.name}
+                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                  className="w-full"
+                />
+              </div>
+              <div className="sm:col-span-1 lg:col-span-3">
+                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  State <span className="text-destructive">*</span>
+                </label>
+                <Input
+                  placeholder="e.g. Tamil Nadu"
+                  required
+                  value={form.state}
+                  onChange={(e) => setForm({ ...form, state: e.target.value })}
+                  className="w-full"
+                />
+              </div>
+              <div className="sm:col-span-1 lg:col-span-3">
+                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  GSTIN
+                </label>
+                <Input
+                  placeholder="Optional 15-digit GSTIN"
+                  value={form.gstin}
+                  onChange={(e) => setForm({ ...form, gstin: e.target.value.toUpperCase() })}
+                  className="w-full font-mono text-xs uppercase"
+                />
+              </div>
             </div>
-            <div className="w-32">
-              <label className="mb-1.5 block text-sm font-medium text-foreground">State *</label>
-              <Input placeholder="State" required value={form.state} onChange={(e) => setForm({ ...form, state: e.target.value })} />
+
+            <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-t border-border/50 pt-3.5">
+              <p className="text-xs text-muted-foreground">
+                State is used for SGST/CGST vs IGST tax split calculation.
+              </p>
+              <Button type="submit" disabled={createMutation.isPending} className="self-end sm:self-auto px-6">
+                {createMutation.isPending ? "Adding…" : config.addLabel}
+              </Button>
             </div>
-            <div className="w-44">
-              <label className="mb-1.5 block text-sm font-medium text-foreground">GSTIN</label>
-              <Input placeholder="Optional" value={form.gstin} onChange={(e) => setForm({ ...form, gstin: e.target.value })} className="font-mono text-xs" />
-            </div>
-            <Button type="submit" disabled={createMutation.isPending}>
-              {createMutation.isPending ? "Adding…" : config.addLabel}
-            </Button>
           </form>
         </Card>
       )}

@@ -86,53 +86,97 @@ export default function Items() {
           </div>
           <form
             onSubmit={(e) => { e.preventDefault(); createMutation.mutate(); }}
-            className="flex flex-wrap items-end gap-3 p-5"
+            className="p-5"
           >
-            <div className="flex-1 min-w-[180px]">
-              <label className="mb-1.5 block text-sm font-medium text-foreground">Name *</label>
-              <Input
-                placeholder="Item name"
-                required
-                value={form.name}
-                onChange={(e) => {
-                  const name = e.target.value;
-                  setForm((prev) => ({ ...prev, name, sku: skuEditedManually ? prev.sku : suggestSku(name) }));
-                }}
-              />
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-12">
+              {/* Item Name */}
+              <div className="sm:col-span-2 lg:col-span-5">
+                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Item Name <span className="text-destructive">*</span>
+                </label>
+                <Input
+                  placeholder="e.g. Murukku 200 g, Groundnut Oil"
+                  required
+                  value={form.name}
+                  onChange={(e) => {
+                    const name = e.target.value;
+                    setForm((prev) => ({ ...prev, name, sku: skuEditedManually ? prev.sku : suggestSku(name) }));
+                  }}
+                  className="w-full"
+                />
+              </div>
+
+              {/* SKU */}
+              <div className="sm:col-span-1 lg:col-span-3">
+                <div className="mb-1.5 flex items-center justify-between">
+                  <label
+                    className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground"
+                    title="Unique SKU code. Auto-suggested from the item name, or enter your custom code."
+                  >
+                    SKU Code <span className="text-destructive">*</span>
+                  </label>
+                  <span className="text-[10px] text-muted-foreground">
+                    {skuEditedManually ? "Custom" : "Auto-generated"}
+                  </span>
+                </div>
+                <Input
+                  placeholder="AUTO-FROM-NAME"
+                  required
+                  value={form.sku}
+                  onChange={(e) => {
+                    setSkuEditedManually(true);
+                    setForm({ ...form, sku: e.target.value.toUpperCase() });
+                  }}
+                  className="w-full font-mono uppercase tracking-wide"
+                />
+              </div>
+
+              {/* Type */}
+              <div className="sm:col-span-1 lg:col-span-2">
+                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Type <span className="text-destructive">*</span>
+                </label>
+                <Select
+                  value={form.type}
+                  onChange={(e) => setForm({ ...form, type: e.target.value as Item["type"] })}
+                  className="w-full"
+                >
+                  {TYPES.map((t) => (
+                    <option key={t} value={t}>
+                      {t.replace(/_/g, " ")}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+
+              {/* Base Unit */}
+              <div className="sm:col-span-1 lg:col-span-2">
+                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Unit <span className="text-destructive">*</span>
+                </label>
+                <Select
+                  value={form.baseUnit}
+                  onChange={(e) => setForm({ ...form, baseUnit: e.target.value as Item["baseUnit"] })}
+                  className="w-full"
+                >
+                  {UNITS.map((u) => (
+                    <option key={u} value={u}>
+                      {u}
+                    </option>
+                  ))}
+                </Select>
+              </div>
             </div>
-            <div className="w-36">
-              <label
-                className="mb-1.5 block text-sm font-medium text-foreground"
-                title="SKU: the item's unique code, used in reports, dropdowns and dispatch. Auto-filled from the name — edit if you have your own convention."
-              >
-                SKU *
-              </label>
-              <Input
-                placeholder="AUTO-FROM-NAME"
-                required
-                value={form.sku}
-                onChange={(e) => {
-                  setSkuEditedManually(true);
-                  setForm({ ...form, sku: e.target.value });
-                }}
-                className="font-mono"
-              />
+
+            {/* Form actions row */}
+            <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-t border-border/50 pt-3.5">
+              <p className="text-xs text-muted-foreground">
+                SKU is auto-suggested from the name. All inventory transactions track by base unit.
+              </p>
+              <Button type="submit" disabled={createMutation.isPending} className="self-end sm:self-auto px-6">
+                {createMutation.isPending ? "Adding…" : "Add Item"}
+              </Button>
             </div>
-            <div className="w-44">
-              <label className="mb-1.5 block text-sm font-medium text-foreground">Type</label>
-              <Select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value as Item["type"] })}>
-                {TYPES.map((t) => <option key={t} value={t}>{t.replace("_", " ")}</option>)}
-              </Select>
-            </div>
-            <div className="w-28">
-              <label className="mb-1.5 block text-sm font-medium text-foreground">Unit</label>
-              <Select value={form.baseUnit} onChange={(e) => setForm({ ...form, baseUnit: e.target.value as Item["baseUnit"] })}>
-                {UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
-              </Select>
-            </div>
-            <Button type="submit" disabled={createMutation.isPending}>
-              {createMutation.isPending ? "Adding…" : "Add item"}
-            </Button>
           </form>
         </Card>
       )}
@@ -151,20 +195,24 @@ export default function Items() {
               <Th>Name</Th>
               <Th>Type</Th>
               <Th>Unit</Th>
-              {canMutate && <Th>Action</Th>}
+              {canMutate && <Th className="text-right">Action</Th>}
             </tr>
           </THead>
           <tbody>
             {data.items.map((i) => (
               <tr key={i.id} className="transition-colors hover:bg-secondary/30">
-                <Td className="font-mono text-xs text-muted-foreground">{i.sku}</Td>
+                <Td className="whitespace-nowrap">
+                  <span className="font-mono text-xs font-semibold text-foreground bg-secondary/80 px-2 py-0.5 rounded border border-border/60">
+                    {i.sku}
+                  </span>
+                </Td>
                 <Td className="font-semibold text-foreground">{i.name}</Td>
                 <Td>
-                  <StatusBadge variant={TYPE_VARIANT[i.type]}>{i.type.replace("_", " ")}</StatusBadge>
+                  <StatusBadge variant={TYPE_VARIANT[i.type]}>{i.type.replace(/_/g, " ")}</StatusBadge>
                 </Td>
-                <Td className="text-muted-foreground">{i.baseUnit}</Td>
+                <Td className="text-muted-foreground font-medium">{i.baseUnit}</Td>
                 {canMutate && (
-                  <Td>
+                  <Td className="text-right whitespace-nowrap">
                     <Button size="sm" variant="danger" onClick={() => deleteMutation.mutate(i.id)}>
                       Deactivate
                     </Button>

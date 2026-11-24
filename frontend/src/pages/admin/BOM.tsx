@@ -118,12 +118,12 @@ export default function BOM() {
               <p className="mb-1.5 text-xs font-medium text-muted-foreground">Material lines</p>
               <div className="flex flex-col gap-2">
                 {lines.map((line, i) => (
-                  <div key={i} className="flex flex-col sm:flex-row gap-2">
+                  <div key={i} className="flex flex-col sm:flex-row items-center gap-2">
                     <Select
                       value={line.rawItemId}
                       required
                       onChange={(e) => updateLine(i, { rawItemId: e.target.value })}
-                      className="flex-1"
+                      className="flex-1 w-full"
                     >
                       <option value="">Raw material / packaging…</option>
                       {rawAndPackagingItems.map((it) => (
@@ -133,13 +133,25 @@ export default function BOM() {
                       ))}
                     </Select>
                     <Input
-                      placeholder="Qty/batch"
+                      placeholder="Qty / batch"
                       type="number"
                       required
                       value={line.qtyPerBatch}
                       onChange={(e) => updateLine(i, { qtyPerBatch: e.target.value })}
-                      className="w-full sm:w-32"
+                      className="w-full sm:w-36"
                     />
+                    {lines.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => setLines((prev) => prev.filter((_, idx) => idx !== i))}
+                        className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-destructive-bg hover:text-destructive"
+                        title="Remove line"
+                      >
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M18 6L6 18M6 6l12 12" />
+                        </svg>
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
@@ -159,42 +171,52 @@ export default function BOM() {
       )}
 
       {canMutate && (
-        <Card className="mb-6 p-4">
-          <h2 className="mb-3 text-sm font-semibold text-foreground">New pack size</h2>
+        <Card className="mb-6 overflow-hidden">
+          <div className="border-b border-border/60 bg-secondary/30 px-5 py-3.5">
+            <h2 className="text-sm font-semibold text-foreground">New Pack Size</h2>
+          </div>
           <form
             onSubmit={(e) => {
               e.preventDefault();
               createPackSizeMutation.mutate();
             }}
-            className="flex flex-col gap-3 sm:flex-row sm:items-end"
+            className="p-5"
           >
-            <div className="flex-1">
-              <Field label="Base BOM" required>
-                <Select value={packBomId} required onChange={(e) => setPackBomId(e.target.value)} className="w-full">
-                  <option value="">Select…</option>
-                  {boms?.map((b) => (
-                    <option key={b.id} value={b.id}>
-                      {b.finishedItem.sku} — {b.finishedItem.name}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-12">
+              <div className="sm:col-span-2 lg:col-span-6">
+                <Field label="Base Recipe / BOM" required>
+                  <Select value={packBomId} required onChange={(e) => setPackBomId(e.target.value)} className="w-full">
+                    <option value="">Select recipe…</option>
+                    {boms?.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.finishedItem.sku} — {b.finishedItem.name}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              </div>
+              <div className="sm:col-span-1 lg:col-span-3">
+                <Field label="Pack Label" required>
+                  <Input placeholder="e.g. 500 g pouch" required value={packLabel} onChange={(e) => setPackLabel(e.target.value)} className="w-full" />
+                </Field>
+              </div>
+              <div className="sm:col-span-1 lg:col-span-3">
+                <Field label="Multiplier (units/pack)" required>
+                  <Input type="number" required value={packMultiplier} onChange={(e) => setPackMultiplier(e.target.value)} className="w-full" />
+                </Field>
+              </div>
             </div>
-            <div className="w-full sm:w-36">
-              <Field label="Label" required>
-                <Input placeholder="e.g. 500g" required value={packLabel} onChange={(e) => setPackLabel(e.target.value)} />
-              </Field>
+
+            <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-t border-border/50 pt-3.5">
+              <p className="text-xs text-muted-foreground">
+                Pack sizes allow selling items in multi-packs while tracking single-unit production recipes.
+              </p>
+              <Button type="submit" disabled={createPackSizeMutation.isPending} className="self-end sm:self-auto px-6">
+                {createPackSizeMutation.isPending ? "Creating…" : "Create Pack Size"}
+              </Button>
             </div>
-            <div className="w-full sm:w-28">
-              <Field label="Multiplier" required>
-                <Input type="number" required value={packMultiplier} onChange={(e) => setPackMultiplier(e.target.value)} />
-              </Field>
-            </div>
-            <Button type="submit" disabled={createPackSizeMutation.isPending}>
-              Create
-            </Button>
           </form>
-          {packError && <div className="mt-2"><ErrorText>{packError}</ErrorText></div>}
+          {packError && <div className="p-4 pt-0"><ErrorText>{packError}</ErrorText></div>}
         </Card>
       )}
 

@@ -185,7 +185,7 @@ export default function Invoices() {
                               type="number"
                               value={amountByInvoice[inv.id] ?? ""}
                               onChange={(e) => setAmountByInvoice((prev) => ({ ...prev, [inv.id]: e.target.value }))}
-                              className="h-9 w-36"
+                              className="h-9 w-40"
                             />
                             <Button
                               size="sm"
@@ -216,7 +216,7 @@ export default function Invoices() {
                           placeholder="WhatsApp number"
                           value={whatsappNumberByInvoice[inv.id] ?? ""}
                           onChange={(e) => setWhatsappNumberByInvoice((prev) => ({ ...prev, [inv.id]: e.target.value }))}
-                          className="h-8 w-36 text-sm"
+                          className="h-9 w-44 text-sm"
                         />
                         <Button size="sm" variant="secondary" onClick={() => shareOnWhatsApp(inv)}>
                           <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">

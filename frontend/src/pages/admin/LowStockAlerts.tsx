@@ -121,21 +121,28 @@ function OpeningStockForm({ onDone }: { onDone: () => void }) {
             e.preventDefault();
             submitMutation.mutate();
           }}
-          className="mt-4 flex flex-wrap items-end gap-3"
+          className="mt-4"
         >
-          <div className="w-40">
-            <Field label={`Quantity (${selectedItem?.baseUnit ?? "base unit"})`} required>
-              <Input type="number" required value={qtyBase} onChange={(e) => setQtyBase(e.target.value)} className="w-full" />
-            </Field>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <Field label={`Quantity (${selectedItem?.baseUnit ?? "base unit"})`} required>
+                <Input type="number" required value={qtyBase} onChange={(e) => setQtyBase(e.target.value)} className="w-full" placeholder="e.g. 500" />
+              </Field>
+            </div>
+            <div>
+              <Field label="Total Cost (paise)" required>
+                <Input type="number" required value={totalCostPaise} onChange={(e) => setTotalCostPaise(e.target.value)} className="w-full" placeholder="e.g. 25000" />
+              </Field>
+            </div>
           </div>
-          <div className="w-44">
-            <Field label="Total cost (paise)" required>
-              <Input type="number" required value={totalCostPaise} onChange={(e) => setTotalCostPaise(e.target.value)} className="w-full" />
-            </Field>
+          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-t border-border/50 pt-3.5">
+            <p className="text-xs text-muted-foreground">
+              Opening stock initializes inventory balance and weighted moving-average unit cost.
+            </p>
+            <Button type="submit" disabled={!itemId || submitMutation.isPending} className="self-end sm:self-auto px-6">
+              {submitMutation.isPending ? "Posting…" : "Post Opening Stock"}
+            </Button>
           </div>
-          <Button type="submit" disabled={!itemId || submitMutation.isPending}>
-            Post opening stock
-          </Button>
         </form>
         {error && <div className="mt-3"><ErrorText>{error}</ErrorText></div>}
       </div>

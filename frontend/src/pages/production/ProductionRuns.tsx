@@ -157,42 +157,53 @@ export default function ProductionRuns() {
       <PageHeader title="Production runs" description="Create batches, issue materials, record output and track variance." />
 
       {canMutate && (
-        <Card className="mb-6 p-4">
-          <h2 className="mb-3 text-sm font-semibold text-foreground">New production run</h2>
+        <Card className="mb-6 overflow-hidden">
+          <div className="border-b border-border/60 bg-secondary/30 px-5 py-3.5">
+            <h2 className="text-sm font-semibold text-foreground">New Production Run</h2>
+          </div>
           <form
             onSubmit={(e) => {
               e.preventDefault();
               createMutation.mutate();
             }}
-            className="flex flex-col gap-3 sm:flex-row sm:items-end"
+            className="p-5"
           >
-            <div className="flex-1">
-              <Field label="BOM / recipe" required>
-                <Select value={bomId} required onChange={(e) => setBomId(e.target.value)} className="w-full">
-                  <option value="">Select a recipe…</option>
-                  {boms?.map((b) => (
-                    <option key={b.id} value={b.id}>
-                      {b.finishedItem.sku} — {b.finishedItem.name} (yield {b.expectedYieldQty}/batch)
-                    </option>
-                  ))}
-                </Select>
-              </Field>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-12">
+              <div className="sm:col-span-8">
+                <Field label="BOM / Recipe" required>
+                  <Select value={bomId} required onChange={(e) => setBomId(e.target.value)} className="w-full">
+                    <option value="">Select a recipe…</option>
+                    {boms?.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.finishedItem.sku} — {b.finishedItem.name} (Expected yield: {b.expectedYieldQty}/batch)
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              </div>
+              <div className="sm:col-span-4">
+                <Field label="Batch Size (Multiplier)" required>
+                  <Input type="number" required min="1" value={batchSize} onChange={(e) => setBatchSize(e.target.value)} className="w-full" />
+                </Field>
+              </div>
             </div>
-            <div className="w-full sm:w-28">
-              <Field label="Batch size" required>
-                <Input type="number" required value={batchSize} onChange={(e) => setBatchSize(e.target.value)} />
-              </Field>
+
+            <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-t border-border/50 pt-3.5">
+              <p className="text-xs text-muted-foreground">
+                {selectedBom ? (
+                  <>
+                    Expected yield: <span className="tabular font-semibold text-foreground">{selectedBom.expectedYieldQty * Number(batchSize || 1)}</span> units
+                  </>
+                ) : (
+                  "Select a recipe and batch multiplier to plan required materials."
+                )}
+              </p>
+              <Button type="submit" disabled={createMutation.isPending} className="self-end sm:self-auto px-6">
+                {createMutation.isPending ? "Creating…" : "Create Run (DRAFT)"}
+              </Button>
             </div>
-            <Button type="submit" disabled={createMutation.isPending}>
-              Create (DRAFT)
-            </Button>
           </form>
-          {selectedBom && (
-            <p className="mt-2 text-sm text-muted-foreground">
-              Expected yield: <span className="tabular font-medium text-foreground">{selectedBom.expectedYieldQty * Number(batchSize || 1)}</span>
-            </p>
-          )}
-          {error && <div className="mt-2"><ErrorText>{error}</ErrorText></div>}
+          {error && <div className="p-4 pt-0"><ErrorText>{error}</ErrorText></div>}
         </Card>
       )}
 

@@ -100,7 +100,7 @@ export default function OrderEntry() {
                     ))}
                   </Select>
                 </div>
-                <div className="flex items-center gap-3 px-4 py-3">
+                <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] items-end gap-3 px-4 py-3">
                   <Field label="Quantity" required>
                     <Input
                       placeholder="0"
@@ -113,7 +113,7 @@ export default function OrderEntry() {
                   </Field>
                   <Field label="Rate (paise)" required>
                     <Input
-                      placeholder="0"
+                      placeholder="e.g. 5000 (= ₹50)"
                       type="number"
                       inputMode="numeric"
                       value={line.ratePaise}
@@ -125,8 +125,9 @@ export default function OrderEntry() {
                     <button
                       type="button"
                       onClick={() => removeLine(i)}
-                      className="mt-5 shrink-0 rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-destructive-bg hover:text-destructive"
+                      className="mb-1 self-end sm:self-auto rounded-lg p-2 text-muted-foreground transition-colors hover:bg-destructive-bg hover:text-destructive"
                       aria-label="Remove line"
+                      title="Remove product"
                     >
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M18 6L6 18M6 6l12 12" />
