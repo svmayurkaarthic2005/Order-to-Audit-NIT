@@ -73,7 +73,7 @@ describe("master data: items", () => {
     const createRes = await request(app)
       .post("/items")
       .set("Cookie", cookie)
-      .send({ sku, name: "Test Raw Material", type: "RAW_MATERIAL", baseUnit: "G" });
+      .send({ sku, name: "Test Raw Material", type: "RAW_MATERIAL", baseUnit: "G", taxRatePct: 5 });
     expect(createRes.status).toBe(201);
     const id = createRes.body.data.id;
 
@@ -82,6 +82,8 @@ describe("master data: items", () => {
       .set("Cookie", cookie)
       .send({ name: "Renamed Raw Material" });
     expect(editRes.status).toBe(200);
+    // A PATCH that doesn't mention taxRatePct must not silently reset it to 0.
+    expect(editRes.body.data.taxRatePct).toBe(5);
 
     const deleteRes = await request(app).delete(`/items/${id}`).set("Cookie", cookie);
     expect(deleteRes.status).toBe(200);
