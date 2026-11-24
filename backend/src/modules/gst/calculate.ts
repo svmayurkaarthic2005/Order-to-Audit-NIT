@@ -1,0 +1,38 @@
+export type GstLineItem = {
+  qtyBase: number;
+  ratePaise: number;
+  taxRatePct: number; // each item's own GST rate, set on the item (Phase 4) — no HSN registry lookup needed here
+};
+
+export type GstResult = {
+  taxableValuePaise: number;
+  cgstPaise: number;
+  sgstPaise: number;
+  igstPaise: number;
+  totalPaise: number;
+};
+
+// Pure function: no DB access, no side effects — everything in integer
+// paise, never floating-point money. CGST+SGST (split evenly) when the
+// customer is in the same state as the supplier; IGST (the full tax, once)
+// when they're in different states.
+export function calculate(items: GstLineItem[], supplierState: string, customerState: string): GstResult {
+  const taxableValuePaise = items.reduce((sum, item) => sum + item.qtyBase * item.ratePaise, 0);
+  const totalTaxPaise = items.reduce(
+    (sum, item) => sum + Math.round((item.qtyBase * item.ratePaise * item.taxRatePct) / 100),
+    0,
+  );
+
+  const isInterstate = supplierState !== customerState;
+  const cgstPaise = isInterstate ? 0 : Math.round(totalTaxPaise / 2);
+  const sgstPaise = isInterstate ? 0 : totalTaxPaise - cgstPaise; // exact remainder, so CGST+SGST always sums to totalTaxPaise
+  const igstPaise = isInterstate ? totalTaxPaise : 0;
+
+  return {
+    taxableValuePaise,
+    cgstPaise,
+    sgstPaise,
+    igstPaise,
+    totalPaise: taxableValuePaise + totalTaxPaise,
+  };
+}
