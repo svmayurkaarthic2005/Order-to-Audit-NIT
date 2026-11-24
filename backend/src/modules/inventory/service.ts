@@ -12,15 +12,23 @@ export async function getItemOrThrow(itemId: string) {
 
 // On-hand is never a cached column — it is always this live aggregate over
 // the ledger: SUM(signed qtyBase) across every physical stock_movements row.
+// movingAverageCostPaise is the same idea applied to cost: SUM(totalCostPaise)
+// / SUM(qtyBase) across the ledger — with only receipts posted so far
+// (opening stock, purchases), this is exactly the moving weighted-average
+// unit cost; once Phase 8 starts posting consumption at that prevailing
+// average, the ratio stays correct without any extra bookkeeping.
 export async function getOnHand(itemId: string) {
   const item = await getItemOrThrow(itemId);
   const agg = await prisma.stockMovement.aggregate({
     where: { itemId },
-    _sum: { qtyBase: true },
+    _sum: { qtyBase: true, totalCostPaise: true },
   });
+  const qtyBase = agg._sum.qtyBase ?? 0;
+  const totalCostPaise = agg._sum.totalCostPaise ?? 0;
   return {
-    qtyBase: agg._sum.qtyBase ?? 0,
+    qtyBase,
     unit: item.baseUnit,
+    movingAverageCostPaise: qtyBase > 0 ? Math.round(totalCostPaise / qtyBase) : null,
     asOf: new Date().toISOString(),
   };
 }

@@ -34,12 +34,21 @@ describe("unit conversion", () => {
 });
 
 describe("inventory ledger", () => {
-  it("on-hand for Flour matches the benchmark's seeded opening stock (100 kg = 100000 g)", async () => {
+  it("on-hand for Flour matches a live SUM() over its stock_movements ledger", async () => {
     const flour = await prisma.item.findUniqueOrThrow({ where: { sku: "RM-FLOUR" } });
+    // Computed independently of the API, from the ledger directly — Flour's
+    // running balance legitimately changes as later phases (purchases,
+    // production) post more rows to it, so this asserts the on-hand endpoint
+    // is a correct live aggregate, not a hard-coded seed-time snapshot.
+    const expected = await prisma.stockMovement.aggregate({
+      where: { itemId: flour.id },
+      _sum: { qtyBase: true },
+    });
     const cookie = await loginAs("owner@porulottam.test");
     const res = await request(app).get(`/inventory/${flour.id}/on-hand`).set("Cookie", cookie);
     expect(res.status).toBe(200);
-    expect(res.body.data.qtyBase).toBe(100_000);
+    expect(res.body.data.qtyBase).toBe(expected._sum.qtyBase);
+    expect(res.body.data.qtyBase).toBeGreaterThanOrEqual(100_000); // at least the seeded opening stock
     expect(res.body.data.unit).toBe("G");
   });
 

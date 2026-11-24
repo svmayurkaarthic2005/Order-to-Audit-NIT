@@ -7,6 +7,7 @@ import { customersRouter } from "./modules/customers/router.js";
 import { debugRouter } from "./modules/debug/router.js";
 import { inventoryRouter } from "./modules/inventory/router.js";
 import { itemsRouter } from "./modules/items/router.js";
+import { purchasesRouter } from "./modules/purchases/router.js";
 import { suppliersRouter } from "./modules/suppliers/router.js";
 
 const app = express();
@@ -25,6 +26,7 @@ app.use("/customers", customersRouter);
 app.use("/suppliers", suppliersRouter);
 app.use("/items", itemsRouter);
 app.use("/inventory", inventoryRouter);
+app.use("/purchases", purchasesRouter);
 app.use("/debug", debugRouter);
 
 app.use(errorHandler);
