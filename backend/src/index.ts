@@ -3,7 +3,10 @@ import cors from "cors";
 import express from "express";
 import { errorHandler } from "./middleware/errorHandler.js";
 import { authRouter } from "./modules/auth/router.js";
+import { customersRouter } from "./modules/customers/router.js";
 import { debugRouter } from "./modules/debug/router.js";
+import { itemsRouter } from "./modules/items/router.js";
+import { suppliersRouter } from "./modules/suppliers/router.js";
 
 const app = express();
 const PORT = process.env.PORT ? Number(process.env.PORT) : 4000;
@@ -17,6 +20,9 @@ app.get("/health", (_req, res) => {
 });
 
 app.use("/auth", authRouter);
+app.use("/customers", customersRouter);
+app.use("/suppliers", suppliersRouter);
+app.use("/items", itemsRouter);
 app.use("/debug", debugRouter);
 
 app.use(errorHandler);

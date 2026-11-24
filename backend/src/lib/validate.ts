@@ -4,6 +4,19 @@ import { AppError } from "./AppError.js";
 
 type Source = "body" | "query" | "params";
 
+declare global {
+  // eslint-disable-next-line @typescript-eslint/no-namespace
+  namespace Express {
+    interface Request {
+      // Express 5's req.query getter returns a fresh object on every access
+      // (confirmed: req.query === req.query is false), so a validated query
+      // with defaults applied cannot be written back onto req.query itself —
+      // it goes here instead. body/params remain plain, settable properties.
+      validatedQuery?: unknown;
+    }
+  }
+}
+
 export function validate<T>(source: Source, schema: ZodType<T>): RequestHandler {
   return (req: Request, _res: Response, next: NextFunction) => {
     const result = schema.safeParse(req[source]);
@@ -14,8 +27,7 @@ export function validate<T>(source: Source, schema: ZodType<T>): RequestHandler 
       return;
     }
     if (source === "query") {
-      // Express 5's req.query is getter-only; mutate it in place instead of reassigning.
-      Object.assign(req.query, result.data);
+      req.validatedQuery = result.data;
     } else {
       req[source] = result.data as never;
     }

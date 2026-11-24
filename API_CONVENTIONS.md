@@ -37,6 +37,17 @@ Validate `query`, `body` or `params` with `validate(source, zodSchema)` (`backen
 router.post("/orders", validate("body", createOrderSchema), async (req, res) => { ... });
 ```
 
+**Reading a validated query:** Express 5's `req.query` is a fresh object on every access (`req.query === req.query` is `false`), so a validated query — with zod defaults applied, e.g. `page` — cannot be written back onto `req.query` and read later; it would silently vanish. `validate("query", schema)` instead sets `req.validatedQuery`. Always read `req.validatedQuery`, never `req.query`, in a route that validates its query:
+
+```ts
+router.get("/", validate("query", listQuerySchema), async (req, res) => {
+  const { search, page } = req.validatedQuery as { search?: string; page: number };
+  ...
+});
+```
+
+`body` and `params` don't have this problem — they're plain settable properties, so `validate("body"/"params", schema)` reassigns `req.body`/`req.params` directly and that value is what later code sees.
+
 ## Module layout
 
 ```

@@ -12,7 +12,7 @@ debugRouter.get("/error-test", () => {
 
 // Proves the zod validator's 400 shape. Remove this route before Phase 18.
 debugRouter.get("/validate-test", validate("query", z.object({ name: z.string().min(1) })), (req, res) => {
-  res.json({ data: { name: (req.query as { name: string }).name } });
+  res.json({ data: { name: (req.validatedQuery as { name: string }).name } });
 });
 
 // Proves role-based access control. Remove this route before Phase 18.
