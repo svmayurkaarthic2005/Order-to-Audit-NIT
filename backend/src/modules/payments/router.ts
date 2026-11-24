@@ -17,6 +17,6 @@ paymentsRouter.get("/", canReadPayments, async (req, res) => {
 });
 
 paymentsRouter.post("/", canManagePayments, validate("body", paymentCreateSchema), async (req, res) => {
-  const result = await createPayment(req.body.invoiceId, req.body.amountPaise);
+  const result = await createPayment(req.body.invoiceId, req.body.amountPaise, req.user!.id);
   res.status(201).json({ data: result });
 });

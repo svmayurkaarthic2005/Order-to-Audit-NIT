@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { AppError } from "../../lib/AppError.js";
+import { logAudit } from "../../lib/audit.js";
 import { prisma } from "../../lib/prisma.js";
 
 type TxClient = Prisma.TransactionClient;
@@ -18,7 +19,7 @@ export async function listDispatches() {
 // Dispatch.invoiceId is @unique, so the database itself guarantees at most
 // one dispatch per invoice even under concurrent requests — the real
 // protection against double-dispatch, not the pre-check below.
-export async function createDispatch(invoiceId: string, qty: number) {
+export async function createDispatch(invoiceId: string, qty: number, actingUserId: string) {
   try {
     return await prisma.$transaction(async (tx) => {
       const invoice = await tx.invoice.findUnique({ where: { id: invoiceId }, include: { items: true } });
@@ -48,6 +49,14 @@ export async function createDispatch(invoiceId: string, qty: number) {
       });
 
       await tx.salesOrder.update({ where: { id: invoice.salesOrderId }, data: { status: "DISPATCHED" } });
+
+      await logAudit(tx, {
+        userId: actingUserId,
+        action: "DISPATCH",
+        entityType: "Invoice",
+        entityId: invoiceId,
+        after: { qty },
+      });
 
       return tx.dispatch.findUniqueOrThrow({ where: { id: dispatch.id }, include: { invoice: { include: { customer: true } } } });
     });

@@ -3,6 +3,7 @@ import cors from "cors";
 import express from "express";
 import { errorHandler } from "./middleware/errorHandler.js";
 import { authRouter } from "./modules/auth/router.js";
+import { auditRouter } from "./modules/audit/router.js";
 import { bomRouter, packSizesRouter } from "./modules/bom/router.js";
 import { customersRouter } from "./modules/customers/router.js";
 import { debugRouter } from "./modules/debug/router.js";
@@ -16,6 +17,7 @@ import { ordersRouter } from "./modules/orders/router.js";
 import { paymentsRouter } from "./modules/payments/router.js";
 import { productionRouter } from "./modules/production/router.js";
 import { purchasesRouter } from "./modules/purchases/router.js";
+import { reportsRouter } from "./modules/reports/router.js";
 import { suppliersRouter } from "./modules/suppliers/router.js";
 
 const app = express();
@@ -53,6 +55,8 @@ app.use("/orders", ordersRouter);
 app.use("/invoices", invoicesRouter);
 app.use("/dispatches", dispatchRouter);
 app.use("/payments", paymentsRouter);
+app.use("/reports", reportsRouter);
+app.use("/audit-log", auditRouter);
 app.use("/debug", debugRouter);
 
 app.use(errorHandler);

@@ -6,10 +6,13 @@ import BOM from "@/pages/admin/BOM";
 import Customers from "@/pages/admin/Masters/Customers";
 import Items from "@/pages/admin/Masters/Items";
 import Suppliers from "@/pages/admin/Masters/Suppliers";
+import AuditLog from "@/pages/admin/AuditLog";
+import Dashboard from "@/pages/admin/Dashboard";
 import Dispatch from "@/pages/admin/Dispatch";
 import Invoices from "@/pages/admin/Invoices";
 import OpeningStock from "@/pages/admin/OpeningStock";
 import Payments from "@/pages/admin/Payments";
+import Reports from "@/pages/admin/Reports";
 import OrderQueue from "@/pages/admin/OrderQueue";
 import Purchases from "@/pages/admin/Purchases";
 import ProductionRuns from "@/pages/production/ProductionRuns";
@@ -42,6 +45,9 @@ function Home() {
             <Link to="/admin/invoices">Invoices</Link>
             <Link to="/admin/dispatch">Dispatch</Link>
             <Link to="/admin/payments">Payments</Link>
+            <Link to="/admin/reports">Reports</Link>
+            <Link to="/admin/dashboard">Dashboard</Link>
+            <Link to="/admin/audit-log">Audit Log</Link>
           </>
         )}
         {canRecordPurchases && <Link to="/admin/purchases">Purchases</Link>}
@@ -136,6 +142,30 @@ export default function App() {
         element={
           <ProtectedRoute roles={["ADMIN", "OWNER"]}>
             <Payments />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin/reports"
+        element={
+          <ProtectedRoute roles={["ADMIN", "OWNER", "ACCOUNTANT"]}>
+            <Reports />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin/dashboard"
+        element={
+          <ProtectedRoute roles={["ADMIN", "OWNER", "ACCOUNTANT"]}>
+            <Dashboard />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin/audit-log"
+        element={
+          <ProtectedRoute roles={["ADMIN", "OWNER", "ACCOUNTANT"]}>
+            <AuditLog />
           </ProtectedRoute>
         }
       />

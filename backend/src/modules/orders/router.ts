@@ -38,11 +38,11 @@ ordersRouter.post("/", canCreateOrders, validate("body", orderCreateSchema), asy
 });
 
 ordersRouter.post("/:id/approve", canApproveOrders, async (req, res) => {
-  const order = await approveOrder(req.params.id as string);
+  const order = await approveOrder(req.params.id as string, req.user!.id);
   res.json({ data: order });
 });
 
 ordersRouter.post("/:id/reject", canApproveOrders, validate("body", orderRejectSchema), async (req, res) => {
-  const order = await rejectOrder(req.params.id as string, req.body.reason);
+  const order = await rejectOrder(req.params.id as string, req.body.reason, req.user!.id);
   res.json({ data: order });
 });

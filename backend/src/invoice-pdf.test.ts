@@ -61,7 +61,9 @@ describe("invoice PDF generation", () => {
     await prisma.item.updateMany({ where: { sku: { startsWith: TEST_SKU_PREFIX } }, data: { active: false } });
   });
 
-  it("generates the benchmark Retailer A invoice's PDF with a rendered total of exactly ₹7,875", async () => {
+  it(
+    "generates the benchmark Retailer A invoice's PDF with a rendered total of exactly ₹7,875",
+    async () => {
     const adminCookie = await loginAs("admin@porulottam.test");
     const salesmanCookie = await loginAs("salesman@porulottam.test");
     const invoiceId = await makeInvoice(adminCookie, salesmanCookie);
@@ -79,7 +81,9 @@ describe("invoice PDF generation", () => {
     const parsed = await parser.getText();
     await parser.destroy();
     expect(parsed.text).toContain("7875.00");
-  });
+    },
+    15_000, // pdf-parse spins up a pdfjs worker; the default 5s is too tight under full-suite parallel load
+  );
 
   it("requesting the same invoice's PDF twice returns the same URL — only one Storage object is created", async () => {
     const adminCookie = await loginAs("admin@porulottam.test");

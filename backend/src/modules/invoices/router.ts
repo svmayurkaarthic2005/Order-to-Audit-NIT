@@ -33,7 +33,7 @@ invoicesRouter.get("/:id/outstanding", canReadInvoices, async (req, res) => {
 });
 
 invoicesRouter.post("/", canManageInvoices, validate("body", invoiceCreateSchema), async (req, res) => {
-  const invoice = await createInvoice(req.body.orderId);
+  const invoice = await createInvoice(req.body.orderId, req.user!.id);
   res.status(201).json({ data: invoice });
 });
 
@@ -42,7 +42,7 @@ invoicesRouter.post(
   canManageInvoices,
   validate("body", creditNoteCreateSchema),
   async (req, res) => {
-    const invoice = await createCreditNote(req.params.id as string, req.body.reason);
+    const invoice = await createCreditNote(req.params.id as string, req.body.reason, req.user!.id);
     res.status(201).json({ data: invoice });
   },
 );

@@ -1,4 +1,5 @@
 import { AppError } from "../../lib/AppError.js";
+import { logAudit } from "../../lib/audit.js";
 import { prisma } from "../../lib/prisma.js";
 import { uploadInvoicePdf, urlForInvoicePdf } from "../../lib/storage.js";
 import { calculate } from "../gst/calculate.js";
@@ -39,7 +40,7 @@ export async function getInvoice(id: string) {
 // the row level) so two concurrent invoice creations in the same FY can
 // never collide or skip a number. Invoice items are a frozen snapshot —
 // nothing in this module ever updates an InvoiceItem after creation.
-export async function createInvoice(orderId: string) {
+export async function createInvoice(orderId: string, actingUserId: string) {
   return prisma.$transaction(async (tx) => {
     const order = await tx.salesOrder.findUnique({
       where: { id: orderId },
@@ -96,6 +97,14 @@ export async function createInvoice(orderId: string) {
       },
     });
 
+    await logAudit(tx, {
+      userId: actingUserId,
+      action: "CREATE",
+      entityType: "Invoice",
+      entityId: invoice.id,
+      after: { financialYear, invoiceNumber: sequence.lastNumber, totalPaise: gst.totalPaise },
+    });
+
     return tx.invoice.findUniqueOrThrow({ where: { id: invoice.id }, include: includeClause });
   });
 }
@@ -103,7 +112,7 @@ export async function createInvoice(orderId: string) {
 // Corrections never touch the original invoice or its items — only a new
 // CreditNote row, referencing it. The invoice's own status flips to
 // CANCELLED so it's visibly superseded, but invoice_items is never mutated.
-export async function createCreditNote(invoiceId: string, reason: string) {
+export async function createCreditNote(invoiceId: string, reason: string, actingUserId: string) {
   return prisma.$transaction(async (tx) => {
     const invoice = await tx.invoice.findUnique({ where: { id: invoiceId } });
     if (!invoice) {
@@ -120,6 +129,15 @@ export async function createCreditNote(invoiceId: string, reason: string) {
 
     await tx.creditNote.create({
       data: { invoiceId, reason, amountPaise: invoice.totalPaise },
+    });
+
+    await logAudit(tx, {
+      userId: actingUserId,
+      action: "CREDIT_NOTE",
+      entityType: "Invoice",
+      entityId: invoiceId,
+      before: { status: invoice.status },
+      after: { status: "CANCELLED", reason, amountPaise: invoice.totalPaise },
     });
 
     return tx.invoice.findUniqueOrThrow({ where: { id: invoiceId }, include: includeClause });

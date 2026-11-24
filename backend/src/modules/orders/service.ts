@@ -1,5 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import { AppError } from "../../lib/AppError.js";
+import { logAudit } from "../../lib/audit.js";
 import { prisma } from "../../lib/prisma.js";
 
 const PAGE_SIZE = 20;
@@ -103,7 +104,7 @@ function withOrderInclude(id: string, tx: TxClient) {
 // quantity for that item, inside one transaction — this is what makes the
 // benchmark's Distributor B shortage (and any other overselling) impossible,
 // even under concurrent approval requests racing for the same units.
-export async function approveOrder(id: string) {
+export async function approveOrder(id: string, actingUserId: string) {
   return prisma.$transaction(async (tx) => {
     const order = await tx.salesOrder.findUnique({ where: { id }, include: { items: true } });
     if (!order) {
@@ -149,11 +150,12 @@ export async function approveOrder(id: string) {
     if (count === 0) {
       throw new AppError(409, "invalid_status", "Only a SUBMITTED order can be approved");
     }
+    await logAudit(tx, { userId: actingUserId, action: "APPROVE", entityType: "SalesOrder", entityId: id });
     return withOrderInclude(id, tx);
   });
 }
 
-export async function rejectOrder(id: string, reason: string) {
+export async function rejectOrder(id: string, reason: string, actingUserId: string) {
   return prisma.$transaction(async (tx) => {
     const { count } = await tx.salesOrder.updateMany({
       where: { id, status: "SUBMITTED" },
@@ -162,6 +164,7 @@ export async function rejectOrder(id: string, reason: string) {
     if (count === 0) {
       throw new AppError(409, "invalid_status", "Only a SUBMITTED order can be rejected");
     }
+    await logAudit(tx, { userId: actingUserId, action: "REJECT", entityType: "SalesOrder", entityId: id, after: { reason } });
     return withOrderInclude(id, tx);
   });
 }
