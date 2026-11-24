@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { AppError } from "../../lib/AppError.js";
 import { prisma } from "../../lib/prisma.js";
 
@@ -27,6 +28,10 @@ export async function getOnHand(itemId: string) {
 export async function postOpeningStock(data: { itemId: string; qtyBase: number; totalCostPaise: number }) {
   await getItemOrThrow(data.itemId);
 
+  // A friendly pre-check for the common case, but the real guarantee is the
+  // database's unique constraint on openingStockItemId below — two
+  // concurrent requests can both pass this check before either commits, so
+  // the constraint (not this check) is what actually prevents a duplicate.
   const existing = await prisma.stockMovement.findFirst({
     where: { itemId: data.itemId, source: "OPENING_STOCK" },
   });
@@ -34,13 +39,21 @@ export async function postOpeningStock(data: { itemId: string; qtyBase: number; 
     throw new AppError(409, "opening_stock_exists", "Opening stock has already been recorded for this item");
   }
 
-  return prisma.stockMovement.create({
-    data: {
-      itemId: data.itemId,
-      qtyBase: data.qtyBase,
-      unitCostPaise: Math.round(data.totalCostPaise / data.qtyBase),
-      totalCostPaise: data.totalCostPaise,
-      source: "OPENING_STOCK",
-    },
-  });
+  try {
+    return await prisma.stockMovement.create({
+      data: {
+        itemId: data.itemId,
+        qtyBase: data.qtyBase,
+        unitCostPaise: Math.round(data.totalCostPaise / data.qtyBase),
+        totalCostPaise: data.totalCostPaise,
+        source: "OPENING_STOCK",
+        openingStockItemId: data.itemId,
+      },
+    });
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      throw new AppError(409, "opening_stock_exists", "Opening stock has already been recorded for this item");
+    }
+    throw err;
+  }
 }

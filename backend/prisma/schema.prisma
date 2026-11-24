@@ -211,6 +211,12 @@ model StockMovement {
   source         StockMovementSource
   sourceId       String? // id of the purchase/production run/dispatch/etc. that caused this
   idempotencyKey String?             @unique
+  // Set to itemId only on the OPENING_STOCK row for that item, else null.
+  // Postgres unique constraints allow unlimited NULLs, so this enforces
+  // "at most one opening-stock row per item" at the database level —
+  // closing the check-then-create race the application-level check alone
+  // cannot close.
+  openingStockItemId String?         @unique
   createdByUserId String?
   createdByUser  User?               @relation(fields: [createdByUserId], references: [id])
   createdAt      DateTime            @default(now())

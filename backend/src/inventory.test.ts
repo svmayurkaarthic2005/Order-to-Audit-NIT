@@ -75,6 +75,31 @@ describe("inventory ledger", () => {
     expect(res.body.error.code).toBe("opening_stock_exists");
   });
 
+  it("closes the check-then-create race: two concurrent postings for the same item, only one succeeds", async () => {
+    const cookie = await loginAs("admin@porulottam.test");
+    const sku = `RM-RACE-TEST-${Date.now()}`;
+    const itemRes = await request(app)
+      .post("/items")
+      .set("Cookie", cookie)
+      .send({ sku, name: "Race Test Item", type: "RAW_MATERIAL", baseUnit: "G" });
+    const itemId = itemRes.body.data.id;
+
+    const [a, b] = await Promise.all([
+      request(app)
+        .post("/inventory/opening-stock")
+        .set("Cookie", cookie)
+        .send({ itemId, qtyBase: 1000, totalCostPaise: 100 }),
+      request(app)
+        .post("/inventory/opening-stock")
+        .set("Cookie", cookie)
+        .send({ itemId, qtyBase: 2000, totalCostPaise: 200 }),
+    ]);
+    const statuses = [a.status, b.status].sort();
+    expect(statuses).toEqual([201, 409]);
+
+    await request(app).delete(`/items/${itemId}`).set("Cookie", cookie);
+  });
+
   it("a non-admin role posting opening stock returns 403", async () => {
     const cookie = await loginAs("salesman@porulottam.test");
     const res = await request(app)

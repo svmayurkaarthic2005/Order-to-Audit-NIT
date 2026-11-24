@@ -42,6 +42,7 @@ async function postOpeningStock(itemId: string, qtyBase: number, totalCostPaise:
       unitCostPaise: qtyBase > 0 ? Math.round(totalCostPaise / qtyBase) : 0,
       totalCostPaise,
       source: "OPENING_STOCK",
+      openingStockItemId: itemId,
     },
   });
 }
