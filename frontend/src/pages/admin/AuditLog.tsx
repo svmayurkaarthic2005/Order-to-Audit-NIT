@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { EmptyState, PageHeader, Table, Td, Th, THead } from "@/components/ui";
 
 type AuditEntry = {
   id: string;
@@ -19,27 +20,39 @@ export default function AuditLog() {
   });
 
   return (
-    <main className="mx-auto max-w-3xl p-6 text-foreground">
-      <h1 className="mb-4 text-2xl font-semibold">Audit Log</h1>
-      <p className="mb-4 text-sm text-muted-foreground">Who changed what, when — read-only, append-only.</p>
+    <div>
+      <PageHeader title="Audit log" description="Who changed what, when — read-only, append-only." />
 
       {isLoading ? (
-        <p className="text-muted-foreground">Loading…</p>
+        <p className="text-sm text-muted-foreground">Loading…</p>
       ) : !data || data.length === 0 ? (
-        <p className="text-muted-foreground">No audit entries yet.</p>
+        <EmptyState>No audit entries yet.</EmptyState>
       ) : (
-        <ul className="flex flex-col gap-2 text-sm">
-          {data.map((e) => (
-            <li key={e.id} className="rounded border border-border p-2">
-              <p>
-                <strong>{e.user?.name ?? "system"}</strong> {e.action} {e.entityType} ({e.entityId.slice(0, 8)}…) ·{" "}
-                {new Date(e.createdAt).toLocaleString()}
-              </p>
-              {e.afterJson && <p className="text-muted-foreground">{e.afterJson}</p>}
-            </li>
-          ))}
-        </ul>
+        <Table>
+          <THead>
+            <tr>
+              <Th>When</Th>
+              <Th>User</Th>
+              <Th>Action</Th>
+              <Th>Entity</Th>
+              <Th>Detail</Th>
+            </tr>
+          </THead>
+          <tbody>
+            {data.map((e) => (
+              <tr key={e.id}>
+                <Td className="tabular whitespace-nowrap text-muted-foreground">{new Date(e.createdAt).toLocaleString()}</Td>
+                <Td className="font-medium text-foreground">{e.user?.name ?? "system"}</Td>
+                <Td>{e.action}</Td>
+                <Td className="font-mono text-xs text-muted-foreground">
+                  {e.entityType} ({e.entityId.slice(0, 8)}…)
+                </Td>
+                <Td className="max-w-xs truncate text-muted-foreground">{e.afterJson ?? "—"}</Td>
+              </tr>
+            ))}
+          </tbody>
+        </Table>
       )}
-    </main>
+    </div>
   );
 }

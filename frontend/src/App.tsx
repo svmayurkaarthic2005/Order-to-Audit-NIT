@@ -1,6 +1,8 @@
-import { Link, Route, Routes } from "react-router-dom";
+import type { ReactNode } from "react";
+import { Route, Routes } from "react-router-dom";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
-import { useAuth } from "@/lib/auth";
+import { AppShell } from "@/components/AppShell";
+import { useAuth, type Role } from "@/lib/auth";
 import Login from "@/pages/Login";
 import BOM from "@/pages/admin/BOM";
 import Customers from "@/pages/admin/Masters/Customers";
@@ -20,46 +22,23 @@ import OrderEntry from "@/pages/salesman/OrderEntry";
 import OrderHistory from "@/pages/salesman/OrderHistory";
 
 function Home() {
-  const { user, logout } = useAuth();
-  const isAdmin = user?.role === "ADMIN" || user?.role === "OWNER";
-  const isAccountant = user?.role === "ACCOUNTANT";
-  const canViewAdminScreens = isAdmin || isAccountant;
-  const canRecordPurchases = isAdmin || isAccountant || user?.role === "PRODUCTION";
-  const canOrder = isAdmin || user?.role === "SALESMAN";
+  const { user } = useAuth();
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-2 bg-background text-foreground">
-      <h1 className="text-3xl font-semibold">Porulottam ERP</h1>
-      <p className="text-muted-foreground">
-        பொருளோட்டம் &middot; Every material. Every process. One connected system.
+    <div>
+      <h1 className="text-xl font-semibold tracking-tight text-foreground">Welcome, {user?.name}</h1>
+      <p className="mt-1 text-sm text-muted-foreground">
+        பொருளோட்டம் · Every material. Every process. One connected system. Pick a section from the menu to get
+        started.
       </p>
-      <p className="mt-4">
-        Signed in as <strong>{user?.name}</strong> ({user?.role})
-      </p>
-      <nav className="mt-4 flex gap-4 text-sm underline">
-        {canViewAdminScreens && (
-          <>
-            <Link to="/admin/customers">Customers</Link>
-            <Link to="/admin/suppliers">Suppliers</Link>
-            <Link to="/admin/items">Items</Link>
-            {isAdmin && <Link to="/admin/opening-stock">Opening Stock</Link>}
-            <Link to="/admin/bom">BOM</Link>
-            <Link to="/admin/orders">Order Queue</Link>
-            <Link to="/admin/invoices">Invoices</Link>
-            <Link to="/admin/dispatch">Dispatch</Link>
-            <Link to="/admin/payments">Payments</Link>
-            <Link to="/admin/reports">Reports</Link>
-            <Link to="/admin/dashboard">Dashboard</Link>
-            <Link to="/admin/audit-log">Audit Log</Link>
-          </>
-        )}
-        {canRecordPurchases && <Link to="/admin/purchases">Purchases</Link>}
-        {canRecordPurchases && <Link to="/production/runs">Production</Link>}
-        {canOrder && <Link to="/salesman/orders">Orders</Link>}
-      </nav>
-      <button onClick={() => logout()} className="mt-4 rounded border border-input px-3 py-1">
-        Log out
-      </button>
-    </main>
+    </div>
+  );
+}
+
+function page(element: ReactNode, roles?: Role[]) {
+  return (
+    <ProtectedRoute roles={roles}>
+      <AppShell>{element}</AppShell>
+    </ProtectedRoute>
   );
 }
 
@@ -67,142 +46,23 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
-      <Route
-        path="/"
-        element={
-          <ProtectedRoute>
-            <Home />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/admin/customers"
-        element={
-          <ProtectedRoute roles={["ADMIN", "OWNER", "ACCOUNTANT"]}>
-            <Customers />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/admin/suppliers"
-        element={
-          <ProtectedRoute roles={["ADMIN", "OWNER", "ACCOUNTANT"]}>
-            <Suppliers />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/admin/items"
-        element={
-          <ProtectedRoute roles={["ADMIN", "OWNER", "ACCOUNTANT"]}>
-            <Items />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/admin/opening-stock"
-        element={
-          <ProtectedRoute roles={["ADMIN", "OWNER"]}>
-            <OpeningStock />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/admin/bom"
-        element={
-          <ProtectedRoute roles={["ADMIN", "OWNER", "ACCOUNTANT"]}>
-            <BOM />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/admin/orders"
-        element={
-          <ProtectedRoute roles={["ADMIN", "OWNER", "ACCOUNTANT"]}>
-            <OrderQueue />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/admin/invoices"
-        element={
-          <ProtectedRoute roles={["ADMIN", "OWNER", "ACCOUNTANT"]}>
-            <Invoices />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/admin/dispatch"
-        element={
-          <ProtectedRoute roles={["ADMIN", "OWNER", "ACCOUNTANT"]}>
-            <Dispatch />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/admin/payments"
-        element={
-          <ProtectedRoute roles={["ADMIN", "OWNER", "ACCOUNTANT"]}>
-            <Payments />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/admin/reports"
-        element={
-          <ProtectedRoute roles={["ADMIN", "OWNER", "ACCOUNTANT"]}>
-            <Reports />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/admin/dashboard"
-        element={
-          <ProtectedRoute roles={["ADMIN", "OWNER", "ACCOUNTANT"]}>
-            <Dashboard />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/admin/audit-log"
-        element={
-          <ProtectedRoute roles={["ADMIN", "OWNER", "ACCOUNTANT"]}>
-            <AuditLog />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/admin/purchases"
-        element={
-          <ProtectedRoute roles={["ADMIN", "OWNER", "PRODUCTION", "ACCOUNTANT"]}>
-            <Purchases />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/production/runs"
-        element={
-          <ProtectedRoute roles={["ADMIN", "OWNER", "PRODUCTION", "ACCOUNTANT"]}>
-            <ProductionRuns />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/salesman/orders"
-        element={
-          <ProtectedRoute roles={["ADMIN", "OWNER", "SALESMAN"]}>
-            <OrderHistory />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/salesman/orders/new"
-        element={
-          <ProtectedRoute roles={["ADMIN", "OWNER", "SALESMAN"]}>
-            <OrderEntry />
-          </ProtectedRoute>
-        }
-      />
+      <Route path="/" element={page(<Home />)} />
+      <Route path="/admin/customers" element={page(<Customers />, ["ADMIN", "OWNER", "ACCOUNTANT"])} />
+      <Route path="/admin/suppliers" element={page(<Suppliers />, ["ADMIN", "OWNER", "ACCOUNTANT"])} />
+      <Route path="/admin/items" element={page(<Items />, ["ADMIN", "OWNER", "ACCOUNTANT"])} />
+      <Route path="/admin/opening-stock" element={page(<OpeningStock />, ["ADMIN", "OWNER"])} />
+      <Route path="/admin/bom" element={page(<BOM />, ["ADMIN", "OWNER", "ACCOUNTANT"])} />
+      <Route path="/admin/orders" element={page(<OrderQueue />, ["ADMIN", "OWNER", "ACCOUNTANT"])} />
+      <Route path="/admin/invoices" element={page(<Invoices />, ["ADMIN", "OWNER", "ACCOUNTANT"])} />
+      <Route path="/admin/dispatch" element={page(<Dispatch />, ["ADMIN", "OWNER", "ACCOUNTANT"])} />
+      <Route path="/admin/payments" element={page(<Payments />, ["ADMIN", "OWNER", "ACCOUNTANT"])} />
+      <Route path="/admin/reports" element={page(<Reports />, ["ADMIN", "OWNER", "ACCOUNTANT"])} />
+      <Route path="/admin/dashboard" element={page(<Dashboard />, ["ADMIN", "OWNER", "ACCOUNTANT"])} />
+      <Route path="/admin/audit-log" element={page(<AuditLog />, ["ADMIN", "OWNER", "ACCOUNTANT"])} />
+      <Route path="/admin/purchases" element={page(<Purchases />, ["ADMIN", "OWNER", "PRODUCTION", "ACCOUNTANT"])} />
+      <Route path="/production/runs" element={page(<ProductionRuns />, ["ADMIN", "OWNER", "PRODUCTION", "ACCOUNTANT"])} />
+      <Route path="/salesman/orders" element={page(<OrderHistory />, ["ADMIN", "OWNER", "SALESMAN"])} />
+      <Route path="/salesman/orders/new" element={page(<OrderEntry />, ["ADMIN", "OWNER", "SALESMAN"])} />
     </Routes>
   );
 }

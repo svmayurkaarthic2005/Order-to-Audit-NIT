@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { Button, Card, EmptyState, ErrorText, Input, PageHeader, StatusBadge } from "@/components/ui";
 
 type Invoice = {
   id: string;
@@ -50,61 +51,66 @@ export default function Dispatch() {
   });
 
   const dispatchedInvoiceIds = new Set(dispatches?.map((d) => d.invoice.id));
+  const issued = invoices?.filter((inv) => inv.status === "ISSUED") ?? [];
 
   return (
-    <main className="mx-auto max-w-2xl p-6 text-foreground">
-      <h1 className="mb-4 text-2xl font-semibold">Dispatch</h1>
+    <div>
+      <PageHeader title="Dispatch" description="Ship issued invoices and record what left the warehouse." />
 
       {isLoading ? (
-        <p className="text-muted-foreground">Loading…</p>
-      ) : !invoices || invoices.length === 0 ? (
-        <p className="text-muted-foreground">No invoices yet.</p>
+        <p className="text-sm text-muted-foreground">Loading…</p>
+      ) : issued.length === 0 ? (
+        <EmptyState>No invoices awaiting dispatch.</EmptyState>
       ) : (
         <ul className="flex flex-col gap-3">
-          {invoices
-            .filter((inv) => inv.status === "ISSUED")
-            .map((inv) => {
-              const dispatched = dispatchedInvoiceIds.has(inv.id);
-              return (
-                <li key={inv.id} className="rounded border border-border p-3">
-                  <p className="font-medium">
-                    FY {inv.financialYear} / #{inv.invoiceNumber} — {inv.customer.name}
-                  </p>
-                  <ul className="ml-4 list-disc text-sm text-muted-foreground">
+          {issued.map((inv) => {
+            const dispatched = dispatchedInvoiceIds.has(inv.id);
+            return (
+              <li key={inv.id}>
+                <Card className="p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="font-medium text-foreground">
+                      FY {inv.financialYear} / #{inv.invoiceNumber} — {inv.customer.name}
+                    </p>
+                    {dispatched ? (
+                      <StatusBadge variant="success">Dispatched</StatusBadge>
+                    ) : (
+                      <StatusBadge variant="warning">Pending</StatusBadge>
+                    )}
+                  </div>
+                  <ul className="mt-2 text-sm text-muted-foreground">
                     {inv.items.map((l, i) => (
-                      <li key={i}>
-                        {l.description}: {l.qtyBase}
+                      <li key={i} className="flex justify-between">
+                        <span>{l.description}</span>
+                        <span className="tabular">{l.qtyBase}</span>
                       </li>
                     ))}
                   </ul>
-                  {dispatched ? (
-                    <p className="mt-2 text-sm text-primary">Dispatched</p>
-                  ) : !canMutate ? (
-                    <p className="mt-2 text-sm text-muted-foreground">Not dispatched</p>
-                  ) : (
-                    <div className="mt-2 flex items-center gap-2">
-                      <input
+                  {!dispatched && canMutate && (
+                    <div className="mt-3 flex items-center gap-2">
+                      <Input
                         placeholder="Qty"
                         type="number"
                         value={qtyByInvoice[inv.id] ?? ""}
                         onChange={(e) => setQtyByInvoice((prev) => ({ ...prev, [inv.id]: e.target.value }))}
-                        className="w-24 rounded border border-input bg-transparent px-2 py-1 text-sm"
+                        className="h-8 w-24 text-sm"
                       />
-                      <button
+                      <Button
+                        size="sm"
                         onClick={() => dispatchMutation.mutate({ invoiceId: inv.id, qty: Number(qtyByInvoice[inv.id] || 0) })}
                         disabled={dispatchMutation.isPending}
-                        className="rounded bg-primary px-3 py-1 text-sm text-primary-foreground disabled:opacity-50"
                       >
                         Dispatch
-                      </button>
+                      </Button>
                     </div>
                   )}
-                  {errorByInvoice[inv.id] && <p className="mt-1 text-sm text-destructive">{errorByInvoice[inv.id]}</p>}
-                </li>
-              );
-            })}
+                  {errorByInvoice[inv.id] && <div className="mt-2"><ErrorText>{errorByInvoice[inv.id]}</ErrorText></div>}
+                </Card>
+              </li>
+            );
+          })}
         </ul>
       )}
-    </main>
+    </div>
   );
 }

@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { api } from "@/lib/api";
+import { Button, Card, EmptyState, PageHeader, StatusBadge, money } from "@/components/ui";
 
 type Order = {
   id: string;
@@ -10,6 +11,14 @@ type Order = {
   items: { qtyBase: number; ratePaise: number; item: { sku: string; name: string } }[];
 };
 
+const STATUS_VARIANT: Record<string, "neutral" | "success" | "warning" | "destructive" | "info"> = {
+  SUBMITTED: "info",
+  APPROVED: "success",
+  REJECTED: "destructive",
+  DISPATCHABLE: "warning",
+  DISPATCHED: "success",
+};
+
 export default function OrderHistory() {
   const { data, isLoading } = useQuery({
     queryKey: ["orders"],
@@ -17,34 +26,40 @@ export default function OrderHistory() {
   });
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-md flex-col gap-3 p-4 text-foreground">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">My Orders</h1>
-        <Link to="/salesman/orders/new" className="rounded bg-primary px-3 py-2 text-sm text-primary-foreground">
-          + New order
-        </Link>
-      </div>
+    <div className="mx-auto max-w-md">
+      <PageHeader
+        title="My orders"
+        actions={
+          <Link to="/salesman/orders/new">
+            <Button>+ New order</Button>
+          </Link>
+        }
+      />
 
       {isLoading ? (
-        <p className="text-muted-foreground">Loading…</p>
+        <p className="text-sm text-muted-foreground">Loading…</p>
       ) : !data || data.items.length === 0 ? (
-        <p className="text-muted-foreground">No orders yet.</p>
+        <EmptyState>No orders yet — submit your first one.</EmptyState>
       ) : (
-        <ul className="flex flex-col gap-2">
+        <ul className="flex flex-col gap-3">
           {data.items.map((o) => {
             const total = o.items.reduce((sum, l) => sum + l.qtyBase * l.ratePaise, 0);
             return (
-              <li key={o.id} className="rounded border border-border p-3">
-                <p className="font-medium">{o.customer.name}</p>
-                <p className="text-sm text-muted-foreground">
-                  {o.items.length} item(s) · ₹{(total / 100).toFixed(2)}
-                </p>
-                <p className="mt-1 text-sm">{o.status}</p>
+              <li key={o.id}>
+                <Card className="p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="font-medium text-foreground">{o.customer.name}</p>
+                    <StatusBadge variant={STATUS_VARIANT[o.status] ?? "neutral"}>{o.status}</StatusBadge>
+                  </div>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {o.items.length} item{o.items.length !== 1 ? "s" : ""} · <span className="tabular">{money(total)}</span>
+                  </p>
+                </Card>
               </li>
             );
           })}
         </ul>
       )}
-    </main>
+    </div>
   );
 }

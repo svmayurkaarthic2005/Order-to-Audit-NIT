@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/lib/auth";
+import { Button, ErrorText, Field, Input } from "@/components/ui";
 
 export default function Login() {
   const { login } = useAuth();
@@ -25,33 +26,36 @@ export default function Login() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-background text-foreground">
-      <form onSubmit={onSubmit} className="flex w-72 flex-col gap-3 rounded-lg border border-border p-6">
-        <h1 className="text-xl font-semibold">Porulottam ERP</h1>
-        <input
-          type="email"
-          placeholder="Email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          required
-          className="rounded border border-input bg-transparent px-3 py-2"
-        />
-        <input
-          type="password"
-          placeholder="Password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          required
-          className="rounded border border-input bg-transparent px-3 py-2"
-        />
-        {error && <p className="text-sm text-destructive">{error}</p>}
-        <button
-          type="submit"
-          disabled={submitting}
-          className="rounded bg-primary px-3 py-2 text-primary-foreground disabled:opacity-50"
-        >
+    <main className="flex min-h-screen items-center justify-center bg-background px-4">
+      <form onSubmit={onSubmit} className="flex w-full max-w-sm flex-col gap-4 rounded-lg border border-border bg-card p-8 shadow-sm">
+        <div>
+          <h1 className="text-lg font-semibold text-navy">Porulottam ERP</h1>
+          <p className="text-sm text-muted-foreground">Sign in to continue</p>
+        </div>
+        <Field label="Email" required>
+          <Input
+            type="email"
+            placeholder="you@company.com"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+            className="w-full"
+          />
+        </Field>
+        <Field label="Password" required>
+          <Input
+            type="password"
+            placeholder="••••••••"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            className="w-full"
+          />
+        </Field>
+        {error && <ErrorText>{error}</ErrorText>}
+        <Button type="submit" disabled={submitting} className="w-full">
           {submitting ? "Signing in…" : "Sign in"}
-        </button>
+        </Button>
       </form>
     </main>
   );

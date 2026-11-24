@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { Button, Card, EmptyState, ErrorText, Input, PageHeader, money } from "@/components/ui";
 
 type Invoice = {
   id: string;
@@ -45,54 +46,64 @@ export default function Payments() {
     },
   });
 
+  const issued = invoices?.filter((inv) => inv.status === "ISSUED") ?? [];
+
   return (
-    <main className="mx-auto max-w-2xl p-6 text-foreground">
-      <h1 className="mb-4 text-2xl font-semibold">Payments</h1>
+    <div>
+      <PageHeader title="Payments" description="Record customer receipts against issued invoices." />
 
       {isLoading ? (
-        <p className="text-muted-foreground">Loading…</p>
-      ) : !invoices || invoices.length === 0 ? (
-        <p className="text-muted-foreground">No invoices yet.</p>
+        <p className="text-sm text-muted-foreground">Loading…</p>
+      ) : issued.length === 0 ? (
+        <EmptyState>No invoices awaiting payment.</EmptyState>
       ) : (
         <ul className="flex flex-col gap-3">
-          {invoices
-            .filter((inv) => inv.status === "ISSUED")
-            .map((inv) => (
-              <li key={inv.id} className="rounded border border-border p-3">
-                <p className="font-medium">
-                  FY {inv.financialYear} / #{inv.invoiceNumber} — {inv.customer.name}
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  Total ₹{(inv.totalPaise / 100).toFixed(2)}
-                  {outstandingByInvoice[inv.id] !== undefined && (
-                    <> · Outstanding ₹{(outstandingByInvoice[inv.id] / 100).toFixed(2)}</>
-                  )}
-                </p>
-                {canMutate && (
-                  <div className="mt-2 flex items-center gap-2">
-                    <input
-                      placeholder="Amount (paise)"
-                      type="number"
-                      value={amountByInvoice[inv.id] ?? ""}
-                      onChange={(e) => setAmountByInvoice((prev) => ({ ...prev, [inv.id]: e.target.value }))}
-                      className="w-36 rounded border border-input bg-transparent px-2 py-1 text-sm"
-                    />
-                    <button
-                      onClick={() =>
-                        paymentMutation.mutate({ invoiceId: inv.id, amountPaise: Number(amountByInvoice[inv.id] || 0) })
-                      }
-                      disabled={paymentMutation.isPending}
-                      className="rounded bg-primary px-3 py-1 text-sm text-primary-foreground disabled:opacity-50"
-                    >
-                      Record payment
-                    </button>
+          {issued.map((inv) => {
+            const outstanding = outstandingByInvoice[inv.id];
+            return (
+              <li key={inv.id}>
+                <Card className="p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="font-medium text-foreground">
+                      FY {inv.financialYear} / #{inv.invoiceNumber} — {inv.customer.name}
+                    </p>
+                    <p className="text-sm tabular text-muted-foreground">
+                      Total <span className="font-medium text-foreground">{money(inv.totalPaise)}</span>
+                      {outstanding !== undefined && (
+                        <>
+                          {" "}
+                          · Outstanding <span className="font-medium text-warning">{money(outstanding)}</span>
+                        </>
+                      )}
+                    </p>
                   </div>
-                )}
-                {errorByInvoice[inv.id] && <p className="mt-1 text-sm text-destructive">{errorByInvoice[inv.id]}</p>}
+                  {canMutate && (
+                    <div className="mt-3 flex items-center gap-2">
+                      <Input
+                        placeholder="Amount (paise)"
+                        type="number"
+                        value={amountByInvoice[inv.id] ?? ""}
+                        onChange={(e) => setAmountByInvoice((prev) => ({ ...prev, [inv.id]: e.target.value }))}
+                        className="h-8 w-36 text-sm"
+                      />
+                      <Button
+                        size="sm"
+                        onClick={() =>
+                          paymentMutation.mutate({ invoiceId: inv.id, amountPaise: Number(amountByInvoice[inv.id] || 0) })
+                        }
+                        disabled={paymentMutation.isPending}
+                      >
+                        Record payment
+                      </Button>
+                    </div>
+                  )}
+                  {errorByInvoice[inv.id] && <div className="mt-2"><ErrorText>{errorByInvoice[inv.id]}</ErrorText></div>}
+                </Card>
               </li>
-            ))}
+            );
+          })}
         </ul>
       )}
-    </main>
+    </div>
   );
 }

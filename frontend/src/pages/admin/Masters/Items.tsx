@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { Button, Card, EmptyState, ErrorText, Input, PageHeader, Select, StatusBadge, Table, Td, Th, THead } from "@/components/ui";
 
 type Item = {
   id: string;
@@ -13,6 +14,7 @@ type Item = {
 
 const TYPES: Item["type"][] = ["RAW_MATERIAL", "PACKAGING", "FINISHED_GOOD"];
 const UNITS: Item["baseUnit"][] = ["G", "ML", "PIECE"];
+const TYPE_VARIANT = { RAW_MATERIAL: "neutral", PACKAGING: "info", FINISHED_GOOD: "success" } as const;
 
 export default function Items() {
   const { user } = useAuth();
@@ -44,98 +46,90 @@ export default function Items() {
   });
 
   return (
-    <main className="mx-auto max-w-2xl p-6 text-foreground">
-      <h1 className="mb-4 text-2xl font-semibold">Items</h1>
-
-      <input
-        placeholder="Search by name…"
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        className="mb-4 w-full rounded border border-input bg-transparent px-3 py-2"
+    <div>
+      <PageHeader
+        title="Items"
+        description="Raw materials, packaging and finished goods — the one catalog everything else references."
+        actions={
+          <Input
+            placeholder="Search by name…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-56"
+          />
+        }
       />
 
       {canMutate && (
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          createMutation.mutate();
-        }}
-        className="mb-6 flex flex-wrap gap-2"
-      >
-        <input
-          placeholder="SKU"
-          required
-          value={form.sku}
-          onChange={(e) => setForm({ ...form, sku: e.target.value })}
-          className="rounded border border-input bg-transparent px-2 py-1"
-        />
-        <input
-          placeholder="Name"
-          required
-          value={form.name}
-          onChange={(e) => setForm({ ...form, name: e.target.value })}
-          className="rounded border border-input bg-transparent px-2 py-1"
-        />
-        <select
-          value={form.type}
-          onChange={(e) => setForm({ ...form, type: e.target.value as Item["type"] })}
-          className="rounded border border-input bg-transparent px-2 py-1"
-        >
-          {TYPES.map((t) => (
-            <option key={t} value={t}>
-              {t}
-            </option>
-          ))}
-        </select>
-        <select
-          value={form.baseUnit}
-          onChange={(e) => setForm({ ...form, baseUnit: e.target.value as Item["baseUnit"] })}
-          className="rounded border border-input bg-transparent px-2 py-1"
-        >
-          {UNITS.map((u) => (
-            <option key={u} value={u}>
-              {u}
-            </option>
-          ))}
-        </select>
-        <button
-          type="submit"
-          disabled={createMutation.isPending}
-          className="rounded bg-primary px-3 py-1 text-primary-foreground disabled:opacity-50"
-        >
-          Add
-        </button>
-      </form>
+        <Card className="mb-4 p-4">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              createMutation.mutate();
+            }}
+            className="flex flex-wrap items-end gap-2"
+          >
+            <Input placeholder="SKU" required value={form.sku} onChange={(e) => setForm({ ...form, sku: e.target.value })} className="w-32" />
+            <Input placeholder="Name" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+            <Select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value as Item["type"] })}>
+              {TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </Select>
+            <Select value={form.baseUnit} onChange={(e) => setForm({ ...form, baseUnit: e.target.value as Item["baseUnit"] })}>
+              {UNITS.map((u) => (
+                <option key={u} value={u}>
+                  {u}
+                </option>
+              ))}
+            </Select>
+            <Button type="submit" disabled={createMutation.isPending}>
+              Add item
+            </Button>
+          </form>
+        </Card>
       )}
 
-      {rowError && <p className="mb-4 text-sm text-destructive">{rowError}</p>}
+      {rowError && <div className="mb-4"><ErrorText>{rowError}</ErrorText></div>}
 
       {isLoading ? (
-        <p className="text-muted-foreground">Loading…</p>
+        <p className="text-sm text-muted-foreground">Loading…</p>
       ) : !data || data.items.length === 0 ? (
-        <p className="text-muted-foreground">No items yet.</p>
+        <EmptyState>No items yet.</EmptyState>
       ) : (
-        <ul className="divide-y divide-border rounded border border-border">
-          {data.items.map((i) => (
-            <li key={i.id} className="flex items-center justify-between px-3 py-2">
-              <span>
-                <span className="font-mono text-sm">{i.sku}</span> — {i.name}{" "}
-                <span className="text-muted-foreground">
-                  ({i.type}, {i.baseUnit})
-                </span>
-              </span>
-              {canMutate && (
-                <button
-                  onClick={() => deleteMutation.mutate(i.id)}
-                  className="text-sm text-destructive hover:underline"
-                >
-                  Deactivate
-                </button>
-              )}
-            </li>
-          ))}
-        </ul>
+        <Table>
+          <THead>
+            <tr>
+              <Th>SKU</Th>
+              <Th>Name</Th>
+              <Th>Type</Th>
+              <Th>Unit</Th>
+              {canMutate && <Th>Action</Th>}
+            </tr>
+          </THead>
+          <tbody>
+            {data.items.map((i) => (
+              <tr key={i.id}>
+                <Td className="font-mono text-xs text-foreground">{i.sku}</Td>
+                <Td className="font-medium text-foreground">{i.name}</Td>
+                <Td>
+                  <StatusBadge variant={TYPE_VARIANT[i.type]}>{i.type.replace("_", " ")}</StatusBadge>
+                </Td>
+                <Td>{i.baseUnit}</Td>
+                {canMutate && (
+                  <Td>
+                    <Button size="sm" variant="danger" onClick={() => deleteMutation.mutate(i.id)}>
+                      Deactivate
+                    </Button>
+                  </Td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </Table>
       )}
-    </main>
+    </div>
   );
 }

@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
+import { Button, Card, EmptyState, Input, PageHeader, StatusBadge, money } from "@/components/ui";
 
 type Invoice = {
   id: string;
@@ -18,6 +20,8 @@ type Invoice = {
 };
 
 export default function Invoices() {
+  const { user } = useAuth();
+  const canMutate = user?.role !== "ACCOUNTANT";
   const queryClient = useQueryClient();
   const [creditNoteInvoiceId, setCreditNoteInvoiceId] = useState<string | null>(null);
   const [reason, setReason] = useState("");
@@ -61,91 +65,114 @@ export default function Invoices() {
   });
 
   return (
-    <main className="mx-auto max-w-2xl p-6 text-foreground">
-      <h1 className="mb-4 text-2xl font-semibold">Invoices</h1>
+    <div>
+      <PageHeader title="Invoices" description="GST-compliant invoices, PDF export and WhatsApp sharing." />
 
       {isLoading ? (
-        <p className="text-muted-foreground">Loading…</p>
+        <p className="text-sm text-muted-foreground">Loading…</p>
       ) : !data || data.length === 0 ? (
-        <p className="text-muted-foreground">No invoices yet.</p>
+        <EmptyState>No invoices yet.</EmptyState>
       ) : (
         <ul className="flex flex-col gap-3">
           {data.map((inv) => (
-            <li key={inv.id} className="rounded border border-border p-3">
-              <p className="font-medium">
-                FY {inv.financialYear} / #{inv.invoiceNumber} — {inv.customer.name}{" "}
-                <span className="text-sm text-muted-foreground">({inv.status})</span>
-              </p>
-              <ul className="ml-4 list-disc text-sm text-muted-foreground">
-                {inv.items.map((l, i) => (
-                  <li key={i}>
-                    {l.description}: {l.qtyBase} × ₹{(l.ratePaise / 100).toFixed(2)}
-                  </li>
+            <li key={inv.id}>
+              <Card className="p-4">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="font-medium text-foreground">
+                    FY {inv.financialYear} / #{inv.invoiceNumber} — {inv.customer.name}
+                  </p>
+                  <StatusBadge variant={inv.status === "ISSUED" ? "success" : "destructive"}>{inv.status}</StatusBadge>
+                </div>
+                <ul className="mt-2 text-sm text-muted-foreground">
+                  {inv.items.map((l, i) => (
+                    <li key={i} className="flex justify-between">
+                      <span>{l.description}</span>
+                      <span className="tabular">
+                        {l.qtyBase} × {money(l.ratePaise)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+
+                <div className="mt-3 flex flex-col gap-0.5 border-t border-border pt-2 text-sm tabular">
+                  <div className="flex justify-between text-muted-foreground">
+                    <span>Taxable value</span>
+                    <span>{money(inv.taxableValuePaise)}</span>
+                  </div>
+                  {inv.igstPaise > 0 ? (
+                    <div className="flex justify-between text-muted-foreground">
+                      <span>IGST</span>
+                      <span>{money(inv.igstPaise)}</span>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex justify-between text-muted-foreground">
+                        <span>CGST</span>
+                        <span>{money(inv.cgstPaise)}</span>
+                      </div>
+                      <div className="flex justify-between text-muted-foreground">
+                        <span>SGST</span>
+                        <span>{money(inv.sgstPaise)}</span>
+                      </div>
+                    </>
+                  )}
+                  <div className="flex justify-between border-t border-border pt-1 text-base font-semibold text-foreground">
+                    <span>Total</span>
+                    <span>{money(inv.totalPaise)}</span>
+                  </div>
+                </div>
+
+                {inv.creditNotes.map((c, i) => (
+                  <p key={i} className="mt-2 text-sm text-destructive">
+                    Credit note: {c.reason} ({money(c.amountPaise)})
+                  </p>
                 ))}
-              </ul>
-              <p className="mt-1 text-sm">
-                Taxable ₹{(inv.taxableValuePaise / 100).toFixed(2)}
-                {inv.igstPaise > 0 ? (
-                  <> + IGST ₹{(inv.igstPaise / 100).toFixed(2)}</>
-                ) : (
-                  <>
-                    {" "}
-                    + CGST ₹{(inv.cgstPaise / 100).toFixed(2)} + SGST ₹{(inv.sgstPaise / 100).toFixed(2)}
-                  </>
-                )}{" "}
-                = <strong>₹{(inv.totalPaise / 100).toFixed(2)}</strong>
-              </p>
 
-              {inv.creditNotes.map((c, i) => (
-                <p key={i} className="mt-1 text-sm text-destructive">
-                  Credit note: {c.reason} (₹{(c.amountPaise / 100).toFixed(2)})
-                </p>
-              ))}
-
-              <div className="mt-2 flex flex-wrap items-center gap-3 text-sm">
-                <button onClick={() => downloadPdf(inv.id)} className="text-primary underline">
-                  Download PDF
-                </button>
-                <input
-                  placeholder="WhatsApp number"
-                  value={whatsappNumberByInvoice[inv.id] ?? ""}
-                  onChange={(e) => setWhatsappNumberByInvoice((prev) => ({ ...prev, [inv.id]: e.target.value }))}
-                  className="w-36 rounded border border-input bg-transparent px-2 py-1"
-                />
-                <button onClick={() => shareOnWhatsApp(inv)} className="text-primary underline">
-                  Share on WhatsApp
-                </button>
-                {inv.status === "ISSUED" && (
-                  <button onClick={() => setCreditNoteInvoiceId(inv.id)} className="text-destructive underline">
-                    Credit note / cancel
-                  </button>
-                )}
-              </div>
-
-              {creditNoteInvoiceId === inv.id && (
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    creditNoteMutation.mutate({ invoiceId: inv.id, reason });
-                  }}
-                  className="mt-2 flex gap-2"
-                >
-                  <input
-                    placeholder="Reason"
-                    required
-                    value={reason}
-                    onChange={(e) => setReason(e.target.value)}
-                    className="flex-1 rounded border border-input bg-transparent px-2 py-1 text-sm"
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <Button size="sm" variant="secondary" onClick={() => downloadPdf(inv.id)}>
+                    Download PDF
+                  </Button>
+                  <Input
+                    placeholder="WhatsApp number"
+                    value={whatsappNumberByInvoice[inv.id] ?? ""}
+                    onChange={(e) => setWhatsappNumberByInvoice((prev) => ({ ...prev, [inv.id]: e.target.value }))}
+                    className="h-8 w-36 text-sm"
                   />
-                  <button type="submit" className="rounded bg-destructive px-3 py-1 text-sm text-destructive-foreground">
-                    Confirm
-                  </button>
-                </form>
-              )}
+                  <Button size="sm" variant="secondary" onClick={() => shareOnWhatsApp(inv)}>
+                    Share on WhatsApp
+                  </Button>
+                  {canMutate && inv.status === "ISSUED" && (
+                    <Button size="sm" variant="danger" onClick={() => setCreditNoteInvoiceId(inv.id)}>
+                      Credit note / cancel
+                    </Button>
+                  )}
+                </div>
+
+                {canMutate && creditNoteInvoiceId === inv.id && (
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      creditNoteMutation.mutate({ invoiceId: inv.id, reason });
+                    }}
+                    className="mt-2 flex gap-2"
+                  >
+                    <Input
+                      placeholder="Reason"
+                      required
+                      value={reason}
+                      onChange={(e) => setReason(e.target.value)}
+                      className="h-8 flex-1 text-sm"
+                    />
+                    <Button type="submit" size="sm" variant="destructive">
+                      Confirm
+                    </Button>
+                  </form>
+                )}
+              </Card>
             </li>
           ))}
         </ul>
       )}
-    </main>
+    </div>
   );
 }

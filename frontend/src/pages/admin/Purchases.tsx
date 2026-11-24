@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { Button, Card, EmptyState, ErrorText, Input, PageHeader, Select, StatusBadge, Table, Td, Th, THead } from "@/components/ui";
 
 type Supplier = { id: string; name: string };
 type Item = { id: string; sku: string; name: string; baseUnit: string; type: string };
@@ -68,106 +69,110 @@ export default function Purchases() {
   }
 
   return (
-    <main className="mx-auto max-w-2xl p-6 text-foreground">
-      <h1 className="mb-4 text-2xl font-semibold">Purchases</h1>
+    <div>
+      <PageHeader title="Purchases" description="Raw-material and packaging receipts from suppliers." />
 
       {canMutate && (
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          createMutation.mutate();
-        }}
-        className="mb-6 flex flex-col gap-2 rounded border border-border p-4"
-      >
-        <select
-          value={supplierId}
-          required
-          onChange={(e) => setSupplierId(e.target.value)}
-          className="rounded border border-input bg-transparent px-2 py-1"
-        >
-          <option value="">Select a supplier…</option>
-          {suppliers?.items.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}
-            </option>
-          ))}
-        </select>
-
-        {lines.map((line, i) => (
-          <div key={i} className="flex gap-2">
-            <select
-              value={line.itemId}
-              required
-              onChange={(e) => updateLine(i, { itemId: e.target.value })}
-              className="flex-1 rounded border border-input bg-transparent px-2 py-1"
-            >
-              <option value="">Item…</option>
-              {rawMaterialItems.map((it) => (
-                <option key={it.id} value={it.id}>
-                  {it.sku} — {it.name}
+        <Card className="mb-6 p-4">
+          <h2 className="mb-3 text-sm font-semibold text-foreground">Record a purchase</h2>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              createMutation.mutate();
+            }}
+            className="flex flex-col gap-3"
+          >
+            <Select value={supplierId} required onChange={(e) => setSupplierId(e.target.value)} className="w-full sm:w-72">
+              <option value="">Select a supplier…</option>
+              {suppliers?.items.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
                 </option>
               ))}
-            </select>
-            <input
-              placeholder="Qty (base unit)"
-              type="number"
-              required
-              value={line.qtyBase}
-              onChange={(e) => updateLine(i, { qtyBase: e.target.value })}
-              className="w-32 rounded border border-input bg-transparent px-2 py-1"
-            />
-            <input
-              placeholder="Rate (paise/unit)"
-              type="number"
-              required
-              value={line.rateBasePaise}
-              onChange={(e) => updateLine(i, { rateBasePaise: e.target.value })}
-              className="w-36 rounded border border-input bg-transparent px-2 py-1"
-            />
-          </div>
-        ))}
+            </Select>
 
-        <button
-          type="button"
-          onClick={() => setLines((prev) => [...prev, { ...emptyLine }])}
-          className="self-start text-sm underline"
-        >
-          + Add line
-        </button>
+            <div className="flex flex-col gap-2">
+              {lines.map((line, i) => (
+                <div key={i} className="flex gap-2">
+                  <Select value={line.itemId} required onChange={(e) => updateLine(i, { itemId: e.target.value })} className="flex-1">
+                    <option value="">Item…</option>
+                    {rawMaterialItems.map((it) => (
+                      <option key={it.id} value={it.id}>
+                        {it.sku} — {it.name}
+                      </option>
+                    ))}
+                  </Select>
+                  <Input
+                    placeholder="Qty"
+                    type="number"
+                    required
+                    value={line.qtyBase}
+                    onChange={(e) => updateLine(i, { qtyBase: e.target.value })}
+                    className="w-28"
+                  />
+                  <Input
+                    placeholder="Rate (paise)"
+                    type="number"
+                    required
+                    value={line.rateBasePaise}
+                    onChange={(e) => updateLine(i, { rateBasePaise: e.target.value })}
+                    className="w-32"
+                  />
+                </div>
+              ))}
+            </div>
 
-        {error && <p className="text-sm text-destructive">{error}</p>}
+            <Button type="button" variant="secondary" size="sm" onClick={() => setLines((prev) => [...prev, { ...emptyLine }])} className="self-start">
+              + Add line
+            </Button>
 
-        <button
-          type="submit"
-          disabled={createMutation.isPending}
-          className="rounded bg-primary px-3 py-2 text-primary-foreground disabled:opacity-50"
-        >
-          Record purchase
-        </button>
-      </form>
+            {error && <ErrorText>{error}</ErrorText>}
+
+            <Button type="submit" disabled={createMutation.isPending} className="self-start">
+              Record purchase
+            </Button>
+          </form>
+        </Card>
       )}
 
       {isLoading ? (
-        <p className="text-muted-foreground">Loading…</p>
+        <p className="text-sm text-muted-foreground">Loading…</p>
       ) : !purchases || purchases.items.length === 0 ? (
-        <p className="text-muted-foreground">No purchases yet.</p>
+        <EmptyState>No purchases yet.</EmptyState>
       ) : (
-        <ul className="divide-y divide-border rounded border border-border">
-          {purchases.items.map((p) => (
-            <li key={p.id} className="flex items-center justify-between px-3 py-2">
-              <span>
-                {p.supplier.name} — {p.items.length} line(s)
-                {p.cancelledAt && <span className="ml-2 text-destructive">(cancelled)</span>}
-              </span>
-              {canMutate && !p.cancelledAt && (
-                <button onClick={() => cancelMutation.mutate(p.id)} className="text-sm text-destructive hover:underline">
-                  Cancel
-                </button>
-              )}
-            </li>
-          ))}
-        </ul>
+        <Table>
+          <THead>
+            <tr>
+              <Th>Supplier</Th>
+              <Th numeric>Lines</Th>
+              <Th>Status</Th>
+              {canMutate && <Th>Action</Th>}
+            </tr>
+          </THead>
+          <tbody>
+            {purchases.items.map((p) => (
+              <tr key={p.id}>
+                <Td>{p.supplier.name}</Td>
+                <Td numeric>{p.items.length}</Td>
+                <Td>
+                  <StatusBadge variant={p.cancelledAt ? "destructive" : "success"}>
+                    {p.cancelledAt ? "Cancelled" : "Received"}
+                  </StatusBadge>
+                </Td>
+                {canMutate && (
+                  <Td>
+                    {!p.cancelledAt && (
+                      <Button size="sm" variant="danger" onClick={() => cancelMutation.mutate(p.id)}>
+                        Cancel
+                      </Button>
+                    )}
+                  </Td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </Table>
       )}
-    </main>
+    </div>
   );
 }

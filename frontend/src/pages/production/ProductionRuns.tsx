@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { Button, Card, EmptyState, ErrorText, Field, Input, PageHeader, Select, StatusBadge } from "@/components/ui";
 
 type Bom = {
   id: string;
@@ -19,10 +20,16 @@ type Run = {
   bomHeader: { finishedItem: { name: string; sku: string } };
   materials: RunMaterial[];
 };
-type ConsumptionLine = { itemId: string; qtyBase: string };
-type PackagingLine = { itemId: string; qtyBase: string; damagedQty: string };
+type ConsumptionLine = { itemId: string; sku: string; qtyBase: string };
+type PackagingLine = { itemId: string; sku: string; qtyBase: string; damagedQty: string };
 type VarianceLine = { itemId: string; planned: number; actual: number; variancePct: number; flagged: boolean };
 type Variance = { materials: VarianceLine[]; yield: VarianceLine | null };
+
+const RUN_STATUS_VARIANT = { DRAFT: "neutral", STARTED: "info", COMPLETED: "success", CANCELLED: "destructive" } as const;
+
+function pct(v: number): string {
+  return `${v >= 0 ? "+" : ""}${(v * 100).toFixed(1)}%`;
+}
 
 export default function ProductionRuns() {
   const { user } = useAuth();
@@ -124,7 +131,9 @@ export default function ProductionRuns() {
     setCompletingRunId(null);
     const bom = boms?.find((b) => b.finishedItem.sku === run.bomHeader.finishedItem.sku);
     const rawLines = bom?.lines.filter((l) => l.rawItem.type === "RAW_MATERIAL") ?? [];
-    setConsumption(rawLines.map((l) => ({ itemId: l.rawItemId, qtyBase: String(l.qtyPerBatch * run.batchSize) })));
+    setConsumption(
+      rawLines.map((l) => ({ itemId: l.rawItemId, sku: l.rawItem.sku, qtyBase: String(l.qtyPerBatch * run.batchSize) })),
+    );
   }
 
   function openCompleteForm(run: Run) {
@@ -133,227 +142,245 @@ export default function ProductionRuns() {
     const bom = boms?.find((b) => b.finishedItem.sku === run.bomHeader.finishedItem.sku);
     const packagingLines = bom?.lines.filter((l) => l.rawItem.type === "PACKAGING") ?? [];
     setActualOutputQty(String(bom ? bom.expectedYieldQty * run.batchSize : ""));
-    setPackaging(packagingLines.map((l) => ({ itemId: l.rawItemId, qtyBase: String(l.qtyPerBatch * run.batchSize), damagedQty: "0" })));
+    setPackaging(
+      packagingLines.map((l) => ({
+        itemId: l.rawItemId,
+        sku: l.rawItem.sku,
+        qtyBase: String(l.qtyPerBatch * run.batchSize),
+        damagedQty: "0",
+      })),
+    );
   }
 
   return (
-    <main className="mx-auto max-w-2xl p-6 text-foreground">
-      <h1 className="mb-4 text-2xl font-semibold">Production Runs</h1>
+    <div>
+      <PageHeader title="Production runs" description="Create batches, issue materials, record output and track variance." />
 
       {canMutate && (
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          createMutation.mutate();
-        }}
-        className="mb-6 flex flex-col gap-2 rounded border border-border p-4"
-      >
-        <h2 className="font-medium">New production run</h2>
-        <select
-          value={bomId}
-          required
-          onChange={(e) => setBomId(e.target.value)}
-          className="rounded border border-input bg-transparent px-2 py-1"
-        >
-          <option value="">BOM…</option>
-          {boms?.map((b) => (
-            <option key={b.id} value={b.id}>
-              {b.finishedItem.sku} — {b.finishedItem.name} (yield {b.expectedYieldQty}/batch)
-            </option>
-          ))}
-        </select>
-        <input
-          placeholder="Batch size"
-          type="number"
-          required
-          value={batchSize}
-          onChange={(e) => setBatchSize(e.target.value)}
-          className="rounded border border-input bg-transparent px-2 py-1"
-        />
-        {selectedBom && (
-          <p className="text-sm text-muted-foreground">
-            Expected yield: {selectedBom.expectedYieldQty * Number(batchSize || 1)}
-          </p>
-        )}
-        {error && <p className="text-sm text-destructive">{error}</p>}
-        <button
-          type="submit"
-          disabled={createMutation.isPending}
-          className="rounded bg-primary px-3 py-2 text-primary-foreground disabled:opacity-50"
-        >
-          Create (DRAFT)
-        </button>
-      </form>
+        <Card className="mb-6 p-4">
+          <h2 className="mb-3 text-sm font-semibold text-foreground">New production run</h2>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              createMutation.mutate();
+            }}
+            className="flex flex-col gap-3 sm:flex-row sm:items-end"
+          >
+            <div className="flex-1">
+              <Field label="BOM / recipe" required>
+                <Select value={bomId} required onChange={(e) => setBomId(e.target.value)} className="w-full">
+                  <option value="">Select a recipe…</option>
+                  {boms?.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.finishedItem.sku} — {b.finishedItem.name} (yield {b.expectedYieldQty}/batch)
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            </div>
+            <div className="w-28">
+              <Field label="Batch size" required>
+                <Input type="number" required value={batchSize} onChange={(e) => setBatchSize(e.target.value)} />
+              </Field>
+            </div>
+            <Button type="submit" disabled={createMutation.isPending}>
+              Create (DRAFT)
+            </Button>
+          </form>
+          {selectedBom && (
+            <p className="mt-2 text-sm text-muted-foreground">
+              Expected yield: <span className="tabular font-medium text-foreground">{selectedBom.expectedYieldQty * Number(batchSize || 1)}</span>
+            </p>
+          )}
+          {error && <div className="mt-2"><ErrorText>{error}</ErrorText></div>}
+        </Card>
       )}
 
       {isLoading ? (
-        <p className="text-muted-foreground">Loading…</p>
+        <p className="text-sm text-muted-foreground">Loading…</p>
       ) : !runs || runs.length === 0 ? (
-        <p className="text-muted-foreground">No production runs yet.</p>
+        <EmptyState>No production runs yet.</EmptyState>
       ) : (
         <ul className="flex flex-col gap-3">
           {runs.map((run) => (
-            <li key={run.id} className="rounded border border-border p-3">
-              <p className="font-medium">
-                {run.bomHeader.finishedItem.sku} — {run.bomHeader.finishedItem.name} · batch {run.batchSize} ·{" "}
-                <span className="text-sm">{run.status}</span>
-              </p>
+            <li key={run.id}>
+              <Card className="p-4">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="font-medium text-foreground">
+                      {run.bomHeader.finishedItem.sku} — {run.bomHeader.finishedItem.name}
+                    </p>
+                    <p className="text-xs text-muted-foreground">Batch size {run.batchSize}</p>
+                  </div>
+                  <StatusBadge variant={RUN_STATUS_VARIANT[run.status]}>{run.status}</StatusBadge>
+                </div>
 
-              {run.status === "STARTED" && run.materials.length > 0 && (
-                <ul className="ml-4 list-disc text-sm text-muted-foreground">
-                  {run.materials.map((m, i) => (
-                    <li key={i}>
-                      {m.item.sku}: planned {m.plannedQtyBase}
-                      {m.actualQtyBase !== null && `, actual ${m.actualQtyBase}`}
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {run.status === "COMPLETED" && (
-                <p className="text-sm text-muted-foreground">
-                  Output {run.actualOutputQty} · damaged {run.damagedQty ?? 0}
-                </p>
-              )}
-
-              <div className="mt-2 flex gap-3 text-sm">
-                {canMutate && run.status === "DRAFT" && (
-                  <button onClick={() => openStartForm(run)} className="text-primary underline">
-                    Start
-                  </button>
-                )}
-                {canMutate && run.status === "STARTED" && (
-                  <button onClick={() => openCompleteForm(run)} className="text-primary underline">
-                    Complete
-                  </button>
-                )}
-                {canMutate && (run.status === "DRAFT" || run.status === "STARTED") && (
-                  <button onClick={() => cancelMutation.mutate(run.id)} className="text-destructive underline">
-                    Cancel
-                  </button>
-                )}
-                {run.status === "COMPLETED" && (
-                  <button
-                    onClick={() => setVarianceRunId(varianceRunId === run.id ? null : run.id)}
-                    className="text-primary underline"
-                  >
-                    {varianceRunId === run.id ? "Hide" : "Variance & cost"}
-                  </button>
-                )}
-              </div>
-
-              {varianceRunId === run.id && varianceDetail && (
-                <div className="mt-3 rounded border border-border p-3 text-sm">
-                  <p className="font-medium">Planned vs actual</p>
-                  <ul className="ml-4 list-disc text-muted-foreground">
-                    {varianceDetail.materials.map((m) => (
-                      <li key={m.itemId}>
-                        {run.materials.find((rm) => rm.itemId === m.itemId)?.item.sku ?? m.itemId}: planned {m.planned}, actual{" "}
-                        {m.actual} ({(m.variancePct * 100).toFixed(1)}%){" "}
-                        {m.flagged && <span className="text-destructive">flagged</span>}
+                {run.status === "STARTED" && run.materials.length > 0 && (
+                  <ul className="mt-2 text-sm text-muted-foreground">
+                    {run.materials.map((m, i) => (
+                      <li key={i} className="flex justify-between">
+                        <span>{m.item.sku}</span>
+                        <span className="tabular">
+                          planned {m.plannedQtyBase}
+                          {m.actualQtyBase !== null && `, actual ${m.actualQtyBase}`}
+                        </span>
                       </li>
                     ))}
-                    {varianceDetail.yield && (
-                      <li>
-                        Yield: planned {varianceDetail.yield.planned}, actual {varianceDetail.yield.actual} (
-                        {(varianceDetail.yield.variancePct * 100).toFixed(1)}%){" "}
-                        {varianceDetail.yield.flagged && <span className="text-destructive">flagged</span>}
-                      </li>
-                    )}
                   </ul>
-                  {varianceRunDetail?.outputUnitCostPaise !== null && varianceRunDetail?.outputUnitCostPaise !== undefined && (
-                    <p className="mt-2">
-                      Cost per unit: ₹{(varianceRunDetail.outputUnitCostPaise / 100).toFixed(2)} (moving-average material
-                      cost + ₹500/batch overhead, divided by actual output)
-                    </p>
+                )}
+                {run.status === "COMPLETED" && (
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    Output <span className="tabular font-medium text-foreground">{run.actualOutputQty}</span> · damaged{" "}
+                    <span className="tabular font-medium text-foreground">{run.damagedQty ?? 0}</span>
+                  </p>
+                )}
+
+                <div className="mt-3 flex gap-2">
+                  {canMutate && run.status === "DRAFT" && (
+                    <Button size="sm" onClick={() => openStartForm(run)}>
+                      Start
+                    </Button>
+                  )}
+                  {canMutate && run.status === "STARTED" && (
+                    <Button size="sm" onClick={() => openCompleteForm(run)}>
+                      Complete
+                    </Button>
+                  )}
+                  {canMutate && (run.status === "DRAFT" || run.status === "STARTED") && (
+                    <Button size="sm" variant="danger" onClick={() => cancelMutation.mutate(run.id)}>
+                      Cancel
+                    </Button>
+                  )}
+                  {run.status === "COMPLETED" && (
+                    <Button size="sm" variant="secondary" onClick={() => setVarianceRunId(varianceRunId === run.id ? null : run.id)}>
+                      {varianceRunId === run.id ? "Hide variance & cost" : "Variance & cost"}
+                    </Button>
                   )}
                 </div>
-              )}
 
-              {startingRunId === run.id && startingRun && (
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    startMutation.mutate(run.id);
-                  }}
-                  className="mt-3 flex flex-col gap-2 rounded border border-border p-3"
-                >
-                  <p className="text-sm font-medium">Actual raw-material consumption</p>
-                  {consumption.map((line, i) => (
-                    <input
-                      key={line.itemId}
-                      type="number"
-                      required
-                      value={line.qtyBase}
-                      onChange={(e) =>
-                        setConsumption((prev) => prev.map((l, idx) => (idx === i ? { ...l, qtyBase: e.target.value } : l)))
-                      }
-                      className="rounded border border-input bg-transparent px-2 py-1"
-                    />
-                  ))}
-                  <button
-                    type="submit"
-                    disabled={startMutation.isPending}
-                    className="self-start rounded bg-primary px-3 py-1 text-primary-foreground disabled:opacity-50"
+                {varianceRunId === run.id && varianceDetail && (
+                  <div className="mt-3 rounded-md border border-border bg-secondary/40 p-3 text-sm">
+                    <p className="mb-2 font-medium text-foreground">Planned vs. actual — ±3% tolerance</p>
+                    <ul className="flex flex-col gap-1">
+                      {varianceDetail.materials.map((m) => {
+                        const sku = run.materials.find((rm) => rm.itemId === m.itemId)?.item.sku ?? m.itemId;
+                        return (
+                          <li
+                            key={m.itemId}
+                            className={`flex items-center justify-between rounded px-2 py-1 ${m.flagged ? "bg-destructive-bg" : ""}`}
+                          >
+                            <span className={m.flagged ? "font-medium text-destructive" : "text-muted-foreground"}>{sku}</span>
+                            <span className="tabular text-right">
+                              planned {m.planned}, actual {m.actual} ({pct(m.variancePct)})
+                              {m.flagged && <span className="ml-1.5 font-medium text-destructive">⚠ flagged</span>}
+                            </span>
+                          </li>
+                        );
+                      })}
+                      {varianceDetail.yield && (
+                        <li
+                          className={`flex items-center justify-between rounded px-2 py-1 ${varianceDetail.yield.flagged ? "bg-destructive-bg" : ""}`}
+                        >
+                          <span className={varianceDetail.yield.flagged ? "font-medium text-destructive" : "text-muted-foreground"}>
+                            Yield
+                          </span>
+                          <span className="tabular text-right">
+                            planned {varianceDetail.yield.planned}, actual {varianceDetail.yield.actual} (
+                            {pct(varianceDetail.yield.variancePct)})
+                            {varianceDetail.yield.flagged && <span className="ml-1.5 font-medium text-destructive">⚠ flagged</span>}
+                          </span>
+                        </li>
+                      )}
+                    </ul>
+                    {varianceRunDetail?.outputUnitCostPaise !== null && varianceRunDetail?.outputUnitCostPaise !== undefined && (
+                      <p className="mt-2 border-t border-border pt-2 text-muted-foreground">
+                        Cost per unit:{" "}
+                        <span className="tabular font-medium text-foreground">₹{(varianceRunDetail.outputUnitCostPaise / 100).toFixed(2)}</span>{" "}
+                        (moving-average material cost + ₹500/batch overhead, divided by actual output)
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {startingRunId === run.id && startingRun && (
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      startMutation.mutate(run.id);
+                    }}
+                    className="mt-3 flex flex-col gap-2 rounded-md border border-border p-3"
                   >
-                    Confirm start (issues stock)
-                  </button>
-                </form>
-              )}
-
-              {completingRunId === run.id && completingRun && (
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    completeMutation.mutate(run.id);
-                  }}
-                  className="mt-3 flex flex-col gap-2 rounded border border-border p-3"
-                >
-                  <label className="text-sm font-medium">
-                    Actual output qty
-                    <input
-                      type="number"
-                      required
-                      value={actualOutputQty}
-                      onChange={(e) => setActualOutputQty(e.target.value)}
-                      className="mt-1 w-full rounded border border-input bg-transparent px-2 py-1"
-                    />
-                  </label>
-                  <p className="text-sm font-medium">Packaging consumed / damaged</p>
-                  {packaging.map((line, i) => (
-                    <div key={line.itemId} className="flex gap-2">
-                      <input
-                        placeholder="Consumed"
-                        type="number"
-                        value={line.qtyBase}
-                        onChange={(e) =>
-                          setPackaging((prev) => prev.map((l, idx) => (idx === i ? { ...l, qtyBase: e.target.value } : l)))
-                        }
-                        className="w-1/2 rounded border border-input bg-transparent px-2 py-1"
-                      />
-                      <input
-                        placeholder="Damaged"
-                        type="number"
-                        value={line.damagedQty}
-                        onChange={(e) =>
-                          setPackaging((prev) => prev.map((l, idx) => (idx === i ? { ...l, damagedQty: e.target.value } : l)))
-                        }
-                        className="w-1/2 rounded border border-input bg-transparent px-2 py-1"
-                      />
+                    <p className="text-sm font-medium text-foreground">Actual raw-material consumption</p>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {consumption.map((line, i) => (
+                        <Field key={line.itemId} label={line.sku} required>
+                          <Input
+                            type="number"
+                            required
+                            value={line.qtyBase}
+                            onChange={(e) =>
+                              setConsumption((prev) => prev.map((l, idx) => (idx === i ? { ...l, qtyBase: e.target.value } : l)))
+                            }
+                          />
+                        </Field>
+                      ))}
                     </div>
-                  ))}
-                  <button
-                    type="submit"
-                    disabled={completeMutation.isPending}
-                    className="self-start rounded bg-primary px-3 py-1 text-primary-foreground disabled:opacity-50"
+                    <Button type="submit" disabled={startMutation.isPending} className="mt-1 self-start">
+                      Confirm start (issues stock)
+                    </Button>
+                  </form>
+                )}
+
+                {completingRunId === run.id && completingRun && (
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      completeMutation.mutate(run.id);
+                    }}
+                    className="mt-3 flex flex-col gap-2 rounded-md border border-border p-3"
                   >
-                    Confirm complete
-                  </button>
-                </form>
-              )}
+                    <Field label="Actual output quantity" required>
+                      <Input type="number" required value={actualOutputQty} onChange={(e) => setActualOutputQty(e.target.value)} />
+                    </Field>
+                    <p className="mt-1 text-sm font-medium text-foreground">Packaging consumed / damaged</p>
+                    <div className="flex flex-col gap-2">
+                      {packaging.map((line, i) => (
+                        <div key={line.itemId} className="flex items-end gap-2">
+                          <div className="flex-1">
+                            <Field label={`${line.sku} — consumed`}>
+                              <Input
+                                type="number"
+                                value={line.qtyBase}
+                                onChange={(e) =>
+                                  setPackaging((prev) => prev.map((l, idx) => (idx === i ? { ...l, qtyBase: e.target.value } : l)))
+                                }
+                              />
+                            </Field>
+                          </div>
+                          <div className="flex-1">
+                            <Field label="Damaged">
+                              <Input
+                                type="number"
+                                value={line.damagedQty}
+                                onChange={(e) =>
+                                  setPackaging((prev) => prev.map((l, idx) => (idx === i ? { ...l, damagedQty: e.target.value } : l)))
+                                }
+                              />
+                            </Field>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <Button type="submit" disabled={completeMutation.isPending} className="mt-1 self-start">
+                      Confirm complete
+                    </Button>
+                  </form>
+                )}
+              </Card>
             </li>
           ))}
         </ul>
       )}
-    </main>
+    </div>
   );
 }

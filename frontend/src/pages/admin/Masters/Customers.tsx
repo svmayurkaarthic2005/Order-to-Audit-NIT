@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { Button, Card, EmptyState, ErrorText, Input, PageHeader, Table, Td, Th, THead } from "@/components/ui";
 
 type Customer = { id: string; name: string; state: string; gstin: string | null };
 
@@ -35,79 +36,78 @@ export default function Customers() {
   });
 
   return (
-    <main className="mx-auto max-w-2xl p-6 text-foreground">
-      <h1 className="mb-4 text-2xl font-semibold">Customers</h1>
-
-      <input
-        placeholder="Search by name…"
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        className="mb-4 w-full rounded border border-input bg-transparent px-3 py-2"
+    <div>
+      <PageHeader
+        title="Customers"
+        description="Buyers you sell to — used when raising orders and invoices."
+        actions={
+          <Input
+            placeholder="Search by name…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-56"
+          />
+        }
       />
 
       {canMutate && (
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            createMutation.mutate();
-          }}
-          className="mb-6 flex flex-wrap gap-2"
-        >
-          <input
-            placeholder="Name"
-            required
-            value={form.name}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
-            className="rounded border border-input bg-transparent px-2 py-1"
-          />
-          <input
-            placeholder="State"
-            required
-            value={form.state}
-            onChange={(e) => setForm({ ...form, state: e.target.value })}
-            className="rounded border border-input bg-transparent px-2 py-1"
-          />
-          <input
-            placeholder="GSTIN (optional)"
-            value={form.gstin}
-            onChange={(e) => setForm({ ...form, gstin: e.target.value })}
-            className="rounded border border-input bg-transparent px-2 py-1"
-          />
-          <button
-            type="submit"
-            disabled={createMutation.isPending}
-            className="rounded bg-primary px-3 py-1 text-primary-foreground disabled:opacity-50"
+        <Card className="mb-4 p-4">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              createMutation.mutate();
+            }}
+            className="flex flex-wrap items-end gap-2"
           >
-            Add
-          </button>
-        </form>
+            <Input placeholder="Name" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+            <Input placeholder="State" required value={form.state} onChange={(e) => setForm({ ...form, state: e.target.value })} />
+            <Input
+              placeholder="GSTIN (optional)"
+              value={form.gstin}
+              onChange={(e) => setForm({ ...form, gstin: e.target.value })}
+              className="w-44"
+            />
+            <Button type="submit" disabled={createMutation.isPending}>
+              Add customer
+            </Button>
+          </form>
+        </Card>
       )}
 
-      {rowError && <p className="mb-4 text-sm text-destructive">{rowError}</p>}
+      {rowError && <div className="mb-4"><ErrorText>{rowError}</ErrorText></div>}
 
       {isLoading ? (
-        <p className="text-muted-foreground">Loading…</p>
+        <p className="text-sm text-muted-foreground">Loading…</p>
       ) : !data || data.items.length === 0 ? (
-        <p className="text-muted-foreground">No customers yet.</p>
+        <EmptyState>No customers yet.</EmptyState>
       ) : (
-        <ul className="divide-y divide-border rounded border border-border">
-          {data.items.map((c) => (
-            <li key={c.id} className="flex items-center justify-between px-3 py-2">
-              <span>
-                {c.name} — {c.state} {c.gstin && <span className="text-muted-foreground">({c.gstin})</span>}
-              </span>
-              {canMutate && (
-                <button
-                  onClick={() => deleteMutation.mutate(c.id)}
-                  className="text-sm text-destructive hover:underline"
-                >
-                  Deactivate
-                </button>
-              )}
-            </li>
-          ))}
-        </ul>
+        <Table>
+          <THead>
+            <tr>
+              <Th>Name</Th>
+              <Th>State</Th>
+              <Th>GSTIN</Th>
+              {canMutate && <Th>Action</Th>}
+            </tr>
+          </THead>
+          <tbody>
+            {data.items.map((c) => (
+              <tr key={c.id}>
+                <Td className="font-medium text-foreground">{c.name}</Td>
+                <Td>{c.state}</Td>
+                <Td className="text-muted-foreground">{c.gstin ?? "—"}</Td>
+                {canMutate && (
+                  <Td>
+                    <Button size="sm" variant="danger" onClick={() => deleteMutation.mutate(c.id)}>
+                      Deactivate
+                    </Button>
+                  </Td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </Table>
       )}
-    </main>
+    </div>
   );
 }

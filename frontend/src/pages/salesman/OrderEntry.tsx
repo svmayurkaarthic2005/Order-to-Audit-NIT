@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, ApiError } from "@/lib/api";
+import { Button, Card, ErrorText, Field, Input, PageHeader, Select } from "@/components/ui";
 
 type Customer = { id: string; name: string };
 type Item = { id: string; sku: string; name: string; type: string };
@@ -70,34 +71,28 @@ export default function OrderEntry() {
   }
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-md flex-col gap-3 p-4 text-foreground">
-      <h1 className="text-xl font-semibold">New Order</h1>
+    <div className="mx-auto max-w-md">
+      <PageHeader title="New order" description="Select the customer, then add products." />
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-        <label className="flex flex-col gap-1 text-sm">
-          Customer
-          <select
-            value={customerId}
-            required
-            onChange={(e) => setCustomerId(e.target.value)}
-            className="w-full rounded border border-input bg-transparent px-3 py-2 text-base"
-          >
+        <Field label="Customer" required>
+          <Select value={customerId} required onChange={(e) => setCustomerId(e.target.value)} className="h-12 w-full text-base">
             <option value="">Select customer…</option>
             {customers?.items.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
               </option>
             ))}
-          </select>
-        </label>
+          </Select>
+        </Field>
 
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-3">
           {lines.map((line, i) => (
-            <div key={i} className="flex flex-col gap-2 rounded border border-border p-3">
-              <select
+            <Card key={i} className="flex flex-col gap-2 p-3">
+              <Select
                 value={line.itemId}
                 onChange={(e) => updateLine(i, { itemId: e.target.value })}
-                className="w-full rounded border border-input bg-transparent px-3 py-2 text-base"
+                className="h-12 w-full text-base"
               >
                 <option value="">Product…</option>
                 {finishedGoods.map((it) => (
@@ -105,55 +100,52 @@ export default function OrderEntry() {
                     {it.sku} — {it.name}
                   </option>
                 ))}
-              </select>
+              </Select>
               <div className="flex gap-2">
-                <input
+                <Input
                   placeholder="Qty"
                   type="number"
                   inputMode="numeric"
                   value={line.qtyBase}
                   onChange={(e) => updateLine(i, { qtyBase: e.target.value })}
-                  className="w-1/2 rounded border border-input bg-transparent px-3 py-2 text-base"
+                  className="h-12 w-1/2 text-base"
                 />
-                <input
-                  placeholder="Rate (₹/unit, in paise)"
+                <Input
+                  placeholder="Rate (paise/unit)"
                   type="number"
                   inputMode="numeric"
                   value={line.ratePaise}
                   onChange={(e) => updateLine(i, { ratePaise: e.target.value })}
-                  className="w-1/2 rounded border border-input bg-transparent px-3 py-2 text-base"
+                  className="h-12 w-1/2 text-base"
                 />
               </div>
               {lines.length > 1 && (
-                <button type="button" onClick={() => removeLine(i)} className="self-start text-sm text-destructive underline">
+                <Button type="button" variant="danger" size="sm" onClick={() => removeLine(i)} className="self-start">
                   Remove
-                </button>
+                </Button>
               )}
-            </div>
+            </Card>
           ))}
         </div>
 
-        <button
+        <Button
           type="button"
+          variant="secondary"
           onClick={() => setLines((prev) => [...prev, { ...emptyLine }])}
-          className="rounded border border-dashed border-input py-2 text-sm"
+          className="h-11 w-full border-dashed"
         >
           + Add product
-        </button>
+        </Button>
 
-        <p className="text-base font-medium">Total: ₹{(total / 100).toFixed(2)}</p>
+        <p className="text-base font-medium tabular text-foreground">Total: ₹{(total / 100).toFixed(2)}</p>
 
-        {validationError && <p className="text-sm text-destructive">{validationError}</p>}
-        {submitError && <p className="text-sm text-destructive">{submitError}</p>}
+        {validationError && <ErrorText>{validationError}</ErrorText>}
+        {submitError && <ErrorText>{submitError}</ErrorText>}
 
-        <button
-          type="submit"
-          disabled={createMutation.isPending}
-          className="w-full rounded bg-primary py-3 text-base font-medium text-primary-foreground disabled:opacity-50"
-        >
+        <Button type="submit" disabled={createMutation.isPending} className="h-12 w-full text-base">
           {createMutation.isPending ? "Submitting…" : "Submit order"}
-        </button>
+        </Button>
       </form>
-    </main>
+    </div>
   );
 }
