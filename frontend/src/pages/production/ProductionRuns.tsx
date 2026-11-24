@@ -24,6 +24,18 @@ type ConsumptionLine = { itemId: string; sku: string; qtyBase: string };
 type PackagingLine = { itemId: string; sku: string; qtyBase: string; damagedQty: string };
 type VarianceLine = { itemId: string; planned: number; actual: number; variancePct: number; flagged: boolean };
 type Variance = { materials: VarianceLine[]; yield: VarianceLine | null };
+type CostLine = { itemId: string; sku: string; name: string; qtyBase: number; unitCostPaise: number; totalCostPaise: number };
+type CostBreakdown = {
+  materialLines: CostLine[];
+  packagingLines: CostLine[];
+  laborCostPaise: number;
+  overheadCostPaise: number;
+  totalCostPaise: number;
+  goodOutputQty: number;
+  costPerGoodUnitPaise: number;
+  sellingPricePaise: number | null;
+  marginPaise: number | null;
+} | null;
 
 const RUN_STATUS_VARIANT = { DRAFT: "neutral", STARTED: "info", COMPLETED: "success", CANCELLED: "destructive" } as const;
 
@@ -45,8 +57,11 @@ export default function ProductionRuns() {
   const [completingRunId, setCompletingRunId] = useState<string | null>(null);
   const [actualOutputQty, setActualOutputQty] = useState("");
   const [packaging, setPackaging] = useState<PackagingLine[]>([]);
+  const [laborCostPaise, setLaborCostPaise] = useState("");
+  const [overheadCostPaise, setOverheadCostPaise] = useState("");
 
   const [varianceRunId, setVarianceRunId] = useState<string | null>(null);
+  const [showCostExplanation, setShowCostExplanation] = useState(false);
 
   const { data: boms } = useQuery({
     queryKey: ["boms", "production-picker"],
@@ -61,9 +76,9 @@ export default function ProductionRuns() {
     queryFn: () => api.get<Variance>(`/production-runs/${varianceRunId}/variance`),
     enabled: varianceRunId !== null,
   });
-  const { data: varianceRunDetail } = useQuery({
-    queryKey: ["production-run-detail", varianceRunId],
-    queryFn: () => api.get<Run & { outputUnitCostPaise: number | null }>(`/production-runs/${varianceRunId}`),
+  const { data: costBreakdown } = useQuery({
+    queryKey: ["production-run-cost-breakdown", varianceRunId],
+    queryFn: () => api.get<CostBreakdown>(`/production-runs/${varianceRunId}/cost-breakdown`),
     enabled: varianceRunId !== null,
   });
 
@@ -107,6 +122,8 @@ export default function ProductionRuns() {
             qtyBase: Number(p.qtyBase || 0),
             damagedQty: Number(p.damagedQty || 0),
           })),
+          ...(laborCostPaise ? { laborCostPaise: Number(laborCostPaise) } : {}),
+          ...(overheadCostPaise ? { overheadCostPaise: Number(overheadCostPaise) } : {}),
         },
         { "Idempotency-Key": `${runId}-${Date.now()}` },
       ),
@@ -115,6 +132,8 @@ export default function ProductionRuns() {
       setCompletingRunId(null);
       setActualOutputQty("");
       setPackaging([]);
+      setLaborCostPaise("");
+      setOverheadCostPaise("");
       queryClient.invalidateQueries({ queryKey: ["production-runs"] });
     },
     onError: (err) => setError(err instanceof ApiError ? err.message : "Failed to complete production run"),
@@ -305,12 +324,79 @@ export default function ProductionRuns() {
                         </li>
                       )}
                     </ul>
-                    {varianceRunDetail?.outputUnitCostPaise !== null && varianceRunDetail?.outputUnitCostPaise !== undefined && (
-                      <p className="mt-2 border-t border-border pt-2 text-muted-foreground">
-                        Cost per unit:{" "}
-                        <span className="tabular font-medium text-foreground">{money(varianceRunDetail.outputUnitCostPaise)}</span>{" "}
-                        (moving-average material cost + ₹500/batch overhead, divided by actual output)
-                      </p>
+                    {costBreakdown && (
+                      <div className="mt-3 border-t border-border pt-3">
+                        <table className="w-full text-sm">
+                          <tbody>
+                            {costBreakdown.materialLines.map((l) => (
+                              <tr key={l.itemId}>
+                                <td className="py-0.5 text-muted-foreground">{l.sku} ({l.qtyBase})</td>
+                                <td className="py-0.5 text-right tabular text-foreground">{money(l.totalCostPaise)}</td>
+                              </tr>
+                            ))}
+                            {costBreakdown.packagingLines.map((l) => (
+                              <tr key={l.itemId}>
+                                <td className="py-0.5 text-muted-foreground">{l.sku} ({l.qtyBase})</td>
+                                <td className="py-0.5 text-right tabular text-foreground">{money(l.totalCostPaise)}</td>
+                              </tr>
+                            ))}
+                            <tr>
+                              <td className="py-0.5 text-muted-foreground">Labour</td>
+                              <td className="py-0.5 text-right tabular text-foreground">{money(costBreakdown.laborCostPaise)}</td>
+                            </tr>
+                            <tr>
+                              <td className="py-0.5 text-muted-foreground">Overhead (power/gas)</td>
+                              <td className="py-0.5 text-right tabular text-foreground">{money(costBreakdown.overheadCostPaise)}</td>
+                            </tr>
+                            <tr className="border-t border-border/60">
+                              <td className="pt-1.5 font-medium text-foreground">Total ({costBreakdown.goodOutputQty} good units)</td>
+                              <td className="pt-1.5 text-right tabular font-semibold text-foreground">{money(costBreakdown.totalCostPaise)}</td>
+                            </tr>
+                            <tr>
+                              <td className="py-0.5 font-medium text-foreground">Cost per good unit</td>
+                              <td className="py-0.5 text-right tabular font-semibold text-foreground">{money(costBreakdown.costPerGoodUnitPaise)}</td>
+                            </tr>
+                            {costBreakdown.sellingPricePaise !== null && (
+                              <>
+                                <tr>
+                                  <td className="py-0.5 text-muted-foreground">Selling price (latest invoice rate)</td>
+                                  <td className="py-0.5 text-right tabular text-foreground">{money(costBreakdown.sellingPricePaise)}</td>
+                                </tr>
+                                <tr>
+                                  <td className="py-0.5 font-medium text-foreground">Margin</td>
+                                  <td
+                                    className={`py-0.5 text-right tabular font-semibold ${
+                                      (costBreakdown.marginPaise ?? 0) >= 0 ? "text-success" : "text-destructive"
+                                    }`}
+                                  >
+                                    {money(costBreakdown.marginPaise ?? 0)}
+                                  </td>
+                                </tr>
+                              </>
+                            )}
+                          </tbody>
+                        </table>
+
+                        <button
+                          type="button"
+                          onClick={() => setShowCostExplanation((v) => !v)}
+                          className="mt-2 text-xs font-medium text-primary hover:underline"
+                        >
+                          {showCostExplanation ? "Hide" : "How was this cost calculated?"}
+                        </button>
+                        {showCostExplanation && (
+                          <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+                            Each raw-material and packaging line is costed at the moving weighted-average
+                            rate in effect when it was issued (damaged packaging counted at the same rate
+                            as what was used, since it still cost money to make). Labour and overhead are
+                            entered once at completion — overhead defaults to a flat ₹500/batch when left
+                            blank. The total is divided by <strong>good</strong> output only, so damaged or
+                            short-yield units still carry their share of every cost. All of this is read
+                            from the stock ledger as it stood at completion, so it never changes afterward
+                            even if a later purchase or a BOM edit changes today's prices.
+                          </p>
+                        )}
+                      </div>
                     )}
                   </div>
                 )}
@@ -383,6 +469,25 @@ export default function ProductionRuns() {
                           </div>
                         </div>
                       ))}
+                    </div>
+                    <p className="mt-1 text-sm font-medium text-foreground">Actual expense (optional)</p>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <Field label="Labour cost (paise)">
+                        <Input
+                          type="number"
+                          placeholder="Not recorded"
+                          value={laborCostPaise}
+                          onChange={(e) => setLaborCostPaise(e.target.value)}
+                        />
+                      </Field>
+                      <Field label="Overhead cost (paise)">
+                        <Input
+                          type="number"
+                          placeholder={`Default: ₹500/batch × ${run.batchSize}`}
+                          value={overheadCostPaise}
+                          onChange={(e) => setOverheadCostPaise(e.target.value)}
+                        />
+                      </Field>
                     </div>
                     <Button type="submit" disabled={completeMutation.isPending} className="mt-1 self-start">
                       Confirm complete

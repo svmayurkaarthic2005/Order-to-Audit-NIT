@@ -29,4 +29,6 @@ export const productionRunCompleteSchema = z.object({
     )
     .default([]),
   expiryDate: z.coerce.date().optional(),
+  laborCostPaise: z.coerce.number().int().nonnegative().optional(),
+  overheadCostPaise: z.coerce.number().int().nonnegative().optional(),
 });

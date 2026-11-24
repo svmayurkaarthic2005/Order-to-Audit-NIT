@@ -11,6 +11,7 @@ import {
 } from "./service.js";
 import { productionRunCompleteSchema, productionRunCreateSchema, productionRunStartSchema } from "./schema.js";
 import { getProductionRunVariance } from "./variance.js";
+import { getProductionRunCostBreakdown } from "./costing.js";
 import { AppError } from "../../lib/AppError.js";
 
 export const productionRouter = Router();
@@ -35,6 +36,11 @@ productionRouter.get("/:id", canReadRuns, async (req, res) => {
 productionRouter.get("/:id/variance", canReadRuns, async (req, res) => {
   const variance = await getProductionRunVariance(req.params.id as string);
   res.json({ data: variance });
+});
+
+productionRouter.get("/:id/cost-breakdown", canReadRuns, async (req, res) => {
+  const breakdown = await getProductionRunCostBreakdown(req.params.id as string);
+  res.json({ data: breakdown });
 });
 
 productionRouter.post("/", canManageRuns, validate("body", productionRunCreateSchema), async (req, res) => {

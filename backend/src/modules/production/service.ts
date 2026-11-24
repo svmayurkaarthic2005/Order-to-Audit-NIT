@@ -141,6 +141,8 @@ export async function completeProductionRun(
     actualOutputQty: number;
     packagingConsumed: { itemId: string; qtyBase: number; damagedQty: number }[];
     expiryDate?: Date;
+    laborCostPaise?: number;
+    overheadCostPaise?: number;
   },
 ) {
   const alreadyApplied = await prisma.stockMovement.findUnique({ where: { idempotencyKey } });
@@ -168,6 +170,8 @@ async function completeProductionRunInTransaction(
     actualOutputQty: number;
     packagingConsumed: { itemId: string; qtyBase: number; damagedQty: number }[];
     expiryDate?: Date;
+    laborCostPaise?: number;
+    overheadCostPaise?: number;
   },
 ) {
   return prisma.$transaction(async (tx) => {
@@ -187,6 +191,8 @@ async function completeProductionRunInTransaction(
         completedAt: new Date(),
         actualOutputQty: data.actualOutputQty,
         damagedQty: totalDamagedQty,
+        laborCostPaise: data.laborCostPaise ?? null,
+        overheadCostPaise: data.overheadCostPaise ?? null,
       },
     });
     if (count === 0) {
@@ -237,7 +243,13 @@ async function completeProductionRunInTransaction(
     // run actually incurred + fixed overhead) is what the ledger's SUM()
     // needs to stay correct; unitCostPaise is that total spread over actual
     // output, rounded only for display.
-    const totalCostPaise = await computeOutputCostPaise(tx, id, run.batchSize);
+    const totalCostPaise = await computeOutputCostPaise(
+      tx,
+      id,
+      run.batchSize,
+      data.overheadCostPaise,
+      data.laborCostPaise,
+    );
     const unitCostPaise = Math.round(totalCostPaise / data.actualOutputQty);
 
     // Create the finished-goods batch row for FEFO dispatch tracking

@@ -272,6 +272,14 @@ model ProductionRun {
   status        ProductionRunStatus @default(DRAFT)
   actualOutputQty Int?
   damagedQty    Int?
+  // Entered at completion time (the brief's "actual expense"), stored on the
+  // run itself so it becomes part of the historical snapshot: once
+  // completedAt is set, neither this nor the costing calc that reads only
+  // already-posted StockMovement rows changes even if the BOM or purchase
+  // prices change later. Null means "not entered" — costing falls back to
+  // the existing flat overhead rule, exactly as it always did.
+  laborCostPaise    Int?
+  overheadCostPaise Int?
   startedAt     DateTime?
   completedAt   DateTime?
   cancelledAt   DateTime?

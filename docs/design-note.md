@@ -69,9 +69,12 @@ same is true of invoice mutation: there is no PATCH or DELETE route on `/invoice
 
 ## Assumptions made where the problem statement was silent
 
-- **Production overhead**: a flat ₹500 per batch, added to the moving-average material cost
-  before dividing by actual output, since no single mandated overhead figure or allocation method
-  was given. Stated here and in the Reports screen, never silently baked into a number.
+- **Production overhead**: a flat ₹500 per batch by default, since no single mandated overhead
+  figure or allocation method was given. A supervisor can instead enter the batch's actual labour
+  and overhead (power/gas, etc.) when completing a run; whichever applies is added to the
+  moving-average material cost before dividing by actual output, and is stated on the run's own
+  cost-breakdown panel, never silently baked into a number. Once a run completes, its figure is a
+  historical snapshot — a later BOM edit or purchase price never changes it.
 - **Variance tolerance**: ±3%, applied identically to every material line and to yield.
 - **Packaging damage**: recorded per packaging line (pouches vs. cartons can each have their own
   damaged quantity), not as one top-level figure, because the benchmark scenario's own numbers
