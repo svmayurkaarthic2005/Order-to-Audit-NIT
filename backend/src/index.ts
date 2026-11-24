@@ -1,6 +1,7 @@
 import cookieParser from "cookie-parser";
 import cors from "cors";
 import express from "express";
+import { csrfOriginCheck } from "./middleware/csrf.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import { authRouter } from "./modules/auth/router.js";
 import { auditRouter } from "./modules/audit/router.js";
@@ -26,6 +27,7 @@ const PORT = process.env.PORT ? Number(process.env.PORT) : 4000;
 app.use(cors({ origin: process.env.FRONTEND_ORIGIN ?? "http://localhost:5173", credentials: true }));
 app.use(express.json());
 app.use(cookieParser());
+app.use(csrfOriginCheck);
 
 app.get("/health", (_req, res) => {
   res.status(200).json({ data: { status: "ok" } });

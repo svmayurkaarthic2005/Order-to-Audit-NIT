@@ -80,4 +80,26 @@ describe("auth + RBAC", () => {
       });
     }
   });
+
+  it("a state-changing request with a mismatched Origin header is rejected (CSRF)", async () => {
+    const res = await request(app)
+      .post("/auth/login")
+      .set("Origin", "https://evil.example")
+      .send({ email: "admin@porulottam.test", password: "password123" });
+    expect(res.status).toBe(403);
+    expect(res.body.error.code).toBe("forbidden_origin");
+  });
+
+  it("a state-changing request with the real frontend Origin is allowed", async () => {
+    const res = await request(app)
+      .post("/auth/login")
+      .set("Origin", "http://localhost:5173")
+      .send({ email: "admin@porulottam.test", password: "password123" });
+    expect(res.status).toBe(200);
+  });
+
+  it("GET requests are never origin-checked, regardless of Origin", async () => {
+    const res = await request(app).get("/health").set("Origin", "https://evil.example");
+    expect(res.status).toBe(200);
+  });
 });

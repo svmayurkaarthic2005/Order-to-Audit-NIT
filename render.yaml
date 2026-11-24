@@ -39,3 +39,6 @@ databases:
     plan: starter
     databaseName: porulottam
     user: porulottam
+    # No public internet access — only Render's own private network (the
+    # backend service above) can reach this database.
+    ipAllowList: []
