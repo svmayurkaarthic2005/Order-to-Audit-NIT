@@ -1,6 +1,6 @@
 import { AppError } from "../../lib/AppError.js";
 import { prisma } from "../../lib/prisma.js";
-import { uploadInvoicePdf } from "../../lib/storage.js";
+import { uploadInvoicePdf, urlForInvoicePdf } from "../../lib/storage.js";
 import { calculate } from "../gst/calculate.js";
 import { renderInvoicePdf } from "./pdf.js";
 
@@ -126,19 +126,22 @@ export async function createCreditNote(invoiceId: string, reason: string) {
   });
 }
 
-// Idempotent: an invoice that already has a stored PDF returns that same
-// URL instead of generating and uploading a duplicate. The PDF is rendered
-// only from the invoice's own frozen fields — never a GST recomputation.
+// pdfStoragePath holds the object KEY, never a URL — a Supabase URL is a
+// short-lived signed one and would go stale if cached. Idempotent on the
+// upload itself: an invoice that already has a key just gets a fresh URL
+// minted for that same object instead of generating/uploading a duplicate.
+// The PDF is rendered only from the invoice's own frozen fields — never a
+// GST recomputation.
 export async function getOrGenerateInvoicePdfUrl(invoiceId: string): Promise<string> {
   const invoice = await getInvoice(invoiceId);
-  if (invoice.pdfStoragePath) {
-    return invoice.pdfStoragePath;
+
+  let key = invoice.pdfStoragePath;
+  if (!key) {
+    const pdfBuffer = await renderInvoicePdf(invoice);
+    key = `${invoice.financialYear}-${invoice.invoiceNumber}-${invoice.id}.pdf`;
+    await uploadInvoicePdf(key, pdfBuffer);
+    await prisma.invoice.update({ where: { id: invoiceId }, data: { pdfStoragePath: key } });
   }
 
-  const pdfBuffer = await renderInvoicePdf(invoice);
-  const key = `${invoice.financialYear}-${invoice.invoiceNumber}-${invoice.id}.pdf`;
-  const url = await uploadInvoicePdf(key, pdfBuffer);
-
-  await prisma.invoice.update({ where: { id: invoiceId }, data: { pdfStoragePath: url } });
-  return url;
+  return urlForInvoicePdf(key);
 }

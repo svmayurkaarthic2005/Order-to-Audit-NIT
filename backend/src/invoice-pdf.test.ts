@@ -51,8 +51,8 @@ describe("invoice PDF generation", () => {
     });
     await Promise.all(
       testInvoices
-        .filter((inv) => inv.pdfStoragePath?.startsWith("http://localhost"))
-        .map((inv) => rm(path.join(LOCAL_STORAGE_DIR, path.basename(new URL(inv.pdfStoragePath!).pathname)), { force: true })),
+        .filter((inv) => inv.pdfStoragePath)
+        .map((inv) => rm(path.join(LOCAL_STORAGE_DIR, inv.pdfStoragePath!), { force: true })),
     );
     await prisma.invoiceItem.deleteMany({ where: { invoice: { salesOrderId: { in: orderIds } } } });
     await prisma.invoice.deleteMany({ where: { salesOrderId: { in: orderIds } } });
@@ -88,10 +88,14 @@ describe("invoice PDF generation", () => {
 
     const first = await request(app).get(`/invoices/${invoiceId}/pdf`).set("Cookie", adminCookie);
     const second = await request(app).get(`/invoices/${invoiceId}/pdf`).set("Cookie", adminCookie);
-    expect(first.body.data.url).toBe(second.body.data.url);
+    expect(first.body.data.url).toBe(second.body.data.url); // same object key → same local URL
 
     const invoice = await prisma.invoice.findUniqueOrThrow({ where: { id: invoiceId } });
-    expect(invoice.pdfStoragePath).toBe(first.body.data.url);
+    expect(invoice.pdfStoragePath).not.toBeNull();
+    expect(first.body.data.url).toContain(invoice.pdfStoragePath);
+
+    const filesForInvoice = await prisma.invoice.count({ where: { id: invoiceId, pdfStoragePath: { not: null } } });
+    expect(filesForInvoice).toBe(1); // only one row, one key — no duplicate object was ever created
   });
 
   it("a salesman cannot fetch an invoice PDF", async () => {
@@ -101,5 +105,22 @@ describe("invoice PDF generation", () => {
 
     const res = await request(app).get(`/invoices/${invoiceId}/pdf`).set("Cookie", salesmanCookie);
     expect(res.status).toBe(403);
+  });
+
+  it("the stored PDF file itself is never reachable without auth or by a disallowed role", async () => {
+    const adminCookie = await loginAs("admin@porulottam.test");
+    const salesmanCookie = await loginAs("salesman@porulottam.test");
+    const invoiceId = await makeInvoice(adminCookie, salesmanCookie);
+    const pdfRes = await request(app).get(`/invoices/${invoiceId}/pdf`).set("Cookie", adminCookie);
+    const fileName = path.basename(new URL(pdfRes.body.data.url).pathname);
+
+    const noAuthRes = await request(app).get(`/storage/invoices/${fileName}`);
+    expect(noAuthRes.status).toBe(401);
+
+    const salesmanRes = await request(app).get(`/storage/invoices/${fileName}`).set("Cookie", salesmanCookie);
+    expect(salesmanRes.status).toBe(403);
+
+    const adminRes = await request(app).get(`/storage/invoices/${fileName}`).set("Cookie", adminCookie);
+    expect(adminRes.status).toBe(200);
   });
 });
