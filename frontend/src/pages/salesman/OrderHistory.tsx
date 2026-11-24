@@ -1,7 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
 import { api } from "@/lib/api";
-import { Button, Card, EmptyState, PageHeader, StatusBadge, money } from "@/components/ui";
+import { Card, EmptyState, LinkButton, PageHeader, StatusBadge, money } from "@/components/ui";
 
 type Order = {
   id: string;
@@ -29,17 +28,13 @@ export default function OrderHistory() {
     <div className="mx-auto max-w-md">
       <PageHeader
         title="My orders"
-        actions={
-          <Link to="/salesman/orders/new">
-            <Button>+ New order</Button>
-          </Link>
-        }
+        actions={<LinkButton to="/salesman/orders/new">+ New order</LinkButton>}
       />
 
       {isLoading ? (
         <p className="text-sm text-muted-foreground">Loading…</p>
       ) : !data || data.items.length === 0 ? (
-        <EmptyState>No orders yet — submit your first one.</EmptyState>
+        <EmptyState>No orders yet. Submit your first one.</EmptyState>
       ) : (
         <ul className="flex flex-col gap-3">
           {data.items.map((o) => {

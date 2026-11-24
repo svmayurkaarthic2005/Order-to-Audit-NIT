@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, ApiError } from "@/lib/api";
-import { Button, Card, ErrorText, Field, Input, PageHeader, Select } from "@/components/ui";
+import { Button, Card, ErrorText, Field, Input, PageHeader, Select, money } from "@/components/ui";
 
 type Customer = { id: string; name: string };
 type Item = { id: string; sku: string; name: string; type: string };
@@ -137,7 +137,7 @@ export default function OrderEntry() {
           + Add product
         </Button>
 
-        <p className="text-base font-medium tabular text-foreground">Total: ₹{(total / 100).toFixed(2)}</p>
+        <p className="text-base font-medium tabular text-foreground">Total: {money(total)}</p>
 
         {validationError && <ErrorText>{validationError}</ErrorText>}
         {submitError && <ErrorText>{submitError}</ErrorText>}

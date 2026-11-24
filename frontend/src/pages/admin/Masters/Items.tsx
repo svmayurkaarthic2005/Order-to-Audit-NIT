@@ -49,7 +49,7 @@ export default function Items() {
     <div>
       <PageHeader
         title="Items"
-        description="Raw materials, packaging and finished goods — the one catalog everything else references."
+        description="Raw materials, packaging and finished goods: the one catalog everything else references."
         actions={
           <Input
             placeholder="Search by name…"

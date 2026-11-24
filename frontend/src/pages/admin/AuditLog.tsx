@@ -21,7 +21,7 @@ export default function AuditLog() {
 
   return (
     <div>
-      <PageHeader title="Audit log" description="Who changed what, when — read-only, append-only." />
+      <PageHeader title="Audit log" description="Who changed what, when. Read-only and append-only." />
 
       {isLoading ? (
         <p className="text-sm text-muted-foreground">Loading…</p>

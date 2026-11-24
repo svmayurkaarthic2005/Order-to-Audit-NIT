@@ -39,7 +39,7 @@ export default function Customers() {
     <div>
       <PageHeader
         title="Customers"
-        description="Buyers you sell to — used when raising orders and invoices."
+        description="Buyers you sell to, used when raising orders and invoices."
         actions={
           <Input
             placeholder="Search by name…"

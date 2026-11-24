@@ -1,4 +1,5 @@
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
+import { Link } from "react-router-dom";
 
 // Shared visual language for every screen: one button system, one input
 // style, one table style, one status-badge system. Pages compose these
@@ -49,18 +50,44 @@ const buttonVariants = {
   link: "text-primary underline-offset-4 hover:underline",
 } as const;
 
+type ButtonVariant = keyof typeof buttonVariants;
+type ButtonSize = "sm" | "md";
+
+export function buttonClass(variant: ButtonVariant = "primary", size: ButtonSize = "md", className = ""): string {
+  const sizeClass = size === "sm" ? "h-7 px-2.5 text-xs" : "h-9 px-3.5 text-sm";
+  return `inline-flex shrink-0 items-center justify-center gap-1.5 rounded-md font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-50 ${sizeClass} ${buttonVariants[variant]} ${className}`;
+}
+
 export function Button({
   variant = "primary",
   size = "md",
   className = "",
   ...props
-}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: keyof typeof buttonVariants; size?: "sm" | "md" }) {
-  const sizeClass = size === "sm" ? "h-7 px-2.5 text-xs" : "h-9 px-3.5 text-sm";
+}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: ButtonVariant; size?: ButtonSize }) {
+  return <button className={buttonClass(variant, size, className)} {...props} />;
+}
+
+// A navigation link styled as a button — for "go to another page" actions
+// (e.g. "+ New order"). Renders one <a>, never a <button> nested inside a
+// <Link>, which is invalid HTML (nested interactive elements) and ambiguous
+// for assistive tech about what the one click target actually is.
+export function LinkButton({
+  to,
+  variant = "primary",
+  size = "md",
+  className = "",
+  children,
+}: {
+  to: string;
+  variant?: ButtonVariant;
+  size?: ButtonSize;
+  className?: string;
+  children: ReactNode;
+}) {
   return (
-    <button
-      className={`inline-flex shrink-0 items-center justify-center gap-1.5 rounded-md font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-50 ${sizeClass} ${buttonVariants[variant]} ${className}`}
-      {...props}
-    />
+    <Link to={to} className={buttonClass(variant, size, className)}>
+      {children}
+    </Link>
   );
 }
 

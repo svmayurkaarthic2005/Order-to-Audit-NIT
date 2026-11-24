@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "@/lib/api";
-import { Button, Card, EmptyState, Input, PageHeader, StatusBadge, Table, Td, Th, THead, money } from "@/components/ui";
+import { Card, EmptyState, Input, PageHeader, StatusBadge, Table, Td, Th, THead, buttonClass, money } from "@/components/ui";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
 
@@ -94,7 +94,7 @@ export default function Reports() {
 
   return (
     <div>
-      <PageHeader title="Reports" description="Sales, tax, stock, production and collections — for accounts and audit." />
+      <PageHeader title="Reports" description="Sales, tax, stock, production and collections, for accounts and audit." />
 
       <div className="mb-4 flex flex-wrap gap-1 border-b border-border">
         {REPORTS.map((r) => (
@@ -121,15 +121,19 @@ export default function Reports() {
         </label>
         {exportPath && (
           <>
-            <a href={`${API_BASE}/reports/${exportPath}?${query}&format=csv`} className={isLoading ? "pointer-events-none" : ""}>
-              <Button type="button" variant="secondary" disabled={isLoading}>
-                Export CSV
-              </Button>
+            <a
+              href={`${API_BASE}/reports/${exportPath}?${query}&format=csv`}
+              className={buttonClass("secondary", "md", isLoading ? "pointer-events-none opacity-50" : "")}
+              aria-disabled={isLoading}
+            >
+              Export CSV
             </a>
-            <a href={`${API_BASE}/reports/${exportPath}?${query}&format=pdf`} className={isLoading ? "pointer-events-none" : ""}>
-              <Button type="button" variant="secondary" disabled={isLoading}>
-                Export PDF
-              </Button>
+            <a
+              href={`${API_BASE}/reports/${exportPath}?${query}&format=pdf`}
+              className={buttonClass("secondary", "md", isLoading ? "pointer-events-none opacity-50" : "")}
+              aria-disabled={isLoading}
+            >
+              Export PDF
             </a>
           </>
         )}

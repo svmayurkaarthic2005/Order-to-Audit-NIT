@@ -73,7 +73,7 @@ export default function OrderQueue() {
         description="Review, approve and invoice sales orders."
         actions={
           <Link to="/admin/invoices" className="text-sm text-primary underline-offset-4 hover:underline">
-            View invoices →
+            View invoices
           </Link>
         }
       />

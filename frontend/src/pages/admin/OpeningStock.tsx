@@ -44,7 +44,7 @@ export default function OpeningStock() {
 
   return (
     <div className="max-w-xl">
-      <PageHeader title="Opening stock" description="One-time starting balance for an item — recorded once per item." />
+      <PageHeader title="Opening stock" description="The starting balance for an item, recorded once." />
 
       <Card className="p-4">
         <Field label="Item" required>

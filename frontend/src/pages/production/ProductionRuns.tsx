@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Button, Card, EmptyState, ErrorText, Field, Input, PageHeader, Select, StatusBadge } from "@/components/ui";
+import { Button, Card, EmptyState, ErrorText, Field, Input, PageHeader, Select, StatusBadge, money } from "@/components/ui";
 
 type Bom = {
   id: string;
@@ -260,7 +260,7 @@ export default function ProductionRuns() {
 
                 {varianceRunId === run.id && varianceDetail && (
                   <div className="mt-3 rounded-md border border-border bg-secondary/40 p-3 text-sm">
-                    <p className="mb-2 font-medium text-foreground">Planned vs. actual — ±3% tolerance</p>
+                    <p className="mb-2 font-medium text-foreground">Planned vs. actual (±3% tolerance)</p>
                     <ul className="flex flex-col gap-1">
                       {varianceDetail.materials.map((m) => {
                         const sku = run.materials.find((rm) => rm.itemId === m.itemId)?.item.sku ?? m.itemId;
@@ -295,7 +295,7 @@ export default function ProductionRuns() {
                     {varianceRunDetail?.outputUnitCostPaise !== null && varianceRunDetail?.outputUnitCostPaise !== undefined && (
                       <p className="mt-2 border-t border-border pt-2 text-muted-foreground">
                         Cost per unit:{" "}
-                        <span className="tabular font-medium text-foreground">₹{(varianceRunDetail.outputUnitCostPaise / 100).toFixed(2)}</span>{" "}
+                        <span className="tabular font-medium text-foreground">{money(varianceRunDetail.outputUnitCostPaise)}</span>{" "}
                         (moving-average material cost + ₹500/batch overhead, divided by actual output)
                       </p>
                     )}
