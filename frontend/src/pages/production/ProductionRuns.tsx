@@ -20,6 +20,8 @@ type Run = {
 };
 type ConsumptionLine = { itemId: string; qtyBase: string };
 type PackagingLine = { itemId: string; qtyBase: string; damagedQty: string };
+type VarianceLine = { itemId: string; planned: number; actual: number; variancePct: number; flagged: boolean };
+type Variance = { materials: VarianceLine[]; yield: VarianceLine | null };
 
 export default function ProductionRuns() {
   const queryClient = useQueryClient();
@@ -34,6 +36,8 @@ export default function ProductionRuns() {
   const [actualOutputQty, setActualOutputQty] = useState("");
   const [packaging, setPackaging] = useState<PackagingLine[]>([]);
 
+  const [varianceRunId, setVarianceRunId] = useState<string | null>(null);
+
   const { data: boms } = useQuery({
     queryKey: ["boms", "production-picker"],
     queryFn: () => api.get<Bom[]>("/boms"),
@@ -41,6 +45,16 @@ export default function ProductionRuns() {
   const { data: runs, isLoading } = useQuery({
     queryKey: ["production-runs"],
     queryFn: () => api.get<Run[]>("/production-runs"),
+  });
+  const { data: varianceDetail } = useQuery({
+    queryKey: ["production-run-variance", varianceRunId],
+    queryFn: () => api.get<Variance>(`/production-runs/${varianceRunId}/variance`),
+    enabled: varianceRunId !== null,
+  });
+  const { data: varianceRunDetail } = useQuery({
+    queryKey: ["production-run-detail", varianceRunId],
+    queryFn: () => api.get<Run & { outputUnitCostPaise: number | null }>(`/production-runs/${varianceRunId}`),
+    enabled: varianceRunId !== null,
   });
 
   const selectedBom = boms?.find((b) => b.id === bomId);
@@ -212,7 +226,43 @@ export default function ProductionRuns() {
                     Cancel
                   </button>
                 )}
+                {run.status === "COMPLETED" && (
+                  <button
+                    onClick={() => setVarianceRunId(varianceRunId === run.id ? null : run.id)}
+                    className="text-primary underline"
+                  >
+                    {varianceRunId === run.id ? "Hide" : "Variance & cost"}
+                  </button>
+                )}
               </div>
+
+              {varianceRunId === run.id && varianceDetail && (
+                <div className="mt-3 rounded border border-border p-3 text-sm">
+                  <p className="font-medium">Planned vs actual</p>
+                  <ul className="ml-4 list-disc text-muted-foreground">
+                    {varianceDetail.materials.map((m) => (
+                      <li key={m.itemId}>
+                        {run.materials.find((rm) => rm.itemId === m.itemId)?.item.sku ?? m.itemId}: planned {m.planned}, actual{" "}
+                        {m.actual} ({(m.variancePct * 100).toFixed(1)}%){" "}
+                        {m.flagged && <span className="text-destructive">flagged</span>}
+                      </li>
+                    ))}
+                    {varianceDetail.yield && (
+                      <li>
+                        Yield: planned {varianceDetail.yield.planned}, actual {varianceDetail.yield.actual} (
+                        {(varianceDetail.yield.variancePct * 100).toFixed(1)}%){" "}
+                        {varianceDetail.yield.flagged && <span className="text-destructive">flagged</span>}
+                      </li>
+                    )}
+                  </ul>
+                  {varianceRunDetail?.outputUnitCostPaise !== null && varianceRunDetail?.outputUnitCostPaise !== undefined && (
+                    <p className="mt-2">
+                      Cost per unit: ₹{(varianceRunDetail.outputUnitCostPaise / 100).toFixed(2)} (moving-average material
+                      cost + ₹500/batch overhead, divided by actual output)
+                    </p>
+                  )}
+                </div>
+              )}
 
               {startingRunId === run.id && startingRun && (
                 <form

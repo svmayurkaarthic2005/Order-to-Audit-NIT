@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { AppError } from "../../lib/AppError.js";
 import { prisma } from "../../lib/prisma.js";
+import { computeOutputCostPaise } from "./costing.js";
 
 type TxClient = Prisma.TransactionClient;
 
@@ -26,7 +27,11 @@ export async function getProductionRun(id: string) {
   if (!run) {
     throw new AppError(404, "not_found", "Production run not found");
   }
-  return run;
+  if (run.status !== "COMPLETED") {
+    return { ...run, outputUnitCostPaise: null };
+  }
+  const output = await prisma.stockMovement.findFirst({ where: { sourceId: id, source: "PRODUCTION_OUTPUT" } });
+  return { ...run, outputUnitCostPaise: output?.unitCostPaise ?? null };
 }
 
 export async function listProductionRuns() {
@@ -211,14 +216,21 @@ async function completeProductionRunInTransaction(
       });
     }
 
+    // Moving-weighted-average costing: the exact total (material cost this
+    // run actually incurred + fixed overhead) is what the ledger's SUM()
+    // needs to stay correct; unitCostPaise is that total spread over actual
+    // output, rounded only for display.
+    const totalCostPaise = await computeOutputCostPaise(tx, id, run.batchSize);
+    const unitCostPaise = Math.round(totalCostPaise / data.actualOutputQty);
+
     // The idempotency guard: the finished-goods output row carries the
     // caller's key, so a replay is caught before any row is posted twice.
     await tx.stockMovement.create({
       data: {
         itemId: run.bomHeader.finishedItemId,
         qtyBase: data.actualOutputQty,
-        unitCostPaise: 0, // costing is Phase 9's job, not this one
-        totalCostPaise: 0,
+        unitCostPaise,
+        totalCostPaise,
         source: "PRODUCTION_OUTPUT",
         sourceId: id,
         idempotencyKey,

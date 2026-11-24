@@ -249,6 +249,72 @@ describe("production lifecycle", () => {
     expect(outputMovements).toHaveLength(1);
   });
 
+  it("variance: +5% on a material is flagged, −6% yield is flagged, a material within ±3% is not", async () => {
+    const cookie = await loginAs("admin@porulottam.test");
+    const { bomId, rawId, packagingId } = await makeTestBom(cookie);
+    const createRes = await request(app).post("/production-runs").set("Cookie", cookie).send({ bomHeaderId: bomId, batchSize: 1 });
+    const runId = createRes.body.data.id;
+
+    await request(app)
+      .post(`/production-runs/${runId}/start`)
+      .set("Cookie", cookie)
+      .send({ actualConsumption: [{ itemId: rawId, qtyBase: 1_050 }] }); // planned 1,000 → +5%
+    await request(app)
+      .post(`/production-runs/${runId}/complete`)
+      .set("Cookie", cookie)
+      .set("Idempotency-Key", `variance-${runId}`)
+      .send({ actualOutputQty: 94, packagingConsumed: [{ itemId: packagingId, qtyBase: 100, damagedQty: 0 }] }); // planned yield 100 → −6%
+
+    const varianceRes = await request(app).get(`/production-runs/${runId}/variance`).set("Cookie", cookie);
+    expect(varianceRes.status).toBe(200);
+
+    const rawVariance = varianceRes.body.data.materials.find((m: { itemId: string }) => m.itemId === rawId);
+    expect(rawVariance.variancePct).toBeCloseTo(0.05, 5);
+    expect(rawVariance.flagged).toBe(true);
+
+    const packagingVariance = varianceRes.body.data.materials.find((m: { itemId: string }) => m.itemId === packagingId);
+    expect(packagingVariance.variancePct).toBeCloseTo(0, 5); // 100 actual vs 100 planned
+    expect(packagingVariance.flagged).toBe(false);
+
+    expect(varianceRes.body.data.yield.variancePct).toBeCloseTo(-0.06, 5);
+    expect(varianceRes.body.data.yield.flagged).toBe(true);
+  });
+
+  it("costing: finished-goods unit cost is (material cost this run incurred + fixed overhead) / actual output", async () => {
+    const cookie = await loginAs("admin@porulottam.test");
+    const { bomId, finishedId, rawId, packagingId } = await makeTestBom(cookie);
+    const createRes = await request(app).post("/production-runs").set("Cookie", cookie).send({ bomHeaderId: bomId, batchSize: 1 });
+    const runId = createRes.body.data.id;
+
+    await request(app)
+      .post(`/production-runs/${runId}/start`)
+      .set("Cookie", cookie)
+      .send({ actualConsumption: [{ itemId: rawId, qtyBase: 1_050 }] });
+    await request(app)
+      .post(`/production-runs/${runId}/complete`)
+      .set("Cookie", cookie)
+      .set("Idempotency-Key", `costing-${runId}`)
+      .send({ actualOutputQty: 94, packagingConsumed: [{ itemId: packagingId, qtyBase: 94, damagedQty: 3 }] });
+
+    // Independently re-derive the expected cost from the ledger this run
+    // actually posted, rather than hard-coding a number tied to the
+    // implementation's internals.
+    const materialAgg = await prisma.stockMovement.aggregate({
+      where: { sourceId: runId, source: { in: ["PRODUCTION_ISSUE", "PRODUCTION_PACKAGING", "PRODUCTION_DAMAGE"] } },
+      _sum: { totalCostPaise: true },
+    });
+    const expectedTotalCostPaise = Math.abs(materialAgg._sum.totalCostPaise ?? 0) + 50_000; // +₹500/batch overhead
+
+    const outputMovement = await prisma.stockMovement.findFirstOrThrow({
+      where: { sourceId: runId, source: "PRODUCTION_OUTPUT" },
+    });
+    expect(outputMovement.totalCostPaise).toBe(expectedTotalCostPaise);
+    expect(outputMovement.unitCostPaise).toBe(Math.round(expectedTotalCostPaise / 94));
+
+    const onHand = await request(app).get(`/inventory/${finishedId}/on-hand`).set("Cookie", cookie);
+    expect(onHand.body.data.movingAverageCostPaise).toBe(outputMovement.unitCostPaise);
+  });
+
   it("a salesman cannot read or manage production runs", async () => {
     const cookie = await loginAs("salesman@porulottam.test");
     const listRes = await request(app).get("/production-runs").set("Cookie", cookie);

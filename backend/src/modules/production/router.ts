@@ -10,6 +10,7 @@ import {
   startProductionRun,
 } from "./service.js";
 import { productionRunCompleteSchema, productionRunCreateSchema, productionRunStartSchema } from "./schema.js";
+import { getProductionRunVariance } from "./variance.js";
 import { AppError } from "../../lib/AppError.js";
 
 export const productionRouter = Router();
@@ -29,6 +30,11 @@ productionRouter.get("/", canReadRuns, async (_req, res) => {
 productionRouter.get("/:id", canReadRuns, async (req, res) => {
   const run = await getProductionRun(req.params.id as string);
   res.json({ data: run });
+});
+
+productionRouter.get("/:id/variance", canReadRuns, async (req, res) => {
+  const variance = await getProductionRunVariance(req.params.id as string);
+  res.json({ data: variance });
 });
 
 productionRouter.post("/", canManageRuns, validate("body", productionRunCreateSchema), async (req, res) => {
