@@ -55,7 +55,18 @@ export async function startProductionRun(
     if (!run) {
       throw new AppError(404, "not_found", "Production run not found");
     }
-    if (run.status !== "DRAFT") {
+
+    // Claim the DRAFT -> STARTED transition atomically before posting any
+    // movement: two concurrent /start calls (or a /start racing a /cancel)
+    // could otherwise both read status "DRAFT" before either writes, and
+    // both post a PRODUCTION_ISSUE row — double-issuing raw material, or a
+    // /start overwriting a /cancel that landed in between. Only the request
+    // whose UPDATE actually flips the row may proceed.
+    const { count } = await tx.productionRun.updateMany({
+      where: { id, status: "DRAFT" },
+      data: { status: "STARTED", startedAt: new Date() },
+    });
+    if (count === 0) {
       throw new AppError(409, "invalid_status", "Only a DRAFT run can be started");
     }
 
@@ -96,7 +107,6 @@ export async function startProductionRun(
       });
     }
 
-    await tx.productionRun.update({ where: { id }, data: { status: "STARTED", startedAt: new Date() } });
     return tx.productionRun.findUniqueOrThrow({ where: { id }, include: includeClause() });
   });
 }
@@ -143,7 +153,21 @@ async function completeProductionRunInTransaction(
     if (!run) {
       throw new AppError(404, "not_found", "Production run not found");
     }
-    if (run.status !== "STARTED") {
+
+    // Same atomic-claim pattern as start: compute totalDamaged from the
+    // request body (no DB read needed) so the transition can be claimed
+    // before any movement is posted, closing the same double-posting race.
+    const totalDamagedQty = data.packagingConsumed.reduce((sum, l) => sum + l.damagedQty, 0);
+    const { count } = await tx.productionRun.updateMany({
+      where: { id, status: "STARTED" },
+      data: {
+        status: "COMPLETED",
+        completedAt: new Date(),
+        actualOutputQty: data.actualOutputQty,
+        damagedQty: totalDamagedQty,
+      },
+    });
+    if (count === 0) {
       throw new AppError(409, "invalid_status", "Only a STARTED run can be completed");
     }
 
@@ -151,7 +175,6 @@ async function completeProductionRunInTransaction(
       run.bomHeader.lines.filter((l) => l.rawItem.type === "PACKAGING").map((l) => l.rawItemId),
     );
 
-    let totalDamaged = 0;
     for (const line of data.packagingConsumed) {
       if (!packagingLineIds.has(line.itemId)) {
         throw new AppError(400, "invalid_item", `Item ${line.itemId} is not a packaging line on this BOM`);
@@ -181,7 +204,6 @@ async function completeProductionRunInTransaction(
             sourceId: id,
           },
         });
-        totalDamaged += line.damagedQty;
       }
       await tx.productionRunMaterial.updateMany({
         where: { productionRunId: id, itemId: line.itemId },
@@ -201,11 +223,6 @@ async function completeProductionRunInTransaction(
         sourceId: id,
         idempotencyKey,
       },
-    });
-
-    await tx.productionRun.update({
-      where: { id },
-      data: { status: "COMPLETED", completedAt: new Date(), actualOutputQty: data.actualOutputQty, damagedQty: totalDamaged },
     });
 
     return tx.productionRun.findUniqueOrThrow({ where: { id }, include: includeClause() });

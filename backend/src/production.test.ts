@@ -197,6 +197,58 @@ describe("production lifecycle", () => {
     expect(startAgain.status).toBe(409);
   });
 
+  it("closes the start race: two concurrent /start calls issue raw material exactly once", async () => {
+    const cookie = await loginAs("admin@porulottam.test");
+    const { bomId, rawId } = await makeTestBom(cookie);
+    const createRes = await request(app).post("/production-runs").set("Cookie", cookie).send({ bomHeaderId: bomId, batchSize: 1 });
+    const runId = createRes.body.data.id;
+
+    const [a, b] = await Promise.all([
+      request(app).post(`/production-runs/${runId}/start`).set("Cookie", cookie).send({ actualConsumption: [{ itemId: rawId, qtyBase: 1_000 }] }),
+      request(app).post(`/production-runs/${runId}/start`).set("Cookie", cookie).send({ actualConsumption: [{ itemId: rawId, qtyBase: 1_000 }] }),
+    ]);
+    const statuses = [a.status, b.status].sort();
+    expect(statuses).toEqual([200, 409]);
+
+    const rawOnHand = await request(app).get(`/inventory/${rawId}/on-hand`).set("Cookie", cookie);
+    expect(rawOnHand.body.data.qtyBase).toBe(10_000 - 1_000); // not 8,000 — issued only once
+
+    const issueMovements = await prisma.stockMovement.findMany({ where: { sourceId: runId, source: "PRODUCTION_ISSUE" } });
+    expect(issueMovements).toHaveLength(1);
+  });
+
+  it("closes the complete race: two concurrent /complete calls (different idempotency keys) post output exactly once", async () => {
+    const cookie = await loginAs("admin@porulottam.test");
+    const { bomId, finishedId, rawId } = await makeTestBom(cookie);
+    const createRes = await request(app).post("/production-runs").set("Cookie", cookie).send({ bomHeaderId: bomId, batchSize: 1 });
+    const runId = createRes.body.data.id;
+    await request(app)
+      .post(`/production-runs/${runId}/start`)
+      .set("Cookie", cookie)
+      .send({ actualConsumption: [{ itemId: rawId, qtyBase: 1_000 }] });
+
+    const [a, b] = await Promise.all([
+      request(app)
+        .post(`/production-runs/${runId}/complete`)
+        .set("Cookie", cookie)
+        .set("Idempotency-Key", `race-a-${runId}`)
+        .send({ actualOutputQty: 100, packagingConsumed: [] }),
+      request(app)
+        .post(`/production-runs/${runId}/complete`)
+        .set("Cookie", cookie)
+        .set("Idempotency-Key", `race-b-${runId}`)
+        .send({ actualOutputQty: 100, packagingConsumed: [] }),
+    ]);
+    const statuses = [a.status, b.status].sort();
+    expect(statuses).toEqual([200, 409]);
+
+    const finishedOnHand = await request(app).get(`/inventory/${finishedId}/on-hand`).set("Cookie", cookie);
+    expect(finishedOnHand.body.data.qtyBase).toBe(100); // not 200 — two different keys, still posted once
+
+    const outputMovements = await prisma.stockMovement.findMany({ where: { sourceId: runId, source: "PRODUCTION_OUTPUT" } });
+    expect(outputMovements).toHaveLength(1);
+  });
+
   it("a salesman cannot read or manage production runs", async () => {
     const cookie = await loginAs("salesman@porulottam.test");
     const listRes = await request(app).get("/production-runs").set("Cookie", cookie);
