@@ -8,8 +8,16 @@ export function toCsv(rows: Record<string, unknown>[]): string {
   }
   const headers = Object.keys(rows[0]!);
   const escape = (v: unknown) => {
-    const s = v === null || v === undefined ? "" : String(v);
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    let s = v === null || v === undefined ? "" : String(v);
+    // Formula injection: a cell opened in Excel/Sheets that starts with
+    // one of these characters can be interpreted as a formula. Names in
+    // this data (supplier, customer, item) are user-entered, so prefix a
+    // literal quote to force text interpretation, per CSV-injection
+    // mitigation guidance (OWASP).
+    if (/^[=+\-@\t\r]/.test(s)) {
+      s = `'${s}`;
+    }
+    return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   const lines = [headers.join(","), ...rows.map((row) => headers.map((h) => escape(row[h])).join(","))];
   return lines.join("\n");
