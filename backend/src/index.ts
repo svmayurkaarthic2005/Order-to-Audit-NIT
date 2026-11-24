@@ -3,6 +3,7 @@ import cors from "cors";
 import express from "express";
 import { errorHandler } from "./middleware/errorHandler.js";
 import { authRouter } from "./modules/auth/router.js";
+import { bomRouter, packSizesRouter } from "./modules/bom/router.js";
 import { customersRouter } from "./modules/customers/router.js";
 import { debugRouter } from "./modules/debug/router.js";
 import { inventoryRouter } from "./modules/inventory/router.js";
@@ -27,6 +28,8 @@ app.use("/suppliers", suppliersRouter);
 app.use("/items", itemsRouter);
 app.use("/inventory", inventoryRouter);
 app.use("/purchases", purchasesRouter);
+app.use("/boms", bomRouter);
+app.use("/pack-sizes", packSizesRouter);
 app.use("/debug", debugRouter);
 
 app.use(errorHandler);

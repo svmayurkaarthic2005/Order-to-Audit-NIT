@@ -2,6 +2,7 @@ import { Link, Route, Routes } from "react-router-dom";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { useAuth } from "@/lib/auth";
 import Login from "@/pages/Login";
+import BOM from "@/pages/admin/BOM";
 import Customers from "@/pages/admin/Masters/Customers";
 import Items from "@/pages/admin/Masters/Items";
 import Suppliers from "@/pages/admin/Masters/Suppliers";
@@ -28,6 +29,7 @@ function Home() {
             <Link to="/admin/suppliers">Suppliers</Link>
             <Link to="/admin/items">Items</Link>
             <Link to="/admin/opening-stock">Opening Stock</Link>
+            <Link to="/admin/bom">BOM</Link>
           </>
         )}
         {canRecordPurchases && <Link to="/admin/purchases">Purchases</Link>}
@@ -80,6 +82,14 @@ export default function App() {
         element={
           <ProtectedRoute roles={["ADMIN", "OWNER"]}>
             <OpeningStock />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin/bom"
+        element={
+          <ProtectedRoute roles={["ADMIN", "OWNER"]}>
+            <BOM />
           </ProtectedRoute>
         }
       />
