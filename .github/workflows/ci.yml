@@ -39,7 +39,7 @@ jobs:
       # The test suite deletes the rows it creates; this throwaway database
       # opts in to that. Production databases never do, so the ledger and
       # activity log stay append-only there.
-      - run: echo "ALTER DATABASE porulottam SET app.allow_ledger_cleanup = 'on';" | npx prisma db execute --stdin
+      - run: echo "ALTER DATABASE porulottam SET app.allow_ledger_cleanup = 'on';" | npx prisma db execute --stdin --schema prisma/schema.prisma
       - run: npm run db:seed
       - run: npx tsc --noEmit
       - run: npm test
