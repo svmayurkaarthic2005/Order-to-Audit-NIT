@@ -4,6 +4,10 @@ import path from "node:path";
 
 const SIGNED_URL_TTL_SECONDS = 3600;
 
+// Thrown only when the stored PDF itself is missing, so callers can tell
+// "regenerate it" apart from an outage or bad credentials.
+export class InvoicePdfNotFoundError extends Error {}
+
 // Served statically from index.ts at /storage/invoices, behind requireAuth
 // + the same role check as the rest of the invoices API — these are
 // customer billing documents, never a publicly reachable path.
@@ -34,7 +38,7 @@ export async function uploadInvoicePdf(key: string, pdfBuffer: Buffer): Promise<
   if (client) {
     const { error } = await client.storage.from(bucket()).upload(key, pdfBuffer, {
       contentType: "application/pdf",
-      upsert: true,
+      upsert: false,
     });
     if (error) {
       throw new Error(`Supabase upload failed: ${error.message}`);
@@ -54,11 +58,19 @@ export async function urlForInvoicePdf(key: string): Promise<string> {
   const client = supabaseClient();
   if (client) {
     const { data, error } = await client.storage.from(bucket()).createSignedUrl(key, SIGNED_URL_TTL_SECONDS);
+    if (error && /not.?found/i.test(error.message)) {
+      throw new InvoicePdfNotFoundError(key);
+    }
     if (error || !data) {
       throw new Error(`Supabase signed URL failed: ${error?.message}`);
     }
     return data.signedUrl;
   }
 
+  try {
+    await fs.access(path.join(LOCAL_STORAGE_DIR, key));
+  } catch {
+    throw new InvoicePdfNotFoundError(key);
+  }
   return `${LOCAL_STORAGE_BASE_URL}/${key}`;
 }

@@ -2,7 +2,7 @@ import { AppError } from "../../lib/AppError.js";
 import { logAudit } from "../../lib/audit.js";
 import { sendMail } from "../../lib/mailer.js";
 import { prisma } from "../../lib/prisma.js";
-import { uploadInvoicePdf, urlForInvoicePdf } from "../../lib/storage.js";
+import { InvoicePdfNotFoundError, uploadInvoicePdf, urlForInvoicePdf } from "../../lib/storage.js";
 import { calculate } from "../gst/calculate.js";
 import { getOutstandingPaise } from "../payments/service.js";
 import { MANUFACTURER_NAME, renderInvoicePdf } from "./pdf.js";
@@ -163,9 +163,10 @@ export async function getOrGenerateInvoicePdfUrl(invoiceId: string): Promise<str
   if (invoice.pdfStoragePath) {
     try {
       return await urlForInvoicePdf(invoice.pdfStoragePath);
-    } catch {
-      // The stored object is gone, e.g. the PDF was saved to local disk
-      // before Supabase storage was switched on. Render and upload it again.
+    } catch (err) {
+      // Only a missing file is recovered (e.g. it was saved to local disk
+      // before Supabase storage was switched on); anything else propagates.
+      if (!(err instanceof InvoicePdfNotFoundError)) throw err;
     }
   }
 
