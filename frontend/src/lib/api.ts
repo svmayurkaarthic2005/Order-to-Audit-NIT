@@ -42,7 +42,16 @@ export const api = {
 
 const OFFLINE_QUEUE_KEY = "offline-order-queue";
 
-type QueuedOrder = { idempotencyKey: string; body: unknown };
+// Set by AuthProvider whenever the logged-in user changes, so a queued
+// order is replayed only for the salesman who created it — never under a
+// different salesman who happens to log in on the same device before the
+// original one reconnects.
+let currentUserId: string | null = null;
+export function setOfflineQueueUser(userId: string | null) {
+  currentUserId = userId;
+}
+
+type QueuedOrder = { idempotencyKey: string; body: unknown; userId: string | null };
 
 function readQueue(): QueuedOrder[] {
   try {
@@ -73,7 +82,7 @@ function isNetworkFailure(err: unknown): boolean {
 }
 
 export async function replayOfflineOrders() {
-  for (const entry of readQueue()) {
+  for (const entry of readQueue().filter((q) => q.userId === currentUserId)) {
     try {
       await postOrder(entry.body, entry.idempotencyKey);
     } catch (err) {
@@ -86,7 +95,7 @@ export async function replayOfflineOrders() {
 }
 
 export function queuedOrderCount(): number {
-  return readQueue().length;
+  return readQueue().filter((q) => q.userId === currentUserId).length;
 }
 
 async function submitOrder(
@@ -100,14 +109,15 @@ async function submitOrder(
     if (!isNetworkFailure(err)) throw err;
     const queue = readQueue();
     if (!queue.some((q) => q.idempotencyKey === idempotencyKey)) {
-      queue.push({ idempotencyKey, body });
+      queue.push({ idempotencyKey, body, userId: currentUserId });
       writeQueue(queue);
     }
     return { status: "queued" };
   }
 }
 
+// The initial replay on load (for a user already logged in via cookie) is
+// triggered by AuthProvider once it knows who that user is, not here.
 if (typeof window !== "undefined") {
   window.addEventListener("online", () => void replayOfflineOrders());
-  if (navigator.onLine) void replayOfflineOrders();
 }

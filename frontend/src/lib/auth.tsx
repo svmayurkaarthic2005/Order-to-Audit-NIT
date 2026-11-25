@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { replayOfflineOrders, setOfflineQueueUser } from "./api";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
 
@@ -27,6 +28,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .catch(() => setUser(null))
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    setOfflineQueueUser(user?.id ?? null);
+    if (user && navigator.onLine) void replayOfflineOrders();
+  }, [user]);
 
   async function login(email: string, password: string) {
     setError(null);

@@ -133,6 +133,12 @@ function withOrderInclude(id: string, tx: TxClient) {
 // even under concurrent approval requests racing for the same units.
 export async function approveOrder(id: string, actingUserId: string) {
   return prisma.$transaction(async (tx) => {
+    // Serialize against a concurrent editOrder on this same order: without
+    // this, editOrder could swap in a different item/quantity between our
+    // read below and the item-level locks we take from it, so the stock
+    // check a few lines down would end up guarding the wrong items.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${id}))`;
+
     const order = await tx.salesOrder.findUnique({ where: { id }, include: { items: true } });
     if (!order) {
       throw new AppError(404, "not_found", "Order not found");
@@ -195,6 +201,10 @@ export async function approveOrder(id: string, actingUserId: string) {
 // already reserved stock or a closed decision — never editable again.
 export async function editOrder(id: string, items: OrderItemInput[], actingUserId: string) {
   return prisma.$transaction(async (tx) => {
+    // Same order-level lock as approveOrder, so the two can never interleave:
+    // whichever acquires it first finishes (commit or 409) before the other proceeds.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${id}))`;
+
     const before = await tx.salesOrder.findUnique({ where: { id }, include: { items: { include: { item: true } } } });
     if (!before) {
       throw new AppError(404, "not_found", "Order not found");
