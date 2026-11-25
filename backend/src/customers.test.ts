@@ -52,4 +52,40 @@ describe("customer email visibility", () => {
     const prodDetailRes = await request(app).get(`/customers/${customerId}`).set("Cookie", productionCookie);
     expect(prodDetailRes.body.data.email).toBeUndefined();
   });
+
+  it("the customer's email is also redacted everywhere an order embeds it (list, detail, create)", async () => {
+    const adminCookie = await loginAs("admin@porulottam.test");
+    const salesmanCookie = await loginAs("salesman@porulottam.test");
+
+    const sku = `ORD-EMAIL-TEST-${Date.now()}`;
+    const itemRes = await request(app)
+      .post("/items")
+      .set("Cookie", adminCookie)
+      .send({ sku, name: "Order Email Redaction Test Item", type: "FINISHED_GOOD", baseUnit: "PIECE", taxRatePct: 5 });
+    const itemId = itemRes.body.data.id as string;
+
+    const createRes = await request(app)
+      .post("/orders")
+      .set("Cookie", salesmanCookie)
+      .set("Idempotency-Key", crypto.randomUUID())
+      .send({ customerId, items: [{ itemId, qtyBase: 1, ratePaise: 100 }] });
+    expect(createRes.status).toBe(201);
+    expect(createRes.body.data.customer.email).toBeUndefined();
+    const orderId = createRes.body.data.id as string;
+
+    const detailRes = await request(app).get(`/orders/${orderId}`).set("Cookie", salesmanCookie);
+    expect(detailRes.body.data.customer.email).toBeUndefined();
+
+    const listRes = await request(app).get("/orders").set("Cookie", salesmanCookie);
+    const inList = listRes.body.data.items.find((o: { id: string }) => o.id === orderId);
+    expect(inList.customer.email).toBeUndefined();
+
+    // ADMIN still sees it on the same order.
+    const adminDetailRes = await request(app).get(`/orders/${orderId}`).set("Cookie", adminCookie);
+    expect(adminDetailRes.body.data.customer.email).toBe("visible-to-admin@example.com");
+
+    await prisma.orderItem.deleteMany({ where: { salesOrderId: orderId } });
+    await prisma.salesOrder.delete({ where: { id: orderId } });
+    await prisma.item.update({ where: { id: itemId }, data: { active: false } });
+  });
 });

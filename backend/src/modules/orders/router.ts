@@ -4,6 +4,7 @@ import { validate } from "../../lib/validate.js";
 import { approveOrder, createOrder, editOrder, getOrder, listOrders, rejectOrder } from "./service.js";
 import { orderCreateSchema, orderEditSchema, orderListQuerySchema, orderRejectSchema } from "./schema.js";
 import { AppError } from "../../lib/AppError.js";
+import { redactOrderCustomerEmail } from "../../lib/customerVisibility.js";
 
 export const ordersRouter = Router();
 
@@ -19,7 +20,7 @@ ordersRouter.get("/", canReadOrders, validate("query", orderListQuerySchema), as
   // salesman's, whatever salesmanId they pass in the query string.
   const effectiveSalesmanId = req.user?.role === "SALESMAN" ? req.user.id : salesmanId;
   const result = await listOrders({ salesmanId: effectiveSalesmanId, status }, page);
-  res.json({ data: result });
+  res.json({ data: { ...result, items: result.items.map((o) => redactOrderCustomerEmail(req.user!.role, o)) } });
 });
 
 ordersRouter.get("/:id", canReadOrders, async (req, res) => {
@@ -28,7 +29,7 @@ ordersRouter.get("/:id", canReadOrders, async (req, res) => {
     res.status(404).json({ error: { code: "not_found", message: "Order not found" } });
     return;
   }
-  res.json({ data: order });
+  res.json({ data: redactOrderCustomerEmail(req.user!.role, order) });
 });
 
 ordersRouter.post("/", canCreateOrders, validate("body", orderCreateSchema), async (req, res) => {
@@ -39,7 +40,7 @@ ordersRouter.post("/", canCreateOrders, validate("body", orderCreateSchema), asy
   // Always the caller's own id — a salesman (or admin) can never submit an
   // order on another salesman's behalf, whatever the request body says.
   const order = await createOrder(req.user!.id, req.body, idempotencyKey);
-  res.status(201).json({ data: order });
+  res.status(201).json({ data: redactOrderCustomerEmail(req.user!.role, order) });
 });
 
 ordersRouter.patch("/:id", canApproveOrders, validate("body", orderEditSchema), async (req, res) => {
