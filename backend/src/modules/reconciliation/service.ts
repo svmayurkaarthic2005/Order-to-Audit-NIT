@@ -185,7 +185,7 @@ async function upsertException(result: CheckResult) {
 
   // Same transition-only notify as LOW_STOCK/STOCK_REPLENISHED in alerts/
   // service.ts: fires once when an exception first appears or reopens,
-  // never again while it's already OPEN/REVIEWED, so re-running the checks
+  // never again while it's still OPEN, so re-running the checks
   // doesn't spam the same discrepancy.
   if (isNewOrReopened) {
     await notify({

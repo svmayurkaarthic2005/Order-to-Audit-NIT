@@ -142,13 +142,13 @@ describe("reconciliation", () => {
     await request(app)
       .patch(`/reconciliation/exceptions/${packagingRow!.id}`)
       .set("Cookie", adminCookie)
-      .send({ status: "REVIEWED", explanation: "Known shortfall from a damaged carton, under investigation" });
+      .send({ status: "RESOLVED", explanation: "Known shortfall from a damaged carton", resolutionNote: "Carton written off" });
     const after = await prisma.productionRun.findUniqueOrThrow({ where: { id: runId } });
     expect(after).toEqual(before); // the source transaction itself is untouched
 
-    const reviewed = await prisma.reconciliationException.findUniqueOrThrow({ where: { id: packagingRow!.id } });
-    expect(reviewed.status).toBe("REVIEWED");
-    expect(reviewed.reviewedByUserId).not.toBeNull();
+    const resolved = await prisma.reconciliationException.findUniqueOrThrow({ where: { id: packagingRow!.id } });
+    expect(resolved.status).toBe("RESOLVED");
+    expect(resolved.reviewedByUserId).not.toBeNull();
   });
 
   it("rejects reconciliation routes for a salesman", async () => {

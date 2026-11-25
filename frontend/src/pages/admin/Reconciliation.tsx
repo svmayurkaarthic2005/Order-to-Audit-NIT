@@ -19,7 +19,7 @@ import {
 } from "@/components/ui";
 
 type CheckType = "STOCK" | "PRODUCTION_VARIANCE" | "PACKAGING" | "INVOICE" | "DISPATCH";
-type ExceptionStatus = "OPEN" | "REVIEWED" | "RESOLVED";
+type ExceptionStatus = "OPEN" | "RESOLVED";
 
 type ReconciliationException = {
   id: string;
@@ -54,14 +54,14 @@ const SOURCE_LABEL: Record<string, string> = {
   Item: "Stock item",
 };
 
-const STATUS_LABEL = { OPEN: "Open", REVIEWED: "Reviewed", RESOLVED: "Resolved" } as const;
+const STATUS_LABEL = { OPEN: "Open", RESOLVED: "Resolved" } as const;
 const SEVERITY_LABEL = { INFO: "Info", WARNING: "Warning", CRITICAL: "Serious" } as const;
 
 // IDs are long UUIDs; the first block is enough to tell rows apart on screen.
 const shortId = (id: string) => `#${id.slice(0, 8)}`;
 
 const SEVERITY_VARIANT = { INFO: "info", WARNING: "warning", CRITICAL: "destructive" } as const;
-const STATUS_VARIANT = { OPEN: "warning", REVIEWED: "info", RESOLVED: "success" } as const;
+const STATUS_VARIANT = { OPEN: "warning", RESOLVED: "success" } as const;
 
 function ReviewRow({ exception }: { exception: ReconciliationException }) {
   const queryClient = useQueryClient();
@@ -119,11 +119,6 @@ function ReviewRow({ exception }: { exception: ReconciliationException }) {
           <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>
             Close
           </Button>
-          {exception.status === "OPEN" && (
-            <Button size="sm" variant="secondary" disabled={reviewMutation.isPending} onClick={() => reviewMutation.mutate("REVIEWED")}>
-              Mark reviewed
-            </Button>
-          )}
           {exception.status !== "RESOLVED" && (
             <Button size="sm" disabled={reviewMutation.isPending} onClick={() => reviewMutation.mutate("RESOLVED")}>
               Mark resolved
@@ -202,7 +197,6 @@ export default function Reconciliation() {
         <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as ExceptionStatus | "ALL")} className="w-40">
           <option value="ALL">All statuses</option>
           <option value="OPEN">Open</option>
-          <option value="REVIEWED">Reviewed</option>
           <option value="RESOLVED">Resolved</option>
         </Select>
         <Select value={checkTypeFilter} onChange={(e) => setCheckTypeFilter(e.target.value as CheckType | "ALL")} className="w-48">

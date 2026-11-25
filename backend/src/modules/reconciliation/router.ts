@@ -20,7 +20,7 @@ reconciliationRouter.get(
   canReconcile,
   validate("query", listExceptionsQuerySchema),
   async (req, res) => {
-    const { status, checkType } = req.validatedQuery as { status?: "OPEN" | "REVIEWED" | "RESOLVED"; checkType?: string };
+    const { status, checkType } = req.validatedQuery as { status?: "OPEN" | "RESOLVED"; checkType?: string };
     res.json({ data: await listExceptions({ status, checkType }) });
   },
 );
@@ -30,7 +30,7 @@ reconciliationRouter.patch(
   canReconcile,
   validate("body", reviewExceptionSchema),
   async (req, res) => {
-    const data = req.body as { status: "OPEN" | "REVIEWED" | "RESOLVED"; explanation?: string; resolutionNote?: string };
+    const data = req.body as { status: "OPEN" | "RESOLVED"; explanation?: string; resolutionNote?: string };
     res.json({ data: await reviewException(req.params.id as string, data, req.user!.id) });
   },
 );
