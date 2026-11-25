@@ -31,17 +31,35 @@ async function makeTestItem(cookie: string | string[], type: "RAW_MATERIAL" | "F
 }
 
 describe("batch & lot tracking — FEFO, expiry, genealogy & ledger reconciliation", () => {
+  // The genealogy test below creates a full order→invoice→dispatch chain
+  // and its own production run/BOM — none of that is reachable by the
+  // TEST_PREFIX item lookups the rest of this cleanup uses, so it's tracked
+  // here explicitly instead of (as it previously wasn't at all) leaking a
+  // real order/invoice/dispatch onto whatever customer happened to be
+  // findFirstOrThrow'd every time this suite ran.
+  let genealogyCustomerId = "";
+  let genealogyInvoiceId = "";
+  let genealogySalesOrderId = "";
+  let genealogyRunId = "";
+  let genealogyBomHeaderId = "";
+
   afterAll(async () => {
     // Clean up test batches, dispatches, runs, and items
     await prisma.dispatchItemBatch.deleteMany({
       where: { finishedGoodsBatch: { item: { sku: { startsWith: TEST_PREFIX } } } },
     });
+    await prisma.dispatch.deleteMany({ where: { invoiceId: genealogyInvoiceId } });
+    await prisma.invoice.deleteMany({ where: { id: genealogyInvoiceId } });
+    await prisma.salesOrder.deleteMany({ where: { id: genealogySalesOrderId } });
     await prisma.rawMaterialBatch.deleteMany({
       where: { item: { sku: { startsWith: TEST_PREFIX } } },
     });
     await prisma.finishedGoodsBatch.deleteMany({
       where: { item: { sku: { startsWith: TEST_PREFIX } } },
     });
+    await prisma.productionRun.deleteMany({ where: { id: genealogyRunId } });
+    await prisma.bomLine.deleteMany({ where: { bomHeaderId: genealogyBomHeaderId } });
+    await prisma.bomHeader.deleteMany({ where: { id: genealogyBomHeaderId } });
     await prisma.stockMovement.deleteMany({
       where: { item: { sku: { startsWith: TEST_PREFIX } } },
     });
@@ -49,6 +67,7 @@ describe("batch & lot tracking — FEFO, expiry, genealogy & ledger reconciliati
       where: { sku: { startsWith: TEST_PREFIX } },
       data: { active: false },
     });
+    await prisma.customer.deleteMany({ where: { id: genealogyCustomerId } });
   });
 
   it("multi-lot & FEFO selection: picks earliest expiry first, respects remaining quantity", async () => {
@@ -226,7 +245,8 @@ describe("batch & lot tracking — FEFO, expiry, genealogy & ledger reconciliati
     const rawItemId = await makeTestItem(adminCookie, "RAW_MATERIAL", "G");
     const fgItemId = await makeTestItem(adminCookie, "FINISHED_GOOD", "PIECE");
     const supplier = await prisma.supplier.findFirstOrThrow({ where: { active: true } });
-    const customer = await prisma.customer.findFirstOrThrow({ where: { active: true } });
+    const customer = await prisma.customer.create({ data: { name: "Batch Genealogy Test Customer", state: "Tamil Nadu" } });
+    genealogyCustomerId = customer.id;
 
     // 1. Raw batch received
     const rawBatch = await prisma.rawMaterialBatch.create({
@@ -252,6 +272,8 @@ describe("batch & lot tracking — FEFO, expiry, genealogy & ledger reconciliati
     const run = await prisma.productionRun.create({
       data: { bomHeaderId: bomHeader.id, batchSize: 1, status: "COMPLETED", actualOutputQty: 100 },
     });
+    genealogyBomHeaderId = bomHeader.id;
+    genealogyRunId = run.id;
 
     // Record consumption movement
     await prisma.stockMovement.create({
@@ -288,17 +310,19 @@ describe("batch & lot tracking — FEFO, expiry, genealogy & ledger reconciliati
     const salesOrder = await prisma.salesOrder.create({
       data: { customerId: customer.id, salesmanUserId: salesman.id, status: "DISPATCHED" },
     });
+    genealogySalesOrderId = salesOrder.id;
     const invoice = await prisma.invoice.create({
       data: {
         salesOrderId: salesOrder.id,
         customerId: customer.id,
-        financialYear: `FY-${Date.now()}`,
+        financialYear: "2026-27",
         invoiceNumber: Math.floor(Math.random() * 100000),
         taxableValuePaise: 50000,
         totalPaise: 50000,
         status: "ISSUED",
       },
     });
+    genealogyInvoiceId = invoice.id;
     const dispatch = await prisma.dispatch.create({
       data: { invoiceId: invoice.id, qtyBase: 40 },
     });

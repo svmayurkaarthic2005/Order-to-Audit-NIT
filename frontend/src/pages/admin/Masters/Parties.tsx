@@ -47,6 +47,8 @@ export default function Parties() {
   const [search, setSearch] = useState("");
   const [form, setForm] = useState({ name: "", state: "", gstin: "", email: "" });
   const [rowError, setRowError] = useState<string | null>(null);
+  const [editingEmailId, setEditingEmailId] = useState<string | null>(null);
+  const [editEmailValue, setEditEmailValue] = useState("");
 
   function switchTab(t: string) {
     setSearchParams(t === "Suppliers" ? { type: "supplier" } : {});
@@ -80,6 +82,15 @@ export default function Parties() {
     mutationFn: (id: string) => api.delete(`${config.endpoint}/${id}`),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: [config.queryKey] }),
     onError: (err) => setRowError(err instanceof ApiError ? err.message : `Failed to delete ${config.noun}`),
+  });
+
+  const updateEmailMutation = useMutation({
+    mutationFn: ({ id, email }: { id: string; email: string }) => api.patch(`/customers/${id}`, { email }),
+    onSuccess: () => {
+      setEditingEmailId(null);
+      queryClient.invalidateQueries({ queryKey: ["customers"] });
+    },
+    onError: (err) => setRowError(err instanceof ApiError ? err.message : "Failed to save email"),
   });
 
   return (
@@ -203,7 +214,46 @@ export default function Parties() {
                 <Td className="font-semibold text-foreground">{p.name}</Td>
                 <Td className="text-muted-foreground">{p.state}</Td>
                 <Td className="font-mono text-xs text-muted-foreground">{p.gstin ?? "—"}</Td>
-                {tab === "Customers" && <Td className="text-muted-foreground">{p.email ?? "—"}</Td>}
+                {tab === "Customers" && (
+                  <Td className="text-muted-foreground">
+                    {editingEmailId === p.id ? (
+                      <div className="flex items-center gap-1.5">
+                        <Input
+                          type="email"
+                          autoFocus
+                          value={editEmailValue}
+                          onChange={(e) => setEditEmailValue(e.target.value)}
+                          className="h-8 w-48 text-xs"
+                        />
+                        <Button
+                          size="sm"
+                          disabled={!editEmailValue.trim() || updateEmailMutation.isPending}
+                          onClick={() => updateEmailMutation.mutate({ id: p.id, email: editEmailValue.trim() })}
+                        >
+                          Save
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => setEditingEmailId(null)}>
+                          Cancel
+                        </Button>
+                      </div>
+                    ) : canMutate ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingEmailId(p.id);
+                          setEditEmailValue(p.email ?? "");
+                          setRowError(null);
+                        }}
+                        className="rounded px-1 -mx-1 hover:bg-secondary/60 hover:text-foreground"
+                        title="Click to set this customer's email"
+                      >
+                        {p.email ?? "— (click to add)"}
+                      </button>
+                    ) : (
+                      p.email ?? "—"
+                    )}
+                  </Td>
+                )}
                 {canMutate && (
                   <Td>
                     <Button size="sm" variant="danger" onClick={() => deleteMutation.mutate(p.id)}>
