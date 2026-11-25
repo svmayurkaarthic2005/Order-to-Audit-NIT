@@ -127,7 +127,7 @@ export default function Parties() {
           >
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-12">
               <div className="sm:col-span-2 lg:col-span-6">
-                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                <label className="mb-1.5 block text-sm font-medium text-muted-foreground">
                   Name <span className="text-destructive">*</span>
                 </label>
                 <Input
@@ -139,7 +139,7 @@ export default function Parties() {
                 />
               </div>
               <div className="sm:col-span-1 lg:col-span-3">
-                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                <label className="mb-1.5 block text-sm font-medium text-muted-foreground">
                   State <span className="text-destructive">*</span>
                 </label>
                 <Input
@@ -151,7 +151,7 @@ export default function Parties() {
                 />
               </div>
               <div className="sm:col-span-1 lg:col-span-3">
-                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                <label className="mb-1.5 block text-sm font-medium text-muted-foreground">
                   GSTIN
                 </label>
                 <Input
@@ -163,7 +163,7 @@ export default function Parties() {
               </div>
               {tab === "Customers" && (
                 <div className="sm:col-span-2 lg:col-span-6">
-                  <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  <label className="mb-1.5 block text-sm font-medium text-muted-foreground">
                     Email
                   </label>
                   <Input

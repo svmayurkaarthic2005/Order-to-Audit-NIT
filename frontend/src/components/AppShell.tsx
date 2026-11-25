@@ -145,24 +145,23 @@ function SectionTabs({ role }: { role: Role }) {
   if (!active || active.section.tabs.length < 2) return null;
 
   return (
-    <div className="mb-6 flex gap-1 overflow-x-auto border-b border-border" role="tablist">
+    <nav className="flex gap-5 overflow-x-auto px-4 md:px-8" aria-label="Pages in this section">
       {active.section.tabs.map((tab) => {
         const isActive = tab.to === active.tab.to;
         return (
           <Link
             key={tab.to}
             to={tab.to}
-            role="tab"
-            aria-selected={isActive}
-            className={`-mb-px whitespace-nowrap border-b-2 px-3 py-2 text-sm transition-colors ${
-              isActive ? "border-primary font-semibold text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
+            aria-current={isActive ? "page" : undefined}
+            className={`-mb-px whitespace-nowrap border-b-2 pb-2.5 pt-1 text-sm transition-colors ${
+              isActive ? "border-primary font-medium text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
             }`}
           >
             {tab.label}
           </Link>
         );
       })}
-    </div>
+    </nav>
   );
 }
 
@@ -185,7 +184,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       {/* ── Desktop sidebar ────────────────────────────────────────────── */}
       <aside
         className="hidden md:flex md:w-60 md:h-screen md:shrink-0 md:flex-col"
-        style={{ background: "linear-gradient(180deg, #1e1b4b 0%, #25225c 50%, #2d2a6e 100%)" }}
+        style={{ background: "#1e1b4b" }}
       >
         {/* Logo / brand — Clickable to Role Dashboard */}
         <Link
@@ -338,7 +337,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           className="overflow-hidden transition-all duration-300 ease-in-out"
           style={{
             maxHeight: mobileNavOpen ? "100vh" : "0px",
-            background: "linear-gradient(180deg, #1e1b4b 0%, #2d2a6e 100%)",
+            background: "#1e1b4b",
           }}
         >
           <div
@@ -388,46 +387,27 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       {/* ── Main content ────────────────────────────────────────────────── */}
       <main className="flex-1 min-w-0 md:h-screen flex flex-col md:overflow-hidden">
-        {/* Top bar on desktop */}
-        <div className="hidden shrink-0 items-center justify-between border-b border-border bg-white px-8 py-3.5 md:flex">
-          {(() => {
-            const active = findActive(user.role, pathname);
-            if (!active) return <span />;
-            return (
-              <p className="text-sm text-muted-foreground">
-                {active.section.label}
-                {active.section.tabs.length > 1 && (
-                  <>
-                    <span className="mx-1.5 text-muted-foreground/40">/</span>
-                    <span className="font-medium text-foreground">{active.tab.label}</span>
-                  </>
-                )}
-              </p>
-            );
-          })()}
-
-          {/* User chip */}
-          <div className="flex items-center gap-3">
-            <NotificationBell />
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
-              {initials}
-            </div>
-            <div className="text-right">
-              <p className="text-sm font-semibold text-foreground leading-tight">
-                {user.name}
-              </p>
-              <p className="text-xs text-muted-foreground leading-tight">{ROLE_LABEL[user.role]}</p>
+        <header className="shrink-0 border-b border-border bg-white">
+          <div className="hidden items-center justify-between px-8 py-3 md:flex">
+            <p className="text-base font-semibold text-foreground">{findActive(user.role, pathname)?.section.label ?? ""}</p>
+            <div className="flex items-center gap-3">
+              <NotificationBell />
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-secondary text-xs font-semibold text-foreground">
+                {initials}
+              </div>
+              <div className="text-right">
+                <p className="text-sm font-medium leading-tight text-foreground">{user.name}</p>
+                <p className="text-xs leading-tight text-muted-foreground">{ROLE_LABEL[user.role]}</p>
+              </div>
             </div>
           </div>
-        </div>
+          <SectionTabs role={user.role} />
+        </header>
 
         {/* Page content — independently scrollable pane */}
         <div className="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden">
           <div className="w-full min-w-0 max-w-full px-4 py-6 md:px-8 md:py-8">
-            <div className="mx-auto w-full min-w-0 max-w-6xl page-enter">
-              <SectionTabs role={user.role} />
-              {children}
-            </div>
+            <div className="mx-auto w-full min-w-0 max-w-6xl">{children}</div>
           </div>
         </div>
       </main>

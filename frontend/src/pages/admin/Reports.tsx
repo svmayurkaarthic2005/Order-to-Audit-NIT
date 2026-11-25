@@ -288,7 +288,7 @@ export default function Reports() {
                   { label: "Total", value: money(gstSummary.data.totals.totalPaise) },
                 ].map(({ label, value }) => (
                   <div key={label}>
-                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
+                    <p className="text-sm text-muted-foreground">{label}</p>
                     <p className="tabular mt-1.5 text-xl font-bold text-foreground">{value}</p>
                   </div>
                 ))}

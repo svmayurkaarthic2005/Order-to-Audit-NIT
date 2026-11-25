@@ -6,7 +6,7 @@ import { Link } from "react-router-dom";
 // ── Inputs ───────────────────────────────────────────────────────────────────
 
 export const inputClass =
-  "h-10 rounded-lg border border-input bg-white px-3.5 text-sm text-foreground shadow-sm transition-all duration-150 placeholder:text-muted-foreground/70 focus:border-primary focus:outline-none focus:ring-3 focus:ring-primary/15 disabled:cursor-not-allowed disabled:bg-muted/50 disabled:opacity-60 hover:border-muted-foreground/40";
+  "h-9 rounded-md border border-input bg-white px-3 text-sm text-foreground transition-colors duration-150 placeholder:text-muted-foreground/70 focus:border-primary focus:outline-none focus:ring-3 focus:ring-primary/15 disabled:cursor-not-allowed disabled:bg-muted/50 disabled:opacity-60 hover:border-muted-foreground/40";
 
 export function Input(props: InputHTMLAttributes<HTMLInputElement>) {
   const { className = "", ...rest } = props;
@@ -75,11 +75,11 @@ export function Field({ label, required, children }: { label: string; required?:
 // ── Buttons ───────────────────────────────────────────────────────────────────
 
 const buttonVariants = {
-  primary:     "bg-primary text-white shadow-sm shadow-primary/25 hover:bg-[var(--primary-hover)] active:scale-[0.98]",
-  secondary:   "border border-border bg-white text-foreground shadow-sm hover:bg-secondary hover:border-muted-foreground/25 active:scale-[0.98]",
-  ghost:       "text-foreground hover:bg-secondary active:scale-[0.98]",
-  danger:      "border border-destructive/25 bg-white text-destructive hover:bg-destructive-bg hover:border-destructive/40 active:scale-[0.98]",
-  destructive: "bg-destructive text-white shadow-sm shadow-destructive/25 hover:bg-destructive/90 active:scale-[0.98]",
+  primary:     "bg-primary text-white hover:bg-[var(--primary-hover)]",
+  secondary:   "border border-input bg-white text-foreground hover:bg-secondary",
+  ghost:       "text-foreground hover:bg-secondary",
+  danger:      "border border-destructive/30 bg-white text-destructive hover:bg-destructive-bg",
+  destructive: "bg-destructive text-white hover:bg-destructive/90",
   link:        "text-primary underline-offset-4 hover:underline",
 } as const;
 
@@ -87,8 +87,8 @@ type ButtonVariant = keyof typeof buttonVariants;
 type ButtonSize = "sm" | "md";
 
 export function buttonClass(variant: ButtonVariant = "primary", size: ButtonSize = "md", className = ""): string {
-  const sizeClass = size === "sm" ? "h-8 px-3 text-xs" : "h-10 px-4 text-sm";
-  return `inline-flex shrink-0 cursor-pointer select-none items-center justify-center gap-1.5 rounded-lg font-semibold transition-all duration-150 focus:outline-none focus:ring-3 focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none disabled:scale-100 ${sizeClass} ${buttonVariants[variant]} ${className}`;
+  const sizeClass = size === "sm" ? "h-8 px-3 text-[13px]" : "h-9 px-4 text-sm";
+  return `inline-flex shrink-0 cursor-pointer select-none items-center justify-center gap-1.5 rounded-md font-medium transition-colors duration-150 focus:outline-none focus-visible:ring-3 focus-visible:ring-primary/25 disabled:cursor-not-allowed disabled:opacity-50 ${sizeClass} ${buttonVariants[variant]} ${className}`;
 }
 
 export function Button({
@@ -124,7 +124,7 @@ export function LinkButton({
 
 export function Card({ children, className = "" }: { children: ReactNode; className?: string }) {
   return (
-    <div className={`rounded-xl border border-border bg-card shadow-sm shadow-black/[0.04] ${className}`}>
+    <div className={`rounded-lg border border-border bg-card ${className}`}>
       {children}
     </div>
   );
@@ -142,8 +142,8 @@ export function PageHeader({
   return (
     <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
       <div>
-        <h1 className="text-xl font-bold tracking-tight text-foreground">{title}</h1>
-        {description && <p className="mt-1 text-sm text-muted-foreground leading-relaxed">{description}</p>}
+        <h1 className="text-xl font-semibold text-foreground">{title}</h1>
+        {description && <p className="mt-1 max-w-2xl text-sm text-muted-foreground">{description}</p>}
       </div>
       {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
     </div>
@@ -196,7 +196,7 @@ export function Loading() {
 
 export function Table({ children, className = "" }: { children: ReactNode; className?: string }) {
   return (
-    <div className="w-full max-w-full overflow-x-auto rounded-xl border border-border bg-white shadow-sm shadow-black/[0.04]">
+    <div className="w-full max-w-full overflow-x-auto rounded-lg border border-border bg-white">
       <table className={`w-full min-w-full border-collapse text-sm ${className}`}>{children}</table>
     </div>
   );
@@ -209,7 +209,7 @@ export function THead({ children, className = "" }: { children: ReactNode; class
 export function Th({ children, numeric, className = "" }: { children: ReactNode; numeric?: boolean; className?: string }) {
   return (
     <th
-      className={`whitespace-nowrap px-4 py-3 text-xs font-bold text-foreground ${
+      className={`whitespace-nowrap px-4 py-2.5 text-xs font-medium text-muted-foreground ${
         numeric ? "text-right" : "text-left"
       } ${className}`}
     >

@@ -91,7 +91,7 @@ export default function Items() {
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-12">
               {/* Item Name */}
               <div className="sm:col-span-2 lg:col-span-5">
-                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                <label className="mb-1.5 block text-sm font-medium text-muted-foreground">
                   Item Name <span className="text-destructive">*</span>
                 </label>
                 <Input
@@ -110,7 +110,7 @@ export default function Items() {
               <div className="sm:col-span-1 lg:col-span-3">
                 <div className="mb-1.5 flex items-center justify-between">
                   <label
-                    className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground"
+                    className="block text-sm font-medium text-muted-foreground"
                     title="Unique SKU code. Auto-suggested from the item name, or enter your custom code."
                   >
                     SKU Code <span className="text-destructive">*</span>
@@ -133,7 +133,7 @@ export default function Items() {
 
               {/* Type */}
               <div className="sm:col-span-1 lg:col-span-2">
-                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                <label className="mb-1.5 block text-sm font-medium text-muted-foreground">
                   Type <span className="text-destructive">*</span>
                 </label>
                 <Select
@@ -151,7 +151,7 @@ export default function Items() {
 
               {/* Base Unit */}
               <div className="sm:col-span-1 lg:col-span-2">
-                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                <label className="mb-1.5 block text-sm font-medium text-muted-foreground">
                   Unit <span className="text-destructive">*</span>
                 </label>
                 <Select

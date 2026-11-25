@@ -116,7 +116,7 @@ export default function BatchGenealogy() {
         <div className="space-y-6">
           {/* Stage 1: Origin Batch */}
           <Card className="border-l-4 border-l-primary p-5">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-primary">Stage 1: Origin Lot</span>
+            <span className="text-xs font-medium text-primary">Stage 1: Origin Lot</span>
             <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h3 className="text-lg font-bold text-foreground font-mono">
@@ -177,7 +177,7 @@ export default function BatchGenealogy() {
 
                         {/* Stage 3: Dispatches */}
                         <div className="mt-3 border-t border-border/60 pt-2">
-                          <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                          <span className="text-xs font-medium text-muted-foreground">
                             Stage 3: Customer Dispatches ({run.finishedGoodsBatch.dispatchBatches.length})
                           </span>
                           {run.finishedGoodsBatch.dispatchBatches.length === 0 ? (
@@ -218,7 +218,7 @@ export default function BatchGenealogy() {
       {!isRaw && backwardData && (
         <div className="space-y-6">
           <Card className="border-l-4 border-l-primary p-5">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-primary">
+            <span className="text-xs font-medium text-primary">
               End Target: Customer Dispatch
             </span>
             <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
@@ -245,7 +245,7 @@ export default function BatchGenealogy() {
             {backwardData.itemBatches.map((ib, idx) => (
               <Card key={idx} className="p-5">
                 <div className="border-b border-border pb-3">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-primary">
+                  <span className="text-xs font-medium text-primary">
                     Finished Goods Lot
                   </span>
                   <div className="flex items-center justify-between">
@@ -261,7 +261,7 @@ export default function BatchGenealogy() {
 
                 {/* Raw material inputs */}
                 <div className="mt-3">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                  <span className="text-xs font-medium text-muted-foreground">
                     Raw Material Lots Consumed in Run #{ib.finishedGoodsBatch.productionRun.id.slice(0, 8)}
                   </span>
                   {ib.rawMaterialInputs.length === 0 ? (

@@ -1,9 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import {
   Button,
-  Card,
   EmptyState,
   ErrorText,
   Loading,
@@ -134,7 +133,7 @@ export default function Reconciliation() {
   const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] = useState<ExceptionStatus | "ALL">("OPEN");
   const [checkTypeFilter, setCheckTypeFilter] = useState<CheckType | "ALL">("ALL");
-  const [lastRun, setLastRun] = useState<RunSummary | null>(null);
+  const [lastRun, setLastRun] = useState<(RunSummary & { at: Date }) | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
 
   const { data, isLoading, error } = useQuery({
@@ -151,47 +150,39 @@ export default function Reconciliation() {
   const runMutation = useMutation({
     mutationFn: () => api.post<RunSummary>("/reconciliation/run", {}),
     onSuccess: (summary) => {
-      setLastRun(summary);
+      setLastRun({ ...summary, at: new Date() });
       setRunError(null);
       queryClient.invalidateQueries({ queryKey: ["reconciliation", "exceptions"] });
     },
-    onError: (err) => setRunError(err instanceof ApiError ? err.message : "Failed to run reconciliation checks"),
+    onError: (err) => setRunError(err instanceof ApiError ? err.message : "Couldn't run the checks. Try again in a moment."),
   });
+
+  // Checks are cheap and only read data, so run them every time the page
+  // opens rather than making people remember to press a button first.
+  const runChecks = runMutation.mutate;
+  useEffect(() => runChecks(), [runChecks]);
 
   return (
     <div className="w-full min-w-0">
       <PageHeader
         title="Checks"
-        description="Looks for numbers that don't add up across stock, production, invoices and dispatch. It only reports problems; it never changes your records."
+        description="Numbers that don't add up across stock, production, invoices and dispatch. This page only reports problems; it never changes your records."
         actions={
-          <Button size="sm" disabled={runMutation.isPending} onClick={() => runMutation.mutate()}>
-            {runMutation.isPending ? "Running…" : "Run checks"}
+          <Button size="sm" variant="secondary" disabled={runMutation.isPending} onClick={() => runMutation.mutate()}>
+            {runMutation.isPending ? "Checking…" : "Check again"}
           </Button>
         }
       />
 
       {runError && <div className="mb-4"><ErrorText>{runError}</ErrorText></div>}
 
-      {lastRun && (
-        <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <Card className="p-4">
-            <p className="text-xs text-muted-foreground">Checked</p>
-            <p className="mt-1 text-xl font-bold text-foreground">{lastRun.total}</p>
-          </Card>
-          <Card className="p-4">
-            <p className="text-xs text-muted-foreground">Passed</p>
-            <p className="mt-1 text-xl font-bold text-success">{lastRun.passed}</p>
-          </Card>
-          <Card className="p-4">
-            <p className="text-xs text-muted-foreground">Warnings</p>
-            <p className="mt-1 text-xl font-bold text-warning">{lastRun.warnings}</p>
-          </Card>
-          <Card className="p-4">
-            <p className="text-xs text-muted-foreground">Critical</p>
-            <p className="mt-1 text-xl font-bold text-destructive">{lastRun.critical}</p>
-          </Card>
-        </div>
-      )}
+      <p className="mb-4 text-sm text-muted-foreground">
+        {runMutation.isPending && !lastRun
+          ? "Checking your records…"
+          : lastRun
+            ? `Last checked at ${lastRun.at.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" })}: ${lastRun.total} things checked, ${lastRun.total - lastRun.passed === 0 ? "everything adds up." : `${lastRun.warnings} ${lastRun.warnings === 1 ? "warning" : "warnings"} and ${lastRun.critical} serious.`}`
+            : null}
+      </p>
 
       <div className="mb-4 flex flex-wrap items-end gap-3">
         <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as ExceptionStatus | "ALL")} className="w-40">
@@ -212,7 +203,7 @@ export default function Reconciliation() {
       ) : error ? (
         <ErrorText>{(error as Error).message}</ErrorText>
       ) : !data || data.length === 0 ? (
-        <EmptyState>Nothing to show here. Press "Run checks" to look again.</EmptyState>
+        <EmptyState>Nothing here. Everything adds up.</EmptyState>
       ) : (
         <Table>
           <THead>
