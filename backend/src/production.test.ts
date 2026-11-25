@@ -53,8 +53,9 @@ describe("production lifecycle", () => {
     // listProductionRuns returns everything, so test runs would otherwise
     // linger in the real production list/UI forever. Hard-delete them —
     // production_run_materials and stock_movements have no FK back to the
-    // run (sourceId is a plain string), so only the run and its materials
-    // need explicit cleanup before the item can be deactivated.
+    // run (sourceId is a plain string), so only the run, its materials and
+    // (once batch/lot tracking added FinishedGoodsBatch.productionRunId) any
+    // finished-goods batch it produced need explicit cleanup first.
     const testBoms = await prisma.bomHeader.findMany({
       where: { finishedItem: { sku: { startsWith: TEST_SKU_PREFIX } } },
       select: { id: true },
@@ -65,6 +66,7 @@ describe("production lifecycle", () => {
     });
     const runIds = testRuns.map((r) => r.id);
     await prisma.productionRunMaterial.deleteMany({ where: { productionRunId: { in: runIds } } });
+    await prisma.finishedGoodsBatch.deleteMany({ where: { productionRunId: { in: runIds } } });
     await prisma.stockMovement.deleteMany({ where: { sourceId: { in: runIds } } });
     await prisma.productionRun.deleteMany({ where: { id: { in: runIds } } });
 
