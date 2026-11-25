@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Button, Card, EmptyState, ErrorText, Input, Loading, PageHeader, Table, TabBar, Td, Th, THead } from "@/components/ui";
+import { Button, Card, EmptyState, ErrorText, Input, Select, Loading, PageHeader, Table, TabBar, Td, Th, THead } from "@/components/ui";
 
 type Party = { id: string; name: string; state: string; gstin: string | null; email?: string | null };
 
@@ -18,7 +18,7 @@ const CONFIG: Record<
     endpoint: "/customers",
     queryKey: "customers",
     description: "The shops and distributors you sell to.",
-    formTitle: "Add Customer",
+    formTitle: "Add a customer",
     addLabel: "Add customer",
     namePlaceholder: "Customer name",
     emptyNoun: "customers",
@@ -28,13 +28,25 @@ const CONFIG: Record<
     endpoint: "/suppliers",
     queryKey: "suppliers",
     description: "Where you buy ingredients and packaging.",
-    formTitle: "Add Supplier",
+    formTitle: "Add a supplier",
     addLabel: "Add supplier",
     namePlaceholder: "Supplier name",
     emptyNoun: "suppliers",
     noun: "supplier",
   },
 };
+
+// A fixed list: the invoice compares this with the factory's state to pick
+// CGST + SGST (same state) or IGST (another state), so a typo would mean the
+// wrong tax.
+const STATES = [
+  "Andaman and Nicobar Islands", "Andhra Pradesh", "Arunachal Pradesh", "Assam", "Bihar", "Chandigarh",
+  "Chhattisgarh", "Dadra and Nagar Haveli and Daman and Diu", "Delhi", "Goa", "Gujarat", "Haryana",
+  "Himachal Pradesh", "Jammu and Kashmir", "Jharkhand", "Karnataka", "Kerala", "Ladakh", "Lakshadweep",
+  "Madhya Pradesh", "Maharashtra", "Manipur", "Meghalaya", "Mizoram", "Nagaland", "Odisha", "Puducherry",
+  "Punjab", "Rajasthan", "Sikkim", "Tamil Nadu", "Telangana", "Tripura", "Uttar Pradesh", "Uttarakhand",
+  "West Bengal",
+];
 
 export default function Parties() {
   const { user } = useAuth();
@@ -142,20 +154,19 @@ export default function Parties() {
                 <label className="mb-1.5 block text-sm font-medium text-muted-foreground">
                   State <span className="text-destructive">*</span>
                 </label>
-                <Input
-                  placeholder="e.g. Tamil Nadu"
-                  required
-                  value={form.state}
-                  onChange={(e) => setForm({ ...form, state: e.target.value })}
-                  className="w-full"
-                />
+                <Select required value={form.state} onChange={(e) => setForm({ ...form, state: e.target.value })} className="w-full">
+                  <option value="">Choose a state</option>
+                  {STATES.map((st) => (
+                    <option key={st} value={st}>{st}</option>
+                  ))}
+                </Select>
               </div>
               <div className="sm:col-span-1 lg:col-span-3">
                 <label className="mb-1.5 block text-sm font-medium text-muted-foreground">
                   GSTIN
                 </label>
                 <Input
-                  placeholder="Optional 15-digit GSTIN"
+                  placeholder="15 characters (optional)"
                   value={form.gstin}
                   onChange={(e) => setForm({ ...form, gstin: e.target.value.toUpperCase() })}
                   className="w-full font-mono text-xs uppercase"
@@ -168,7 +179,7 @@ export default function Parties() {
                   </label>
                   <Input
                     type="email"
-                    placeholder="Optional — needed to email invoices"
+                    placeholder="Optional, needed to email invoices"
                     value={form.email}
                     onChange={(e) => setForm({ ...form, email: e.target.value })}
                     className="w-full"
@@ -179,7 +190,7 @@ export default function Parties() {
 
             <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-t border-border/50 pt-3.5">
               <p className="text-xs text-muted-foreground">
-                State is used for SGST/CGST vs IGST tax split calculation.
+                Same state as the factory: CGST + SGST on invoices. Another state: IGST.
               </p>
               <Button type="submit" disabled={createMutation.isPending} className="self-end sm:self-auto px-6">
                 {createMutation.isPending ? "Adding…" : config.addLabel}
@@ -256,8 +267,16 @@ export default function Parties() {
                 )}
                 {canMutate && (
                   <Td>
-                    <Button size="sm" variant="danger" onClick={() => deleteMutation.mutate(p.id)}>
-                      Deactivate
+                    <Button
+                      size="sm"
+                      variant="danger"
+                      onClick={() => {
+                        if (window.confirm(`Remove "${p.name}"? They won't appear in new orders or purchases. Past records keep them.`)) {
+                          deleteMutation.mutate(p.id);
+                        }
+                      }}
+                    >
+                      Remove
                     </Button>
                   </Td>
                 )}

@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { Button, EmptyState, ErrorText, Loading, PageHeader, StatusBadge, Table, Td, Th, THead } from "@/components/ui";
+import { Button, EmptyState, ErrorText, Loading, PageHeader, Select, StatusBadge, Table, Td, Th, THead, money } from "@/components/ui";
 
 type AuditEntry = {
   id: string;
@@ -14,34 +14,97 @@ type AuditEntry = {
   user: { name: string; email: string } | null;
 };
 
+const ACTION_LABEL: Record<string, string> = {
+  CREATE: "Created",
+  UPDATE: "Changed",
+  EDIT: "Edited",
+  DELETE: "Removed",
+  CANCEL: "Cancelled",
+  APPROVE: "Approved",
+  REJECT: "Rejected",
+  CREDIT_NOTE: "Credit note",
+  DISPATCH: "Dispatched",
+  EMAIL_SENT: "Emailed",
+  PAYMENT: "Payment",
+  PRODUCTION_RUN_STARTED: "Run started",
+  PRODUCTION_RUN_COMPLETED: "Run finished",
+  PRODUCTION_RUN_CANCELLED: "Run cancelled",
+  QUARANTINE: "Put on hold",
+  FEFO_OVERRIDE: "Batch chosen by hand",
+};
+
 const ACTION_VARIANTS: Record<string, "success" | "info" | "destructive" | "warning" | "neutral"> = {
   CREATE: "success",
+  APPROVE: "success",
+  PAYMENT: "success",
+  PRODUCTION_RUN_COMPLETED: "success",
   UPDATE: "info",
+  EDIT: "info",
+  DISPATCH: "info",
+  EMAIL_SENT: "info",
+  PRODUCTION_RUN_STARTED: "info",
   DELETE: "destructive",
+  REJECT: "destructive",
   CANCEL: "warning",
+  CREDIT_NOTE: "warning",
+  QUARANTINE: "warning",
+  PRODUCTION_RUN_CANCELLED: "warning",
 };
 
-const ACTION_ICONS: Record<string, string> = {
-  CREATE: "M12 4v16m8-8H4",
-  UPDATE: "M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z",
-  DELETE: "M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16",
-  CANCEL: "M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636",
+const RECORD_LABEL: Record<string, string> = {
+  SalesOrder: "Order",
+  Invoice: "Invoice",
+  Dispatch: "Dispatch",
+  ProductionRun: "Production run",
+  ReconciliationException: "Check",
+  Item: "Item",
+  Customer: "Customer",
+  Supplier: "Supplier",
+  Purchase: "Purchase",
+  BomHeader: "Recipe",
+  RawMaterialBatch: "Batch",
+  FinishedGoodsBatch: "Batch",
 };
 
-function formatPreview(jsonStr: string | null): string {
-  if (!jsonStr || jsonStr === "null") return "—";
+const actionLabel = (a: string) => ACTION_LABEL[a] ?? a.charAt(0) + a.slice(1).toLowerCase().replace(/_/g, " ");
+const recordLabel = (t: string) => RECORD_LABEL[t] ?? t.replace(/([a-z])([A-Z])/g, "$1 $2");
+
+// "taxableValuePaise" -> "Taxable value"; money fields are stored in paise.
+function fieldLabel(key: string): string {
+  const words = key.replace(/Paise$/, "").replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+function fieldValue(key: string, v: unknown): string {
+  if (v === null || v === undefined) return "none";
+  if (key.endsWith("Paise") && typeof v === "number") return money(v);
+  if (typeof v === "string" && /^[A-Z_]+$/.test(v)) return v.charAt(0) + v.slice(1).toLowerCase().replace(/_/g, " ");
+  if (typeof v === "object") return JSON.stringify(v);
+  return String(v);
+}
+
+function fields(jsonStr: string | null): [string, string][] {
+  if (!jsonStr || jsonStr === "null") return [];
   try {
     const obj = JSON.parse(jsonStr);
-    if (typeof obj === "object" && obj !== null) {
-      return Object.entries(obj)
-        .slice(0, 3)
-        .map(([k, v]) => `${k}: ${typeof v === "object" ? "…" : String(v)}`)
-        .join(" · ");
-    }
-    return String(obj);
+    if (typeof obj !== "object" || obj === null) return [["Value", String(obj)]];
+    return Object.entries(obj).map(([k, v]) => [fieldLabel(k), fieldValue(k, v)]);
   } catch {
-    return jsonStr.slice(0, 50);
+    return [["Value", jsonStr]];
   }
+}
+
+function FieldList({ jsonStr }: { jsonStr: string | null }) {
+  return (
+    <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 rounded-lg bg-secondary/60 p-3 text-sm">
+      {fields(jsonStr).map(([k, v]) => (
+        <div key={k} className="contents">
+          <dt className="text-muted-foreground">{k}</dt>
+          <dd className="break-words text-foreground">{v}</dd>
+        </div>
+      ))}
+    </dl>
+  );
 }
 
 function timeAgo(iso: string): string {
@@ -69,7 +132,8 @@ export default function AuditLog() {
       if (!search) return true;
       const q = search.toLowerCase();
       return (
-        e.action.toLowerCase().includes(q) ||
+        actionLabel(e.action).toLowerCase().includes(q) ||
+        recordLabel(e.entityType).toLowerCase().includes(q) ||
         e.entityType.toLowerCase().includes(q) ||
         e.entityId.toLowerCase().includes(q) ||
         (e.user?.name ?? "").toLowerCase().includes(q) ||
@@ -79,42 +143,23 @@ export default function AuditLog() {
     });
   }, [data, search, actionFilter]);
 
-  const ACTIONS = ["ALL", "CREATE", "UPDATE", "DELETE", "CANCEL"] as const;
+  const actionsInLog = [...new Set((data ?? []).map((e) => e.action))].sort((x, y) => actionLabel(x).localeCompare(actionLabel(y)));
 
   return (
     <div className="w-full min-w-0">
       <PageHeader
         title="Activity log"
         description="Every change made in the app: who did it, what changed and when. Entries can't be edited or deleted."
-        actions={
-          <span className="flex items-center gap-1.5 rounded-full border border-border bg-white px-3 py-1.5 text-xs font-medium text-muted-foreground shadow-xs">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-              <path d="M7 11V7a5 5 0 0110 0v4" />
-            </svg>
-            Read-only & Append-only
-          </span>
-        }
       />
 
       {/* Filter and search bar */}
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        {/* Action pills */}
-        <div className="flex flex-wrap gap-1">
-          {ACTIONS.map((act) => (
-            <button
-              key={act}
-              onClick={() => setActionFilter(act)}
-              className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition-all ${
-                actionFilter === act
-                  ? "bg-primary text-white shadow-xs"
-                  : "bg-white text-muted-foreground hover:bg-secondary border border-border hover:text-foreground"
-              }`}
-            >
-              {act}
-            </button>
+        <Select value={actionFilter} onChange={(e) => setActionFilter(e.target.value)} className="w-48" aria-label="Filter by action">
+          <option value="ALL">All activity</option>
+          {actionsInLog.map((act) => (
+            <option key={act} value={act}>{actionLabel(act)}</option>
           ))}
-        </div>
+        </Select>
 
         {/* Search input */}
         <div className="relative w-full sm:w-64">
@@ -133,7 +178,7 @@ export default function AuditLog() {
             <path d="m21 21-4.35-4.35" />
           </svg>
           <input
-            placeholder="Search action, entity, user…"
+            placeholder="Search by person, record or detail"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="h-8.5 w-full rounded-lg border border-input bg-white pl-9 pr-3 text-xs placeholder:text-muted-foreground/60 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15"
@@ -146,13 +191,13 @@ export default function AuditLog() {
       ) : error ? (
         <ErrorText>{(error as Error).message}</ErrorText>
       ) : !data || data.length === 0 ? (
-        <EmptyState>No audit entries recorded yet.</EmptyState>
+        <EmptyState>Nothing has happened yet.</EmptyState>
       ) : filtered.length === 0 ? (
-        <EmptyState>No audit logs matching your current filters.</EmptyState>
+        <EmptyState>No activity matches that search.</EmptyState>
       ) : (
         <div className="w-full min-w-0">
           <div className="mb-2 text-xs text-muted-foreground">
-            Showing <span className="font-semibold text-foreground">{filtered.length}</span> of {data.length} logs
+            Showing <span className="font-semibold text-foreground">{filtered.length}</span> of {data.length} entries
           </div>
 
           {/* Guaranteed contained table that never causes page-level overflow */}
@@ -160,17 +205,16 @@ export default function AuditLog() {
             <THead>
               <tr>
                 <Th className="w-36">When</Th>
-                <Th className="w-44">User</Th>
-                <Th className="w-28">Action</Th>
-                <Th className="w-44">Entity</Th>
-                <Th className="min-w-[200px]">Changes / Details</Th>
-                <Th className="w-20 text-right">Inspect</Th>
+                <Th className="w-44">Who</Th>
+                <Th className="w-32">What</Th>
+                <Th className="w-44">Record</Th>
+                <Th className="min-w-[200px]">Details</Th>
+                <Th className="w-20 text-right"><span className="sr-only">Open</span></Th>
               </tr>
             </THead>
             <tbody>
               {filtered.map((e) => {
                 const variant = ACTION_VARIANTS[e.action] ?? "neutral";
-                const icon = ACTION_ICONS[e.action];
                 const date = new Date(e.createdAt);
                 const initials = (e.user?.name ?? "SY")
                   .split(" ")
@@ -206,29 +250,22 @@ export default function AuditLog() {
                     {/* Action */}
                     <Td className="whitespace-nowrap">
                       <StatusBadge variant={variant}>
-                        {icon && (
-                          <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                            <path d={icon} />
-                          </svg>
-                        )}
-                        {e.action}
+                        {actionLabel(e.action)}
                       </StatusBadge>
                     </Td>
 
                     {/* Entity */}
                     <Td className="whitespace-nowrap">
-                      <span className="rounded bg-secondary px-1.5 py-0.5 text-xs font-medium text-foreground">
-                        {e.entityType.replace(/_/g, " ")}
-                      </span>
-                      <span className="ml-1.5 font-mono text-[11px] text-muted-foreground">
-                        {e.entityId.slice(0, 8)}…
+                      <span className="text-sm text-foreground">{recordLabel(e.entityType)}</span>
+                      <span className="ml-1.5 font-mono text-[11px] text-muted-foreground" title={e.entityId}>
+                        #{e.entityId.slice(0, 8)}
                       </span>
                     </Td>
 
                     {/* Details Preview — strictly bounded to prevent blowout */}
                     <Td>
-                      <div className="max-w-[280px] md:max-w-sm truncate font-mono text-xs text-muted-foreground" title={e.afterJson ?? e.beforeJson ?? ""}>
-                        {formatPreview(e.afterJson ?? e.beforeJson)}
+                      <div className="max-w-[280px] md:max-w-sm truncate text-xs text-muted-foreground">
+                        {fields(e.afterJson ?? e.beforeJson).slice(0, 3).map(([k, v]) => `${k}: ${v}`).join(", ") || "No details"}
                       </div>
                     </Td>
 
@@ -238,11 +275,7 @@ export default function AuditLog() {
                         onClick={() => setInspectEntry(e)}
                         className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-semibold text-primary hover:bg-primary/10 transition-colors"
                       >
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                          <circle cx="12" cy="12" r="3" />
-                        </svg>
-                        View
+                        Open
                       </button>
                     </Td>
                   </tr>
@@ -270,10 +303,10 @@ export default function AuditLog() {
               <div>
                 <div className="flex items-center gap-2">
                   <StatusBadge variant={ACTION_VARIANTS[inspectEntry.action] ?? "neutral"}>
-                    {inspectEntry.action}
+                    {actionLabel(inspectEntry.action)}
                   </StatusBadge>
-                  <span className="text-sm font-bold text-foreground">
-                    {inspectEntry.entityType} ({inspectEntry.entityId})
+                  <span className="text-sm font-semibold text-foreground">
+                    {recordLabel(inspectEntry.entityType)} <span className="font-mono text-xs font-normal text-muted-foreground">#{inspectEntry.entityId.slice(0, 8)}</span>
                   </span>
                 </div>
                 <p className="mt-1 text-xs text-muted-foreground">
@@ -296,38 +329,20 @@ export default function AuditLog() {
             <div className="overflow-y-auto py-4 flex-1 flex flex-col gap-4">
               {inspectEntry.beforeJson && inspectEntry.beforeJson !== "null" && (
                 <div>
-                  <p className="mb-1 text-sm font-semibold text-foreground">State Before</p>
-                  <pre className="max-h-56 overflow-auto rounded-lg bg-secondary/70 p-3 font-mono text-xs text-foreground">
-                    {(() => {
-                      try {
-                        return JSON.stringify(JSON.parse(inspectEntry.beforeJson), null, 2);
-                      } catch {
-                        return inspectEntry.beforeJson;
-                      }
-                    })()}
-                  </pre>
+                  <p className="mb-1 text-sm font-semibold text-foreground">Before</p>
+                  <FieldList jsonStr={inspectEntry.beforeJson} />
                 </div>
               )}
 
               {inspectEntry.afterJson && inspectEntry.afterJson !== "null" && (
                 <div>
-                  <p className="mb-1 text-sm font-semibold text-foreground">
-                    {inspectEntry.beforeJson ? "State After (Changes)" : "Created Payload"}
-                  </p>
-                  <pre className="max-h-72 overflow-auto rounded-lg bg-secondary/70 p-3 font-mono text-xs text-foreground">
-                    {(() => {
-                      try {
-                        return JSON.stringify(JSON.parse(inspectEntry.afterJson), null, 2);
-                      } catch {
-                        return inspectEntry.afterJson;
-                      }
-                    })()}
-                  </pre>
+                  <p className="mb-1 text-sm font-semibold text-foreground">{inspectEntry.beforeJson ? "After" : "Details"}</p>
+                  <FieldList jsonStr={inspectEntry.afterJson} />
                 </div>
               )}
 
               {!inspectEntry.beforeJson && !inspectEntry.afterJson && (
-                <p className="text-sm text-muted-foreground">No JSON payload recorded for this event.</p>
+                <p className="text-sm text-muted-foreground">No details were recorded for this entry.</p>
               )}
             </div>
 

@@ -31,6 +31,10 @@ function ReorderLevelCell({ row, canMutate }: { row: StockStatusRow; canMutate: 
   const mutation = useMutation({
     mutationFn: (reorderLevel: number) => api.patch(`/alerts/items/${row.itemId}/reorder-level`, { reorderLevel }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["alerts", "stock-status"] }),
+    onError: () => {
+      setValue(row.reorderLevel === null ? "" : String(row.reorderLevel / factor));
+      window.alert("Couldn't save the warning level. Please try again.");
+    },
   });
 
   if (!canMutate) {
@@ -157,7 +161,8 @@ function OpeningStockForm({ onDone }: { onDone: () => void }) {
 
 export default function LowStockAlerts() {
   const { user } = useAuth();
-  const canMutate = user?.role !== "ACCOUNTANT";
+  // Warning levels are an Admin/Owner setting on the server too.
+  const canMutate = user?.role === "ADMIN" || user?.role === "OWNER";
   const canRecordOpeningStock = user?.role === "ADMIN" || user?.role === "OWNER";
   const [showOpeningStockForm, setShowOpeningStockForm] = useState(false);
 

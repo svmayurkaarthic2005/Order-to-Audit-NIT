@@ -321,8 +321,8 @@ async function completeProductionRunInTransaction(
         await notify({
           recipientRoles: ["OWNER", "PRODUCTION"],
           type: "PRODUCTION_VARIANCE",
-          title: `Production variance on run #${result.id.slice(0, 8)}`,
-          message: `Actual yield ${actual} vs expected ${expected} (${pctDisplay}% deviation) for ${result.bomHeader.finishedItem.name}`,
+          title: `${result.bomHeader.finishedItem.name}: ${actual < expected ? "fewer" : "more"} packets than planned`,
+          message: `Expected ${expected} packets, got ${actual} (${pctDiff > 0 ? "+" : ""}${pctDisplay}%). More than 3% off, so it's worth checking what happened.`,
           severity: Math.abs(pctDiff) > 0.1 ? "CRITICAL" : "WARNING",
           sourceType: "ProductionRun",
           sourceId: result.id,

@@ -6,7 +6,7 @@ import { Button, Card, EmptyState, ErrorText, Loading, PageHeader, StatusBadge, 
 
 type Supplier = { id: string; name: string };
 type Item = { id: string; sku: string; name: string; baseUnit: string; type: string };
-type Line = { itemId: string; quantity: string; pricePerUnit: string };
+type Line = { itemId: string; quantity: string; pricePerUnit: string; lotNo: string; expiryDate: string };
 type Purchase = {
   id: string;
   purchaseDate: string;
@@ -15,7 +15,7 @@ type Purchase = {
   items: { itemId: string; qtyBase: number; rateBasePaise: number }[];
 };
 
-const emptyLine: Line = { itemId: "", quantity: "", pricePerUnit: "" };
+const emptyLine: Line = { itemId: "", quantity: "", pricePerUnit: "", lotNo: "", expiryDate: "" };
 
 // The form takes kg/L/pcs and rupees per kg/L/pc; the API stores whole base
 // units (g/ml/pc) and a whole-paise rate per base unit.
@@ -25,6 +25,9 @@ function toApiLine(line: Line, baseUnit: string) {
     itemId: line.itemId,
     qtyBase: Math.round(Number(line.quantity) * factor),
     rateBasePaise: Math.round((Number(line.pricePerUnit) * 100) / factor),
+    // Either of these turns the line into a tracked batch (see Batches).
+    ...(line.lotNo.trim() ? { supplierBatchNo: line.lotNo.trim() } : {}),
+    ...(line.expiryDate ? { expiryDate: line.expiryDate } : {}),
   };
 }
 
@@ -107,7 +110,8 @@ export default function Purchases() {
                   const apiLine = toApiLine(line, baseUnitOf(line.itemId));
                   const lineTotal = line.quantity && line.pricePerUnit ? apiLine.qtyBase * apiLine.rateBasePaise : null;
                   return (
-                  <div key={i} className="grid grid-cols-1 items-center gap-2 rounded-lg border border-border p-3 sm:grid-cols-[1fr_130px_150px_110px_auto]">
+                  <div key={i} className="rounded-lg border border-border p-3">
+                  <div className="grid grid-cols-1 items-center gap-2 sm:grid-cols-[1fr_130px_150px_110px_auto]">
                     <Select value={line.itemId} required onChange={(e) => updateLine(i, { itemId: e.target.value })} aria-label="Item">
                       <option value="">Choose an item</option>
                       {rawMaterialItems.map((it) => (
@@ -148,6 +152,26 @@ export default function Purchases() {
                         </svg>
                       </Button>
                     )}
+                  </div>
+                  <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-[220px_270px]">
+                    <Input
+                      placeholder="Supplier's lot no. (optional)"
+                      aria-label="Supplier's lot number, optional"
+                      value={line.lotNo}
+                      onChange={(e) => updateLine(i, { lotNo: e.target.value })}
+                      className="h-8 text-sm"
+                    />
+                    <label className="flex items-center gap-2 whitespace-nowrap text-sm text-muted-foreground">
+                      Expires on
+                      <Input
+                        type="date"
+                        aria-label="Expiry date, optional"
+                        value={line.expiryDate}
+                        onChange={(e) => updateLine(i, { expiryDate: e.target.value })}
+                        className="h-8 flex-1 text-sm"
+                      />
+                    </label>
+                  </div>
                   </div>
                   );
                 })}

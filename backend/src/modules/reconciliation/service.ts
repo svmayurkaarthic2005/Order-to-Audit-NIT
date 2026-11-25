@@ -19,6 +19,14 @@ type CheckResult = {
 
 type DateRange = { dateFrom?: Date; dateTo?: Date };
 
+const CHECK_NAME: Record<CheckResult["checkType"], string> = {
+  STOCK: "Stock",
+  PRODUCTION_VARIANCE: "Production",
+  PACKAGING: "Packaging",
+  INVOICE: "Invoice",
+  DISPATCH: "Dispatch",
+};
+
 // Every StockMovement.source bucketed into the ledger's four conceptual
 // phases. If a mismatch between this breakdown and the plain sum ever
 // shows up, a new StockMovementSource was added somewhere without being
@@ -195,8 +203,8 @@ async function upsertException(result: CheckResult) {
       // AUDIT_EXCEPTION" case.
       recipientRoles: ["OWNER", "ACCOUNTANT"],
       type: "AUDIT_EXCEPTION",
-      title: `Reconciliation exception: ${result.checkType}`,
-      message: `Expected ${result.expectedValue}, got ${result.actualValue} (diff ${result.differenceValue})`,
+      title: `${CHECK_NAME[result.checkType]} numbers don't add up`,
+      message: `Expected ${result.expectedValue}, found ${result.actualValue}. See Reports, then Checks.`,
       severity: result.severity,
       sourceType: "ReconciliationException",
       sourceId: dedupeKey,

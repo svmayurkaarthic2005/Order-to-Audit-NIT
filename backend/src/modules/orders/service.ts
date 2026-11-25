@@ -265,8 +265,8 @@ export async function rejectOrder(id: string, reason: string, actingUserId: stri
       await notify({
         recipientUserId: salesman.id,
         type: "ORDER_SHORTAGE",
-        title: "Your order was rejected: insufficient stock",
-        message: `Your order for ${customer.name} was rejected due to insufficient stock`,
+        title: `Order for ${customer.name} rejected`,
+        message: "There weren't enough packets in stock to fill it. Check with the factory before taking it again.",
         severity: "WARNING",
         sourceType: "SalesOrder",
         sourceId: id,
@@ -276,8 +276,8 @@ export async function rejectOrder(id: string, reason: string, actingUserId: stri
       await notify({
         recipientRoles: ["OWNER", "ADMIN"],
         type: "ORDER_SHORTAGE",
-        title: `Order rejected (stock shortage): ${customer.name}`,
-        message: `Order by ${salesman.name} for ${customer.name} was rejected — insufficient stock`,
+        title: `Order for ${customer.name} rejected: not enough stock`,
+        message: `${salesman.name}'s order couldn't be filled from current stock. A production run would cover it.`,
         severity: "WARNING",
         sourceType: "SalesOrder",
         sourceId: id,

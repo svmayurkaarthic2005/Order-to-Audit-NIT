@@ -23,7 +23,8 @@ export function calculate(items: GstLineItem[], supplierState: string, customerS
     0,
   );
 
-  const isInterstate = supplierState !== customerState;
+  // Compared loosely so "tamil nadu " and "Tamil Nadu" count as the same state.
+  const isInterstate = supplierState.trim().toLowerCase() !== customerState.trim().toLowerCase();
   const cgstPaise = isInterstate ? 0 : Math.round(totalTaxPaise / 2);
   const sgstPaise = isInterstate ? 0 : totalTaxPaise - cgstPaise; // exact remainder, so CGST+SGST always sums to totalTaxPaise
   const igstPaise = isInterstate ? totalTaxPaise : 0;

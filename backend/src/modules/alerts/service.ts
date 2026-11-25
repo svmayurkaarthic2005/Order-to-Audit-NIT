@@ -1,4 +1,5 @@
 import { prisma } from "../../lib/prisma.js";
+import { formatQty } from "../../lib/units.js";
 import { getAvailableQty, getItemOrThrow } from "../inventory/service.js";
 import { notify } from "../notifications/service.js";
 
@@ -31,7 +32,7 @@ export async function syncAlertsForItems(itemIds: string[]) {
           recipientRoles: ["OWNER", "ADMIN", "PRODUCTION"],
           type: "LOW_STOCK",
           title: `Low stock: ${item.name}`,
-          message: `${item.name} has fallen below the reorder threshold (available: ${available} ${item.baseUnit}, threshold: ${item.reorderLevel} ${item.baseUnit})`,
+          message: `Only ${formatQty(available, item.baseUnit)} left, below your warning level of ${formatQty(item.reorderLevel, item.baseUnit)}. Time to reorder.`,
           severity: "WARNING",
           sourceType: "LowStockAlert",
           sourceId: itemId, // resolved to real alert id below if needed; item dedup is sufficient
@@ -46,8 +47,8 @@ export async function syncAlertsForItems(itemIds: string[]) {
       await notify({
         recipientRoles: ["OWNER", "ADMIN"],
         type: "STOCK_REPLENISHED",
-        title: `Stock replenished: ${item.name}`,
-        message: `${item.name} stock is now back above the reorder threshold (available: ${available} ${item.baseUnit})`,
+        title: `Back in stock: ${item.name}`,
+        message: `${formatQty(available, item.baseUnit)} available now, above your warning level.`,
         severity: "INFO",
         sourceType: "LowStockAlert",
         sourceId: activeAlert.id,

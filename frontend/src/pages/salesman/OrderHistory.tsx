@@ -6,6 +6,7 @@ import { Card, EmptyState, ErrorText, LinkButton, Loading, PageHeader, Select, S
 type Order = {
   id: string;
   status: string;
+  rejectionReason: string | null;
   createdAt: string;
   customer: { name: string };
   items: { qtyBase: number; ratePaise: number; item: { sku: string; name: string } }[];
@@ -39,6 +40,11 @@ export default function OrderHistory() {
     [data],
   );
   const visibleOrders = customerFilter ? data?.items.filter((o) => o.customer.name === customerFilter) : data?.items;
+  // Customer-wise sales: what this salesman has sold to the chosen customer,
+  // counting only orders that weren't rejected.
+  const customerTotal = (visibleOrders ?? [])
+    .filter((o) => o.status !== "REJECTED")
+    .reduce((sum, o) => sum + o.items.reduce((s, l) => s + l.qtyBase * l.ratePaise, 0), 0);
 
   return (
     <div className="mx-auto max-w-lg">
@@ -68,13 +74,18 @@ export default function OrderHistory() {
       ) : (
         <>
           {customerNames.length > 1 && (
-            <Select value={customerFilter} onChange={(e) => setCustomerFilter(e.target.value)} className="mb-4 w-full">
+            <Select value={customerFilter} onChange={(e) => setCustomerFilter(e.target.value)} className="mb-2 w-full">
               <option value="">All customers</option>
               {customerNames.map((name) => (
                 <option key={name} value={name}>{name}</option>
               ))}
             </Select>
           )}
+          <p className="mb-4 text-sm text-muted-foreground">
+            {customerFilter ? `Sold to ${customerFilter}` : "Total sold"}:{" "}
+            <span className="tabular font-semibold text-foreground">{money(customerTotal)}</span>
+            <span className="ml-1">(rejected orders not counted)</span>
+          </p>
           {visibleOrders && visibleOrders.length === 0 ? (
             <EmptyState>No orders for this customer.</EmptyState>
           ) : (
@@ -100,10 +111,15 @@ export default function OrderHistory() {
                               <span className="text-foreground">
                                 {l.item.name}
                               </span>
-                              <span className="tabular shrink-0 text-muted-foreground">×{l.qtyBase}</span>
+                              <span className="tabular shrink-0 text-muted-foreground">{l.qtyBase} {l.qtyBase === 1 ? "packet" : "packets"}</span>
                             </li>
                           ))}
                         </ul>
+                        {o.status === "REJECTED" && o.rejectionReason && (
+                          <p className="mb-2 rounded-md bg-destructive-bg px-3 py-2 text-sm text-destructive">
+                            Why it was rejected: {o.rejectionReason}
+                          </p>
+                        )}
                         <div className="flex items-center justify-between border-t border-border/50 pt-2.5">
                           <span className="text-xs text-muted-foreground">
                             {o.items.length} item{o.items.length !== 1 ? "s" : ""}

@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "@/lib/api";
-import { Card, DateRangeFilter, Drawer, EmptyState, ErrorText, Loading, PageHeader, StatusBadge, TabBar, Table, Td, Th, THead, buttonClass, money } from "@/components/ui";
+import { Card, DateRangeFilter, Drawer, EmptyState, ErrorText, Loading, PageHeader, StatusBadge, TabBar, Table, Td, Th, THead, buttonClass, money, qty, unitOf } from "@/components/ui";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
 
@@ -15,7 +15,9 @@ type GstSummary = {
   invoiceCount: number;
 };
 type PurchaseRow = { purchaseId: string; supplierName: string; purchaseDate: string; cancelled: boolean; totalPaise: number; lineCount: number };
-type StockRow = { itemId: string; sku: string; name: string; type: string; qtyBase: number; movingAverageCostPaise: number | null };
+type StockRow = { itemId: string; sku: string; name: string; type: string; baseUnit: string; qtyBase: number; movingAverageCostPaise: number | null };
+
+const STOCK_TYPE_LABEL: Record<string, string> = { RAW_MATERIAL: "Raw material", PACKAGING: "Packaging", FINISHED_GOOD: "Product" };
 type ProductionRow = {
   runId: string;
   finishedGoodSku: string;
@@ -346,22 +348,27 @@ export default function Reports() {
             ) : (
               <Table>
                 <THead>
-                  <tr><Th>SKU</Th><Th>Name</Th><Th>Type</Th><Th numeric>On hand</Th><Th numeric>Avg. cost/unit</Th></tr>
+                  <tr><Th>Item</Th><Th>Type</Th><Th numeric>On hand</Th><Th numeric>Average cost</Th></tr>
                 </THead>
                 <tbody>
                   {stockSummary.data.map((s) => (
                     <tr key={s.itemId} className="hover:bg-secondary/30">
-                      <Td className="font-mono text-xs text-muted-foreground">{s.sku}</Td>
                       <Td className="font-medium text-foreground">{s.name}</Td>
-                      <Td><span className="text-xs text-muted-foreground">{s.type.replace("_", " ")}</span></Td>
+                      <Td><span className="text-xs text-muted-foreground">{STOCK_TYPE_LABEL[s.type] ?? s.type}</span></Td>
                       <Td
                         numeric
                         className={`font-semibold text-foreground ${clickableCell}`}
                         onClick={() => setDrill({ type: "stock", itemId: s.itemId, sku: s.sku })}
                       >
-                        {s.qtyBase.toLocaleString("en-IN")}
+                        {qty(s.qtyBase, s.baseUnit)}
                       </Td>
-                      <Td numeric>{s.movingAverageCostPaise !== null ? money(s.movingAverageCostPaise) : <span className="text-muted-foreground">—</span>}</Td>
+                      <Td numeric>
+                        {s.movingAverageCostPaise !== null ? (
+                          `${money(s.movingAverageCostPaise * unitOf(s.baseUnit).factor)} per ${unitOf(s.baseUnit).label === "pcs" ? "piece" : unitOf(s.baseUnit).label}`
+                        ) : (
+                          <span className="text-muted-foreground">Not bought yet</span>
+                        )}
+                      </Td>
                     </tr>
                   ))}
                 </tbody>

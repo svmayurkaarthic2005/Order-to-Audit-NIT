@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -33,14 +34,15 @@ interface NotificationsResponse {
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-function sourceToPath(sourceType: string, _sourceId: string): string {
+function sourceToPath(sourceType: string, isSalesman: boolean): string {
   switch (sourceType) {
     case "LowStockAlert":
       return "/admin/stock-data";
     case "ProductionRun":
       return `/production/runs`;
     case "SalesOrder":
-      return `/admin/orders`;
+      // Salesmen can't open the admin order queue; their own list is the place.
+      return isSalesman ? "/salesman/orders" : "/admin/orders";
     case "AuditLog":
       return `/admin/audit-log`;
     case "RawMaterialBatch":
@@ -99,6 +101,7 @@ function BellIcon({ size = 20 }: { size?: number }) {
 // ── Main Component ─────────────────────────────────────────────────────────
 
 export function NotificationBell() {
+  const { user } = useAuth();
   const [open, setOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
@@ -127,7 +130,7 @@ export function NotificationBell() {
   function handleItemClick(n: Notification) {
     if (!n.readAt) markReadMut.mutate(n.id);
     setOpen(false);
-    navigate(sourceToPath(n.sourceType, n.sourceId));
+    navigate(sourceToPath(n.sourceType, user?.role === "SALESMAN"));
   }
 
   return (
@@ -192,7 +195,7 @@ export function NotificationBell() {
               {items.length === 0 ? (
                 <div className="flex flex-col items-center gap-2 px-4 py-10 text-center text-sm text-muted-foreground">
                   <BellIcon size={28} />
-                  <p>All caught up — no notifications</p>
+                  <p>You're all caught up.</p>
                 </div>
               ) : (
                 items.map((n) => (
