@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Button, Card, ErrorText, Field, Input, Loading, PageHeader, Select, StatusBadge, Table, Td, Th, THead } from "@/components/ui";
+import { Button, Card, ErrorText, Field, Input, Loading, PageHeader, Select, StatusBadge, Table, Td, Th, THead, qty, unitOf } from "@/components/ui";
 
 type StockStatusRow = {
   itemId: string;
@@ -18,14 +18,15 @@ type StockStatusRow = {
 type OnHand = { qtyBase: number; unit: string; asOf: string };
 
 const TYPE_LABEL: Record<StockStatusRow["type"], string> = {
-  RAW_MATERIAL: "Raw Material",
+  RAW_MATERIAL: "Raw material",
   PACKAGING: "Packaging",
-  FINISHED_GOOD: "Finished Goods",
+  FINISHED_GOOD: "Product",
 };
 
 function ReorderLevelCell({ row, canMutate }: { row: StockStatusRow; canMutate: boolean }) {
   const queryClient = useQueryClient();
-  const [value, setValue] = useState(row.reorderLevel?.toString() ?? "");
+  const { label, factor } = unitOf(row.unit);
+  const [value, setValue] = useState(row.reorderLevel === null ? "" : String(row.reorderLevel / factor));
 
   const mutation = useMutation({
     mutationFn: (reorderLevel: number) => api.patch(`/alerts/items/${row.itemId}/reorder-level`, { reorderLevel }),
@@ -33,32 +34,35 @@ function ReorderLevelCell({ row, canMutate }: { row: StockStatusRow; canMutate: 
   });
 
   if (!canMutate) {
-    return <span className="tabular">{row.reorderLevel ?? <span className="text-muted-foreground">—</span>}</span>;
+    return <span className="tabular">{row.reorderLevel === null ? <span className="text-muted-foreground">Not set</span> : qty(row.reorderLevel, row.unit)}</span>;
   }
 
   return (
-    <Input
-      type="number"
-      min={0}
-      value={value}
-      onChange={(e) => setValue(e.target.value)}
-      onBlur={() => {
-        const n = Number(value);
-        if (value !== "" && Number.isInteger(n) && n >= 0 && n !== row.reorderLevel) {
-          mutation.mutate(n);
-        }
-      }}
-      className="h-8 w-28 text-right tabular"
-      placeholder="Not set"
-    />
+    <span className="inline-flex items-center gap-1.5">
+      <Input
+        type="number"
+        min={0}
+        step="any"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={() => {
+          const n = Math.round(Number(value) * factor);
+          if (value !== "" && n >= 0 && n !== row.reorderLevel) mutation.mutate(n);
+        }}
+        className="h-8 w-24 text-right tabular"
+        placeholder="Not set"
+        aria-label={`Warn me below this many ${label} of ${row.name}`}
+      />
+      <span className="w-6 text-left text-xs text-muted-foreground">{label}</span>
+    </span>
   );
 }
 
 function OpeningStockForm({ onDone }: { onDone: () => void }) {
   const queryClient = useQueryClient();
   const [itemId, setItemId] = useState("");
-  const [qtyBase, setQtyBase] = useState("");
-  const [totalCostPaise, setTotalCostPaise] = useState("");
+  const [quantity, setQuantity] = useState("");
+  const [totalCost, setTotalCost] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const { data: items, isLoading: itemsLoading } = useQuery({
@@ -72,22 +76,23 @@ function OpeningStockForm({ onDone }: { onDone: () => void }) {
     enabled: !!itemId,
   });
 
+  const selectedItem = items?.items.find((i) => i.id === itemId);
+  const unit = unitOf(selectedItem?.baseUnit ?? "PIECE");
+
   const submitMutation = useMutation({
     mutationFn: () =>
       api.post("/inventory/opening-stock", {
         itemId,
-        qtyBase: Number(qtyBase),
-        totalCostPaise: Number(totalCostPaise),
+        qtyBase: Math.round(Number(quantity) * unit.factor),
+        totalCostPaise: Math.round(Number(totalCost) * 100),
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["on-hand", itemId] });
       queryClient.invalidateQueries({ queryKey: ["alerts", "stock-status"] });
       onDone();
     },
-    onError: (err) => setError(err instanceof ApiError ? err.message : "Failed to post opening stock"),
+    onError: (err) => setError(err instanceof ApiError ? err.message : "Couldn't save the opening stock. Check the numbers and try again."),
   });
-
-  const selectedItem = items?.items.find((i) => i.id === itemId);
 
   return (
     <Card className="mb-4 overflow-hidden">
@@ -100,10 +105,10 @@ function OpeningStockForm({ onDone }: { onDone: () => void }) {
             <p className="text-sm text-muted-foreground">Loading items…</p>
           ) : (
             <Select value={itemId} onChange={(e) => setItemId(e.target.value)} className="w-full">
-              <option value="">Select an item…</option>
+              <option value="">Choose an item</option>
               {items?.items.map((i) => (
                 <option key={i.id} value={i.id}>
-                  {i.sku} — {i.name}
+                  {i.name}
                 </option>
               ))}
             </Select>
@@ -112,7 +117,7 @@ function OpeningStockForm({ onDone }: { onDone: () => void }) {
 
         {itemId && onHand && (
           <p className="mt-2 text-sm text-muted-foreground">
-            Current on-hand: <span className="tabular font-medium text-foreground">{onHand.qtyBase}</span> {onHand.unit}
+            In stock now: <span className="tabular font-medium text-foreground">{qty(onHand.qtyBase, selectedItem?.baseUnit ?? onHand.unit)}</span>
           </p>
         )}
 
@@ -125,22 +130,22 @@ function OpeningStockForm({ onDone }: { onDone: () => void }) {
         >
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <Field label={`Quantity (${selectedItem?.baseUnit ?? "base unit"})`} required>
-                <Input type="number" required value={qtyBase} onChange={(e) => setQtyBase(e.target.value)} className="w-full" placeholder="e.g. 500" />
+              <Field label={`Quantity (${unit.label})`} required>
+                <Input type="number" step="any" min="0" required value={quantity} onChange={(e) => setQuantity(e.target.value)} className="w-full" />
               </Field>
             </div>
             <div>
-              <Field label="Total Cost (paise)" required>
-                <Input type="number" required value={totalCostPaise} onChange={(e) => setTotalCostPaise(e.target.value)} className="w-full" placeholder="e.g. 25000" />
+              <Field label="What it cost in total (₹)" required>
+                <Input type="number" step="0.01" min="0" required value={totalCost} onChange={(e) => setTotalCost(e.target.value)} className="w-full" />
               </Field>
             </div>
           </div>
           <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-t border-border/50 pt-3.5">
             <p className="text-xs text-muted-foreground">
-              Opening stock initializes inventory balance and weighted moving-average unit cost.
+              Use this once per item, for stock you already had before you started using the app.
             </p>
             <Button type="submit" disabled={!itemId || submitMutation.isPending} className="self-end sm:self-auto px-6">
-              {submitMutation.isPending ? "Posting…" : "Post Opening Stock"}
+              {submitMutation.isPending ? "Saving…" : "Save opening stock"}
             </Button>
           </div>
         </form>
@@ -166,8 +171,8 @@ export default function LowStockAlerts() {
   return (
     <div className="w-full min-w-0">
       <PageHeader
-        title="Stock Data"
-        description="Raw materials, packaging and finished goods approaching a shortage."
+        title="Stock levels"
+        description="How much of each item you have. Set a warning level and you'll be told when it runs low."
         actions={
           canRecordOpeningStock ? (
             <Button
@@ -196,10 +201,10 @@ export default function LowStockAlerts() {
 
       <Card className="mb-4 flex items-center gap-3 p-4">
         <StatusBadge variant={lowCount > 0 ? "warning" : "success"}>
-          {lowCount > 0 ? `${lowCount} item${lowCount > 1 ? "s" : ""} low` : "All items normal"}
+          {lowCount > 0 ? `${lowCount} item${lowCount > 1 ? "s" : ""} running low` : "Nothing is running low"}
         </StatusBadge>
         <span className="text-sm text-muted-foreground">
-          Available = on-hand stock minus reserved (approved, undispatched) orders.
+          Available leaves out stock already promised to approved orders.
         </span>
       </Card>
 
@@ -214,7 +219,7 @@ export default function LowStockAlerts() {
               <Th>Item</Th>
               <Th>Type</Th>
               <Th numeric>Available</Th>
-              <Th numeric>Reorder level</Th>
+              <Th numeric>Warn me below</Th>
               <Th>Status</Th>
             </tr>
           </THead>
@@ -223,17 +228,16 @@ export default function LowStockAlerts() {
               <tr key={row.itemId} className="hover:bg-secondary/30">
                 <Td>
                   <p className="font-medium text-foreground">{row.name}</p>
-                  <p className="mt-0.5 font-mono text-xs text-muted-foreground">{row.sku}</p>
                 </Td>
                 <Td className="text-muted-foreground">{TYPE_LABEL[row.type]}</Td>
                 <Td numeric className="font-semibold text-foreground">
-                  {row.availableQtyBase.toLocaleString("en-IN")} {row.unit}
+                  {qty(row.availableQtyBase, row.unit)}
                 </Td>
                 <Td numeric>
                   <ReorderLevelCell row={row} canMutate={canMutate} />
                 </Td>
                 <Td>
-                  <StatusBadge variant={row.status === "LOW" ? "warning" : "success"}>{row.status}</StatusBadge>
+                  <StatusBadge variant={row.status === "LOW" ? "warning" : "success"}>{row.status === "LOW" ? "Low" : "OK"}</StatusBadge>
                 </Td>
               </tr>
             ))}

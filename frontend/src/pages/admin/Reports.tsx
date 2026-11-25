@@ -159,7 +159,7 @@ export default function Reports() {
 
   return (
     <div className="w-full min-w-0">
-      <PageHeader title="Reports" description="Sales, tax, stock, production and collections, for accounts and audit." />
+      <PageHeader title="Reports" description="Sales, GST, stock, production and payments. Click a number to see the entries behind it." />
 
       {/* Tab bar */}
       <TabBar tabs={REPORTS} active={tab} onChange={(t) => setTab(t as (typeof REPORTS)[number])} />
@@ -382,7 +382,7 @@ export default function Reports() {
                   {production.data?.map((r) => (
                     <tr key={r.runId} className="hover:bg-secondary/30">
                       <Td className="font-medium text-foreground">{r.finishedGoodSku}</Td>
-                      <Td>{r.status}</Td>
+                      <Td>{r.status.charAt(0) + r.status.slice(1).toLowerCase()}</Td>
                       <Td numeric>{r.plannedYield}</Td>
                       <Td
                         numeric
@@ -613,10 +613,10 @@ function ProductionCostDrill({ detail }: { detail: ProductionCostDetail | null }
     <table className="w-full text-sm">
       <tbody>
         {cost.materialLines.map((l) => (
-          <tr key={l.itemId}><td className="py-0.5 text-muted-foreground">{l.sku} ({l.qtyBase})</td><td className="py-0.5 text-right tabular">{money(l.totalCostPaise)}</td></tr>
+          <tr key={l.itemId}><td className="py-0.5 text-muted-foreground">{l.name}</td><td className="py-0.5 text-right tabular">{money(l.totalCostPaise)}</td></tr>
         ))}
         {cost.packagingLines.map((l) => (
-          <tr key={l.itemId}><td className="py-0.5 text-muted-foreground">{l.sku} ({l.qtyBase})</td><td className="py-0.5 text-right tabular">{money(l.totalCostPaise)}</td></tr>
+          <tr key={l.itemId}><td className="py-0.5 text-muted-foreground">{l.name}</td><td className="py-0.5 text-right tabular">{money(l.totalCostPaise)}</td></tr>
         ))}
         <tr><td className="py-0.5 text-muted-foreground">Labour</td><td className="py-0.5 text-right tabular">{money(cost.laborCostPaise)}</td></tr>
         <tr><td className="py-0.5 text-muted-foreground">Overhead</td><td className="py-0.5 text-right tabular">{money(cost.overheadCostPaise)}</td></tr>

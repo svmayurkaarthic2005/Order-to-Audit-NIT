@@ -388,3 +388,21 @@ export function Modal({
 export function money(paise: number): string {
   return `₹${(paise / 100).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
+
+// Stock is stored in grams, millilitres and pieces so quantities stay whole
+// numbers; people read and type kg, litres and pieces.
+const DISPLAY_UNIT: Record<string, { label: string; factor: number }> = {
+  G: { label: "kg", factor: 1000 },
+  ML: { label: "L", factor: 1000 },
+  PIECE: { label: "pcs", factor: 1 },
+};
+
+export function unitOf(baseUnit: string) {
+  return DISPLAY_UNIT[baseUnit] ?? { label: baseUnit.toLowerCase(), factor: 1 };
+}
+
+export function qty(qtyBase: number, baseUnit: string): string {
+  const { label, factor } = unitOf(baseUnit);
+  const n = (qtyBase / factor).toLocaleString("en-IN", { maximumFractionDigits: 3 });
+  return `${n} ${label === "pcs" && qtyBase === 1 ? "pc" : label}`;
+}

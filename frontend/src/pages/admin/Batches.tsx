@@ -103,8 +103,8 @@ export default function Batches() {
   return (
     <div>
       <PageHeader
-        title="Batch & Lot Tracking"
-        description="FEFO tracking, expiry monitors, and full batch genealogy from supplier to dispatch."
+        title="Batches"
+        description="Each lot of stock, when it expires, and where it went. The oldest stock that hasn't expired is always used first."
       />
 
       <TabBar tabs={TABS} active={activeTab} onChange={(t) => setActiveTab(t as (typeof TABS)[number])} />
@@ -178,7 +178,6 @@ export default function Batches() {
                       <Td className="font-mono text-xs font-semibold">{b.internalBatchNo}</Td>
                       <Td>
                         <div className="font-medium text-foreground">{b.item.name}</div>
-                        <div className="text-xs text-muted-foreground">{b.item.sku}</div>
                       </Td>
                       <Td>{b.supplier.name}</Td>
                       <Td className="text-right font-medium">
@@ -191,7 +190,7 @@ export default function Batches() {
                         {b.expiryDate ? new Date(b.expiryDate).toLocaleDateString() : "—"}
                       </Td>
                       <Td>
-                        <StatusBadge variant={statusVariant(b.status)}>{b.status}</StatusBadge>
+                        <StatusBadge variant={statusVariant(b.status)}>{b.status.charAt(0) + b.status.slice(1).toLowerCase()}</StatusBadge>
                       </Td>
                       <Td className="text-right">
                         <div className="flex items-center justify-end gap-2">
@@ -250,7 +249,6 @@ export default function Batches() {
                       <Td className="font-mono text-xs font-semibold">{b.internalBatchNo}</Td>
                       <Td>
                         <div className="font-medium text-foreground">{b.item.name}</div>
-                        <div className="text-xs text-muted-foreground">{b.item.sku}</div>
                       </Td>
                       <Td className="font-mono text-xs text-muted-foreground">
                         #{b.productionRun.id.slice(0, 8)}
@@ -266,7 +264,7 @@ export default function Batches() {
                         {b.expiryDate ? new Date(b.expiryDate).toLocaleDateString() : "—"}
                       </Td>
                       <Td>
-                        <StatusBadge variant={statusVariant(b.status)}>{b.status}</StatusBadge>
+                        <StatusBadge variant={statusVariant(b.status)}>{b.status.charAt(0) + b.status.slice(1).toLowerCase()}</StatusBadge>
                       </Td>
                       <Td className="text-right">
                         <div className="flex items-center justify-end gap-2">

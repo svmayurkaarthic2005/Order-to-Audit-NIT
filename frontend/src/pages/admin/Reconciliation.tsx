@@ -46,6 +46,20 @@ const CHECK_LABEL: Record<CheckType, string> = {
   DISPATCH: "Dispatch",
 };
 
+const SOURCE_LABEL: Record<string, string> = {
+  ProductionRun: "Production run",
+  ProductionRunMaterial: "Material used in a run",
+  Dispatch: "Dispatch",
+  Invoice: "Invoice",
+  Item: "Stock item",
+};
+
+const STATUS_LABEL = { OPEN: "Open", REVIEWED: "Reviewed", RESOLVED: "Resolved" } as const;
+const SEVERITY_LABEL = { INFO: "Info", WARNING: "Warning", CRITICAL: "Serious" } as const;
+
+// IDs are long UUIDs; the first block is enough to tell rows apart on screen.
+const shortId = (id: string) => `#${id.slice(0, 8)}`;
+
 const SEVERITY_VARIANT = { INFO: "info", WARNING: "warning", CRITICAL: "destructive" } as const;
 const STATUS_VARIANT = { OPEN: "warning", REVIEWED: "info", RESOLVED: "success" } as const;
 
@@ -80,8 +94,8 @@ function ReviewRow({ exception }: { exception: ReconciliationException }) {
           other column off-screen the moment any row was reviewed. */}
       <Modal open={open} onClose={() => setOpen(false)} title={`${CHECK_LABEL[exception.checkType]} exception`}>
         <div className="mb-4 rounded-lg border border-border bg-secondary/30 p-3 text-sm">
-          <p className="text-foreground">{exception.sourceType}</p>
-          <p className="font-mono text-xs text-muted-foreground">{exception.sourceId}</p>
+          <p className="text-foreground">{SOURCE_LABEL[exception.sourceType] ?? exception.sourceType}</p>
+          <p className="font-mono text-xs text-muted-foreground">{shortId(exception.sourceId)}</p>
           <div className="mt-2 flex justify-between text-muted-foreground">
             <span>Expected: {exception.expectedValue}</span>
             <span>Actual: {exception.actualValue}</span>
@@ -152,8 +166,8 @@ export default function Reconciliation() {
   return (
     <div className="w-full min-w-0">
       <PageHeader
-        title="Reconciliation"
-        description="Cross-checks the ledger against itself — stock, production yield, packaging, invoices and dispatch — and reports what doesn't add up. Never modifies the transactions it checks."
+        title="Checks"
+        description="Looks for numbers that don't add up across stock, production, invoices and dispatch. It only reports problems; it never changes your records."
         actions={
           <Button size="sm" disabled={runMutation.isPending} onClick={() => runMutation.mutate()}>
             {runMutation.isPending ? "Running…" : "Run checks"}
@@ -204,7 +218,7 @@ export default function Reconciliation() {
       ) : error ? (
         <ErrorText>{(error as Error).message}</ErrorText>
       ) : !data || data.length === 0 ? (
-        <EmptyState>No exceptions match these filters. Run checks to scan for discrepancies.</EmptyState>
+        <EmptyState>Nothing to show here. Press "Run checks" to look again.</EmptyState>
       ) : (
         <Table>
           <THead>
@@ -224,14 +238,14 @@ export default function Reconciliation() {
               <tr key={e.id} className="hover:bg-secondary/30">
                 <Td className="font-medium text-foreground">{CHECK_LABEL[e.checkType]}</Td>
                 <Td>
-                  <p className="text-foreground">{e.sourceType}</p>
-                  <p className="mt-0.5 font-mono text-xs text-muted-foreground">{e.sourceId}</p>
+                  <p className="text-foreground">{SOURCE_LABEL[e.sourceType] ?? e.sourceType}</p>
+                  <p className="mt-0.5 font-mono text-xs text-muted-foreground" title={e.sourceId}>{shortId(e.sourceId)}</p>
                 </Td>
                 <Td numeric>{e.expectedValue}</Td>
                 <Td numeric>{e.actualValue}</Td>
                 <Td numeric className="font-semibold text-foreground">{e.differenceValue}</Td>
-                <Td><StatusBadge variant={SEVERITY_VARIANT[e.severity]}>{e.severity}</StatusBadge></Td>
-                <Td><StatusBadge variant={STATUS_VARIANT[e.status]}>{e.status}</StatusBadge></Td>
+                <Td><StatusBadge variant={SEVERITY_VARIANT[e.severity]}>{SEVERITY_LABEL[e.severity]}</StatusBadge></Td>
+                <Td><StatusBadge variant={STATUS_VARIANT[e.status]}>{STATUS_LABEL[e.status]}</StatusBadge></Td>
                 <Td className="text-right"><ReviewRow exception={e} /></Td>
               </tr>
             ))}

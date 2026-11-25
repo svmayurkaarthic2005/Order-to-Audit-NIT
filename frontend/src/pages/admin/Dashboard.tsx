@@ -2,226 +2,208 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Card, PageHeader, StatusBadge, money } from "@/components/ui";
+import { Card, PageHeader, StatusBadge, money, qty } from "@/components/ui";
 
-const DASHBOARD_TITLE: Record<string, string> = {
-  OWNER: "Owner Dashboard",
-  ADMIN: "Admin Dashboard",
-  ACCOUNTANT: "Accountant Dashboard",
+type GstSummary = { totals: { totalPaise: number }; invoiceCount: number };
+type CollectionsRow = { customerName: string; outstandingPaise: number };
+type StockStatus = {
+  itemId: string;
+  name: string;
+  type: "RAW_MATERIAL" | "PACKAGING" | "FINISHED_GOOD";
+  unit: "G" | "ML" | "PIECE";
+  availableQtyBase: number;
+  reorderLevel: number | null;
+  status: "LOW" | "NORMAL";
+};
+type StockValueRow = { qtyBase: number; movingAverageCostPaise: number | null };
+type Order = {
+  id: string;
+  status: "SUBMITTED" | "APPROVED" | "REJECTED" | "DISPATCHABLE" | "DISPATCHED";
+  createdAt: string;
+  customer: { name: string };
+  items: { qtyBase: number; ratePaise: number }[];
+};
+type OrderPage = { items: Order[]; total: number };
+
+const ORDER_STATUS: Record<Order["status"], { label: string; variant: "warning" | "info" | "success" | "destructive" | "neutral" }> = {
+  SUBMITTED: { label: "Waiting for approval", variant: "warning" },
+  APPROVED: { label: "Needs invoice", variant: "info" },
+  DISPATCHABLE: { label: "Ready to dispatch", variant: "info" },
+  DISPATCHED: { label: "Dispatched", variant: "success" },
+  REJECTED: { label: "Rejected", variant: "destructive" },
 };
 
-type GstSummary = { totals: { totalPaise: number; taxableValuePaise: number }; invoiceCount: number };
-type CollectionsRow = { outstandingPaise: number };
-type StockRow = { type: string; qtyBase: number; movingAverageCostPaise: number | null };
-type ProductionRow = { status: string; yieldVariancePct: number | null };
-
-function KpiCard({
-  label,
-  value,
-  icon,
-  tone = "neutral",
-  sub,
-  to,
-}: {
-  label: string;
-  value: string;
-  icon: string;
-  tone?: "neutral" | "warning" | "success";
-  sub?: string;
-  to?: string;
-}) {
-  const toneConfig = {
-    neutral: { text: "text-foreground", bg: "bg-primary/8", icon: "text-primary" },
-    warning: { text: "text-warning", bg: "bg-warning-bg", icon: "text-warning" },
-    success: { text: "text-success", bg: "bg-success-bg", icon: "text-success" },
-  }[tone];
-
-  const content = (
-    <Card className={`p-5 h-full transition-shadow ${to ? "card-hover" : ""}`}>
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
-          <p className={`mt-2 text-2xl font-bold tabular leading-none ${toneConfig.text}`}>{value}</p>
-          {sub && <p className="mt-1.5 text-xs text-muted-foreground">{sub}</p>}
-        </div>
-        <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${toneConfig.bg}`}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className={toneConfig.icon}>
-            <path d={icon} />
-          </svg>
-        </div>
-      </div>
-    </Card>
-  );
-
-  if (to) {
-    return (
-      <Link to={to} className="block h-full" aria-label={`${label}: ${value}. View details.`}>
-        {content}
-      </Link>
-    );
-  }
-
-  return content;
+function orderCount(status: Order["status"]) {
+  return {
+    queryKey: ["orders", "count", status],
+    queryFn: () => api.get<OrderPage>(`/orders?status=${status}`).then((p) => p.total),
+  };
 }
 
-const STOCK_TYPE_LABEL: Record<string, string> = {
-  RAW_MATERIAL: "Raw Material",
-  PACKAGING: "Packaging",
-  FINISHED_GOOD: "Finished Goods",
-};
-
-const STOCK_COLORS: Record<string, string> = {
-  RAW_MATERIAL: "bg-blue-500",
-  PACKAGING: "bg-indigo-400",
-  FINISHED_GOOD: "bg-primary",
-};
+type TodoRow = { count: number; text: string; to: string; action: string };
 
 export default function Dashboard() {
   const { user } = useAuth();
+  const canAct = user?.role === "ADMIN" || user?.role === "OWNER";
+
   const { data: gst } = useQuery({ queryKey: ["reports", "gst-summary", "", ""], queryFn: () => api.get<GstSummary>("/reports/gst-summary") });
   const { data: collections } = useQuery({
     queryKey: ["reports", "payments-collections"],
     queryFn: () => api.get<CollectionsRow[]>("/reports/payments-collections"),
   });
-  const { data: stock } = useQuery({ queryKey: ["reports", "stock-summary"], queryFn: () => api.get<StockRow[]>("/reports/stock-summary") });
-  const { data: production } = useQuery({ queryKey: ["reports", "production", "", ""], queryFn: () => api.get<ProductionRow[]>("/reports/production") });
+  const { data: stockValue } = useQuery({ queryKey: ["reports", "stock-summary"], queryFn: () => api.get<StockValueRow[]>("/reports/stock-summary") });
+  const { data: stock } = useQuery({ queryKey: ["alerts", "stock-status"], queryFn: () => api.get<StockStatus[]>("/alerts/stock-status") });
+  const { data: openChecks } = useQuery({
+    queryKey: ["reconciliation", "exceptions", "OPEN", "ALL"],
+    queryFn: () => api.get<unknown[]>("/reconciliation/exceptions?status=OPEN"),
+  });
+  const { data: recent } = useQuery({ queryKey: ["orders", "recent"], queryFn: () => api.get<OrderPage>("/orders") });
+  const { data: waiting = 0 } = useQuery(orderCount("SUBMITTED"));
+  const { data: needInvoice = 0 } = useQuery(orderCount("APPROVED"));
+  const { data: toDispatch = 0 } = useQuery(orderCount("DISPATCHABLE"));
 
-  const totalOutstandingPaise = collections?.reduce((sum, c) => sum + c.outstandingPaise, 0) ?? 0;
-  const stockValuePaise = stock?.reduce((sum, s) => sum + s.qtyBase * (s.movingAverageCostPaise ?? 0), 0) ?? 0;
-  const finishedGoodsQty = stock?.filter((s) => s.type === "FINISHED_GOOD").reduce((sum, s) => sum + s.qtyBase, 0) ?? 0;
-  const flaggedRuns = production?.filter((r) => r.yieldVariancePct !== null && Math.abs(r.yieldVariancePct) > 0.03) ?? [];
+  const owing = (collections ?? []).filter((c) => c.outstandingPaise > 0);
+  const outstandingPaise = owing.reduce((sum, c) => sum + c.outstandingPaise, 0);
+  const stockValuePaise = (stockValue ?? []).reduce((sum, s) => sum + s.qtyBase * (s.movingAverageCostPaise ?? 0), 0);
+  const lowItems = (stock ?? []).filter((s) => s.status === "LOW");
+  const packets = (stock ?? []).filter((s) => s.type === "FINISHED_GOOD").reduce((sum, s) => sum + s.availableQtyBase, 0);
 
-  const stockByType = ["RAW_MATERIAL", "PACKAGING", "FINISHED_GOOD"].map((type) => ({
-    type,
-    total: stock?.filter((s) => s.type === type).reduce((sum, s) => sum + s.qtyBase, 0) ?? 0,
-  }));
-  const maxQty = Math.max(1, ...stockByType.map((s) => s.total));
+  const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+  const todo: TodoRow[] = [
+    { count: waiting, text: `${plural(waiting, "order is", "orders are")} waiting for approval`, to: "/admin/orders", action: canAct ? "Approve" : "View" },
+    { count: needInvoice, text: `${plural(needInvoice, "approved order needs", "approved orders need")} an invoice`, to: "/admin/orders", action: canAct ? "Invoice" : "View" },
+    { count: toDispatch, text: `${plural(toDispatch, "order is", "orders are")} invoiced and ready to send out`, to: "/admin/dispatch", action: canAct ? "Dispatch" : "View" },
+    {
+      count: lowItems.length,
+      text: `Running low: ${lowItems.map((i) => i.name).join(", ")}`,
+      to: "/admin/stock-data",
+      action: "Check stock",
+    },
+    {
+      count: owing.length,
+      text: `${money(outstandingPaise)} still to collect from ${owing.map((c) => c.customerName).join(", ")}`,
+      to: "/admin/invoices",
+      action: canAct ? "Record payment" : "View",
+    },
+    {
+      count: openChecks?.length ?? 0,
+      text: `${plural(openChecks?.length ?? 0, "number doesn't", "numbers don't")} add up and need a look`,
+      to: "/admin/reconciliation",
+      action: "Review",
+    },
+  ].filter((row) => row.count > 0);
 
-  const kpis = [
-    {
-      label: "Revenue Issued",
-      value: money(gst?.totals.totalPaise ?? 0),
-      icon: "M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6",
-      tone: "neutral" as const,
-      sub: `Taxable: ${money(gst?.totals.taxableValuePaise ?? 0)}`,
-      to: "/admin/invoices",
-    },
-    {
-      label: "Invoices Issued",
-      value: String(gst?.invoiceCount ?? 0),
-      icon: "M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z",
-      tone: "neutral" as const,
-      to: "/admin/invoices",
-    },
-    {
-      label: "Outstanding Receivables",
-      value: money(totalOutstandingPaise),
-      icon: "M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z",
-      tone: (totalOutstandingPaise > 0 ? "warning" : "neutral") as "neutral" | "warning" | "success",
-      to: "/admin/invoices",
-    },
-    {
-      label: "Finished Goods Stock",
-      value: `${finishedGoodsQty.toLocaleString("en-IN")} units`,
-      icon: "M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4",
-      tone: "neutral" as const,
-      to: "/admin/reports",
-    },
-    {
-      label: "Stock Value",
-      value: money(stockValuePaise),
-      icon: "M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z",
-      tone: "neutral" as const,
-      sub: "Moving average cost",
-      to: "/admin/reports",
-    },
-    {
-      label: "Production Flags",
-      value: String(flaggedRuns.length),
-      icon: "M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z",
-      tone: (flaggedRuns.length > 0 ? "warning" : "success") as "neutral" | "warning" | "success",
-      sub: flaggedRuns.length > 0 ? "Beyond ±3% tolerance" : "All within tolerance",
-      to: "/production/runs",
-    },
+  const quickActions = canAct
+    ? [
+        { label: "Record a purchase", to: "/admin/purchases" },
+        { label: "Start a production run", to: "/production/runs" },
+        { label: "Add a customer", to: "/admin/customers" },
+        { label: "See reports", to: "/admin/reports" },
+      ]
+    : [
+        { label: "Invoices & payments", to: "/admin/invoices" },
+        { label: "Reports", to: "/admin/reports" },
+        { label: "Activity log", to: "/admin/audit-log" },
+      ];
+
+  const figures = [
+    { label: "Sales invoiced", value: money(gst?.totals.totalPaise ?? 0), sub: plural(gst?.invoiceCount ?? 0, "invoice", "invoices"), to: "/admin/invoices" },
+    { label: "Still to collect", value: money(outstandingPaise), sub: outstandingPaise > 0 ? plural(owing.length, "customer", "customers") : "Everyone has paid", to: "/admin/invoices", warn: outstandingPaise > 0 },
+    { label: "Packets in stock", value: packets.toLocaleString("en-IN"), sub: "Ready to sell", to: "/admin/stock-data" },
+    { label: "Stock value", value: money(stockValuePaise), sub: "At average purchase cost", to: "/admin/reports" },
   ];
 
   return (
     <div className="w-full min-w-0">
-      <PageHeader
-        title={DASHBOARD_TITLE[user?.role ?? ""] ?? "Dashboard"}
-        description="Operational and financial status at a glance."
-        actions={
-          <div className="flex items-center gap-1.5 rounded-full bg-success-bg px-3 py-1 text-xs font-semibold text-success">
-            <span className="h-1.5 w-1.5 rounded-full bg-success" />
-            Live
-          </div>
-        }
-      />
+      <PageHeader title={`Hello, ${user?.name.split(" ")[0] ?? ""}`} description="Here's what needs doing today and how the business stands." />
 
-      {/* KPI Grid */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {kpis.map((kpi) => (
-          <KpiCard key={kpi.label} {...kpi} />
-        ))}
-      </div>
+      <div className="grid gap-5 lg:grid-cols-3">
+        <Card className="p-5 lg:col-span-2">
+          <h2 className="mb-3 text-base font-semibold text-foreground">To do</h2>
+          {todo.length === 0 ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">Nothing is waiting on you right now.</p>
+          ) : (
+            <ul className="divide-y divide-border">
+              {todo.map((row) => (
+                <li key={row.text} className="flex items-center justify-between gap-4 py-3">
+                  <span className="text-sm text-foreground">{row.text}</span>
+                  <Link
+                    to={row.to}
+                    className="shrink-0 rounded-md border border-border px-3 py-1.5 text-sm font-medium text-primary hover:bg-secondary"
+                  >
+                    {row.action}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
 
-      {/* Charts row */}
-      <div className="mt-6 grid gap-5 lg:grid-cols-2">
-        {/* Stock bar chart */}
         <Card className="p-5">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-foreground">Stock on Hand</h2>
-            <span className="text-xs text-muted-foreground">by type</span>
-          </div>
-          <div className="flex flex-col gap-4">
-            {stockByType.map(({ type, total }) => (
-              <div key={type}>
-                <div className="mb-1.5 flex items-center justify-between">
-                  <span className="text-sm font-medium text-foreground">{STOCK_TYPE_LABEL[type] ?? type}</span>
-                  <span className="tabular text-sm font-semibold text-foreground">
-                    {total.toLocaleString("en-IN")}
-                  </span>
-                </div>
-                <div className="h-2.5 overflow-hidden rounded-full bg-secondary">
-                  <div
-                    className={`h-full rounded-full transition-all duration-700 ${STOCK_COLORS[type] ?? "bg-primary"}`}
-                    style={{ width: `${Math.min(100, (total / maxQty) * 100)}%` }}
-                  />
-                </div>
-              </div>
+          <h2 className="mb-3 text-base font-semibold text-foreground">Shortcuts</h2>
+          <div className="flex flex-col gap-2">
+            {quickActions.map((a) => (
+              <Link key={a.to + a.label} to={a.to} className="rounded-md bg-secondary/60 px-3 py-2.5 text-sm font-medium text-foreground hover:bg-secondary">
+                {a.label}
+              </Link>
             ))}
           </div>
         </Card>
+      </div>
 
-        {/* Production variance */}
+      <div className="mt-5 grid grid-cols-2 gap-4 lg:grid-cols-4">
+        {figures.map((f) => (
+          <Link key={f.label} to={f.to} className="block">
+            <Card className="card-hover h-full p-4">
+              <p className="text-sm text-muted-foreground">{f.label}</p>
+              <p className={`tabular mt-1 text-2xl font-bold ${f.warn ? "text-warning" : "text-foreground"}`}>{f.value}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{f.sub}</p>
+            </Card>
+          </Link>
+        ))}
+      </div>
+
+      <div className="mt-5 grid gap-5 lg:grid-cols-2">
         <Card className="p-5">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-foreground">Production Variance</h2>
-            <span className="text-xs text-muted-foreground">±3% tolerance</span>
+          <div className="mb-3 flex items-baseline justify-between">
+            <h2 className="text-base font-semibold text-foreground">Stock levels</h2>
+            <Link to="/admin/stock-data" className="text-sm text-primary hover:underline">All stock</Link>
           </div>
-          {flaggedRuns.length === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-2 py-6 text-center">
-              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-success-bg">
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" className="text-success">
-                  <path d="M22 11.08V12a10 10 0 11-5.93-9.14M22 4L12 14.01l-3-3" />
-                </svg>
-              </div>
-              <p className="text-sm font-semibold text-foreground">All runs within tolerance</p>
-              <p className="text-xs text-muted-foreground">No yield variance alerts right now</p>
-            </div>
+          <ul className="divide-y divide-border">
+            {(stock ?? []).map((s) => (
+              <li key={s.itemId} className="flex items-center justify-between gap-3 py-2.5 text-sm">
+                <span className="text-foreground">{s.name}</span>
+                <span className="flex items-center gap-2">
+                  <span className="tabular font-medium text-foreground">{qty(s.availableQtyBase, s.unit)}</span>
+                  {s.status === "LOW" && <StatusBadge variant="warning">Low</StatusBadge>}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </Card>
+
+        <Card className="p-5">
+          <div className="mb-3 flex items-baseline justify-between">
+            <h2 className="text-base font-semibold text-foreground">Latest orders</h2>
+            <Link to="/admin/orders" className="text-sm text-primary hover:underline">All orders</Link>
+          </div>
+          {!recent || recent.items.length === 0 ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">No orders yet.</p>
           ) : (
-            <div>
-              <div className="mb-3 flex items-center gap-2">
-                <StatusBadge variant="warning">{flaggedRuns.length} run{flaggedRuns.length > 1 ? "s" : ""} flagged</StatusBadge>
-              </div>
-              <p className="text-sm text-muted-foreground">
-                {flaggedRuns.length} production run{flaggedRuns.length > 1 ? "s" : ""} outside the ±3% yield tolerance. Review the{" "}
-                <Link to="/production/runs" className="font-semibold text-primary hover:underline">
-                  Production runs
-                </Link>{" "}
-                page for details.
-              </p>
-            </div>
+            <ul className="divide-y divide-border">
+              {recent.items.slice(0, 6).map((o) => (
+                <li key={o.id} className="flex items-center justify-between gap-3 py-2.5 text-sm">
+                  <span className="min-w-0">
+                    <span className="block truncate text-foreground">{o.customer.name}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {new Date(o.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short" })},{" "}
+                      {money(o.items.reduce((sum, i) => sum + i.qtyBase * i.ratePaise, 0))}
+                    </span>
+                  </span>
+                  <StatusBadge variant={ORDER_STATUS[o.status].variant}>{ORDER_STATUS[o.status].label}</StatusBadge>
+                </li>
+              ))}
+            </ul>
           )}
         </Card>
       </div>

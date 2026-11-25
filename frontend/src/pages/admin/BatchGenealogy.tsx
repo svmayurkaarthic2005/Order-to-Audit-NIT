@@ -100,11 +100,11 @@ export default function BatchGenealogy() {
       </div>
 
       <PageHeader
-        title={isRaw ? "Batch Genealogy Trace (Forward)" : "Dispatch Trace (Backward)"}
+        title={isRaw ? "Where this lot went" : "Where this lot came from"}
         description={
           isRaw
-            ? "Tracing forward from raw material lot receipt → production runs → finished lots → customer dispatches."
-            : "Tracing backward from customer dispatch → finished goods lots → production run → raw material supplier lots."
+            ? "From the supplier's delivery, into production runs, and out to customers."
+            : "Back from the customer, to the production run that made it, and the supplier lots it used."
         }
       />
 
@@ -123,11 +123,11 @@ export default function BatchGenealogy() {
                   {forwardData.rawMaterialBatch.internalBatchNo}
                 </h3>
                 <p className="text-sm font-medium text-foreground">
-                  {forwardData.rawMaterialBatch.item.name} ({forwardData.rawMaterialBatch.item.sku})
+                  {forwardData.rawMaterialBatch.item.name}
                 </p>
               </div>
               <div className="text-right">
-                <StatusBadge variant="info">{forwardData.rawMaterialBatch.status}</StatusBadge>
+                <StatusBadge variant="info">{forwardData.rawMaterialBatch.status.charAt(0) + forwardData.rawMaterialBatch.status.slice(1).toLowerCase()}</StatusBadge>
                 <p className="mt-1 text-xs text-muted-foreground">
                   Received: {forwardData.rawMaterialBatch.receivedQtyBase.toLocaleString()}{" "}
                   {forwardData.rawMaterialBatch.item.baseUnit} | Remaining:{" "}

@@ -2,11 +2,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Button, Card, EmptyState, ErrorText, Loading, PageHeader, StatusBadge, Table, Td, Th, THead, Field, Input, Select } from "@/components/ui";
+import { Button, Card, EmptyState, ErrorText, Loading, PageHeader, StatusBadge, Table, Td, Th, THead, Field, Input, Select, money, unitOf } from "@/components/ui";
 
 type Supplier = { id: string; name: string };
 type Item = { id: string; sku: string; name: string; baseUnit: string; type: string };
-type Line = { itemId: string; qtyBase: string; rateBasePaise: string };
+type Line = { itemId: string; quantity: string; pricePerUnit: string };
 type Purchase = {
   id: string;
   purchaseDate: string;
@@ -15,7 +15,18 @@ type Purchase = {
   items: { itemId: string; qtyBase: number; rateBasePaise: number }[];
 };
 
-const emptyLine: Line = { itemId: "", qtyBase: "", rateBasePaise: "" };
+const emptyLine: Line = { itemId: "", quantity: "", pricePerUnit: "" };
+
+// The form takes kg/L/pcs and rupees per kg/L/pc; the API stores whole base
+// units (g/ml/pc) and a whole-paise rate per base unit.
+function toApiLine(line: Line, baseUnit: string) {
+  const { factor } = unitOf(baseUnit);
+  return {
+    itemId: line.itemId,
+    qtyBase: Math.round(Number(line.quantity) * factor),
+    rateBasePaise: Math.round((Number(line.pricePerUnit) * 100) / factor),
+  };
+}
 
 export default function Purchases() {
   const { user } = useAuth();
@@ -42,23 +53,24 @@ export default function Purchases() {
     mutationFn: () =>
       api.post("/purchases", {
         supplierId,
-        items: lines.map((l) => ({ itemId: l.itemId, qtyBase: Number(l.qtyBase), rateBasePaise: Number(l.rateBasePaise) })),
+        items: lines.map((l) => toApiLine(l, baseUnitOf(l.itemId))),
       }),
     onSuccess: () => {
       setError(null);
       setLines([{ ...emptyLine }]);
       queryClient.invalidateQueries({ queryKey: ["purchases"] });
     },
-    onError: (err) => setError(err instanceof ApiError ? err.message : "Failed to record purchase"),
+    onError: (err) => setError(err instanceof ApiError ? err.message : "Couldn't save the purchase. Check each line and try again."),
   });
 
   const cancelMutation = useMutation({
     mutationFn: (id: string) => api.post(`/purchases/${id}/cancel`, {}),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["purchases"] }),
-    onError: (err) => setError(err instanceof ApiError ? err.message : "Failed to cancel purchase"),
+    onError: (err) => setError(err instanceof ApiError ? err.message : "Couldn't cancel the purchase."),
   });
 
   const rawMaterialItems = items?.items.filter((i) => i.type !== "FINISHED_GOOD") ?? [];
+  const baseUnitOf = (itemId: string) => items?.items.find((i) => i.id === itemId)?.baseUnit ?? "PIECE";
 
   function updateLine(index: number, patch: Partial<Line>) {
     setLines((prev) => prev.map((l, i) => (i === index ? { ...l, ...patch } : l)));
@@ -66,13 +78,13 @@ export default function Purchases() {
 
   return (
     <div className="w-full min-w-0">
-      <PageHeader title="Purchases" description="Raw-material and packaging receipts from suppliers." />
+      <PageHeader title="Purchases" description="Record materials and packaging when they arrive from a supplier. Stock goes up as soon as you save." />
 
       {/* Record form */}
       {canMutate && (
         <Card className="mb-6 overflow-hidden">
           <div className="border-b border-border/60 bg-secondary/30 px-5 py-4">
-            <h2 className="text-sm font-semibold text-foreground">Record a Purchase</h2>
+            <h2 className="text-sm font-semibold text-foreground">Record a purchase</h2>
           </div>
           <form
             onSubmit={(e) => { e.preventDefault(); createMutation.mutate(); }}
@@ -80,7 +92,7 @@ export default function Purchases() {
           >
             <Field label="Supplier" required>
               <Select value={supplierId} required onChange={(e) => setSupplierId(e.target.value)} className="w-full sm:w-80">
-                <option value="">Select a supplier…</option>
+                <option value="">Choose a supplier</option>
                 {suppliers?.items.map((s) => (
                   <option key={s.id} value={s.id}>{s.name}</option>
                 ))}
@@ -90,28 +102,39 @@ export default function Purchases() {
             <div>
               <p className="mb-2 text-sm font-semibold text-foreground">Items</p>
               <div className="flex flex-col gap-2">
-                {lines.map((line, i) => (
-                  <div key={i} className="grid grid-cols-1 gap-2 rounded-lg border border-border p-3 sm:grid-cols-[1fr_120px_140px_auto]">
-                    <Select value={line.itemId} required onChange={(e) => updateLine(i, { itemId: e.target.value })}>
-                      <option value="">Item…</option>
+                {lines.map((line, i) => {
+                  const unit = unitOf(baseUnitOf(line.itemId)).label;
+                  const apiLine = toApiLine(line, baseUnitOf(line.itemId));
+                  const lineTotal = line.quantity && line.pricePerUnit ? apiLine.qtyBase * apiLine.rateBasePaise : null;
+                  return (
+                  <div key={i} className="grid grid-cols-1 items-center gap-2 rounded-lg border border-border p-3 sm:grid-cols-[1fr_130px_150px_110px_auto]">
+                    <Select value={line.itemId} required onChange={(e) => updateLine(i, { itemId: e.target.value })} aria-label="Item">
+                      <option value="">Choose an item</option>
                       {rawMaterialItems.map((it) => (
-                        <option key={it.id} value={it.id}>{it.sku} — {it.name}</option>
+                        <option key={it.id} value={it.id}>{it.name}</option>
                       ))}
                     </Select>
                     <Input
-                      placeholder="Qty"
+                      placeholder={`Quantity (${unit})`}
+                      aria-label={`Quantity in ${unit}`}
                       type="number"
+                      step="any"
+                      min="0"
                       required
-                      value={line.qtyBase}
-                      onChange={(e) => updateLine(i, { qtyBase: e.target.value })}
+                      value={line.quantity}
+                      onChange={(e) => updateLine(i, { quantity: e.target.value })}
                     />
                     <Input
-                      placeholder="Rate (paise)"
+                      placeholder={`₹ per ${unit === "pcs" ? "piece" : unit}`}
+                      aria-label={`Price per ${unit} in rupees`}
                       type="number"
+                      step="0.01"
+                      min="0"
                       required
-                      value={line.rateBasePaise}
-                      onChange={(e) => updateLine(i, { rateBasePaise: e.target.value })}
+                      value={line.pricePerUnit}
+                      onChange={(e) => updateLine(i, { pricePerUnit: e.target.value })}
                     />
+                    <span className="tabular text-right text-sm text-muted-foreground">{lineTotal === null ? "" : money(lineTotal)}</span>
                     {lines.length > 1 && (
                       <Button
                         type="button"
@@ -126,7 +149,8 @@ export default function Purchases() {
                       </Button>
                     )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
               <Button
                 type="button"
@@ -135,7 +159,7 @@ export default function Purchases() {
                 onClick={() => setLines((prev) => [...prev, { ...emptyLine }])}
                 className="mt-2 border-dashed"
               >
-                + Add line
+                Add another item
               </Button>
             </div>
 
@@ -143,7 +167,7 @@ export default function Purchases() {
 
             <div className="flex gap-2">
               <Button type="submit" disabled={createMutation.isPending}>
-                {createMutation.isPending ? "Recording…" : "Record purchase"}
+                {createMutation.isPending ? "Saving…" : "Save purchase"}
               </Button>
             </div>
           </form>
@@ -163,9 +187,9 @@ export default function Purchases() {
             <tr>
               <Th>Supplier</Th>
               <Th>Date</Th>
-              <Th numeric>Lines</Th>
+              <Th numeric>Items</Th>
               <Th>Status</Th>
-              {canMutate && <Th>Action</Th>}
+              {canMutate && <Th><span className="sr-only">Actions</span></Th>}
             </tr>
           </THead>
           <tbody>

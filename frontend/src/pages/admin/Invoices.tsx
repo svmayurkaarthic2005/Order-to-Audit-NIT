@@ -94,14 +94,14 @@ export default function Invoices() {
 
   return (
     <div className="w-full min-w-0">
-      <PageHeader title="Invoices & Payments" description="GST-compliant invoices, receipts and outstanding balances." />
+      <PageHeader title="Invoices & payments" description="Invoices you've issued, the payments that came in, and what's still owed." />
 
       {isLoading ? (
         <Loading />
       ) : error ? (
         <ErrorText>{(error as Error).message}</ErrorText>
       ) : !data || data.length === 0 ? (
-        <EmptyState>No invoices yet.</EmptyState>
+        <EmptyState>No invoices yet. Create one from an approved order.</EmptyState>
       ) : (
         <ul className="flex flex-col gap-4">
           {data.map((inv) => {
@@ -125,7 +125,7 @@ export default function Invoices() {
                     </div>
                     <div className="flex items-center gap-2">
                       {fullyPaid && <StatusBadge variant="success">Paid</StatusBadge>}
-                      <StatusBadge variant={inv.status === "ISSUED" ? "success" : "destructive"}>{inv.status}</StatusBadge>
+                      <StatusBadge variant={inv.status === "ISSUED" ? "success" : "destructive"}>{inv.status === "ISSUED" ? "Issued" : "Cancelled"}</StatusBadge>
                     </div>
                   </div>
 

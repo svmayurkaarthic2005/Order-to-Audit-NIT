@@ -11,6 +11,14 @@ type Order = {
   items: { qtyBase: number; ratePaise: number; item: { sku: string; name: string } }[];
 };
 
+const STATUS_LABEL: Record<string, string> = {
+  SUBMITTED: "Waiting for approval",
+  APPROVED: "Approved",
+  REJECTED: "Rejected",
+  DISPATCHABLE: "Invoiced",
+  DISPATCHED: "Dispatched",
+};
+
 const STATUS_VARIANT: Record<string, "neutral" | "success" | "warning" | "destructive" | "info"> = {
   SUBMITTED: "info",
   APPROVED: "success",
@@ -35,8 +43,8 @@ export default function OrderHistory() {
   return (
     <div className="mx-auto max-w-lg">
       <PageHeader
-        title="My Orders"
-        description="Review your consignments and track fulfillment status."
+        title="My orders"
+        description="Orders you've placed and where each one is now."
         actions={
           <LinkButton to="/salesman/orders/new">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -83,14 +91,13 @@ export default function OrderHistory() {
                             {new Date(o.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
                           </p>
                         </div>
-                        <StatusBadge variant={STATUS_VARIANT[o.status] ?? "neutral"}>{o.status}</StatusBadge>
+                        <StatusBadge variant={STATUS_VARIANT[o.status] ?? "neutral"}>{STATUS_LABEL[o.status] ?? o.status}</StatusBadge>
                       </div>
                       <div className="px-4 py-3">
                         <ul className="mb-2 space-y-1">
                           {o.items.map((l, i) => (
                             <li key={i} className="flex items-center justify-between text-sm">
                               <span className="text-foreground">
-                                <span className="mr-1 font-mono text-xs text-muted-foreground">{l.item.sku}</span>
                                 {l.item.name}
                               </span>
                               <span className="tabular shrink-0 text-muted-foreground">×{l.qtyBase}</span>

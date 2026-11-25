@@ -62,27 +62,29 @@ export default function Login() {
         </div>
 
         <div>
-          <blockquote className="mb-8">
-            <p className="text-2xl font-semibold leading-relaxed text-white">
-              Every material. Every process.{" "}
-              <span className="text-indigo-300">One connected system.</span>
-            </p>
-            <p className="mt-4 text-sm text-white/50 leading-relaxed">
-              End-to-end ERP for manufacturing operations, from purchase to dispatch and BOM to billing.
-            </p>
-          </blockquote>
-
-          {/* Feature chips */}
-          <div className="flex flex-wrap gap-2">
-            {["GST Invoicing", "Production Runs", "Inventory Tracking", "Sales Orders", "Reports"].map((f) => (
-              <span key={f} className="rounded-full border border-white/15 bg-white/8 px-3 py-1 text-xs font-medium text-white/70">
-                {f}
-              </span>
+          <p className="max-w-sm text-xl font-semibold leading-relaxed text-white">
+            Orders, production, stock and billing for the factory, in one place.
+          </p>
+          <p className="mt-8 mb-3 text-sm text-white/60">How an order moves</p>
+          <ol className="flex flex-col gap-2.5 text-sm text-white/80">
+            {[
+              "A salesman takes the order",
+              "Admin approves it and stock is set aside",
+              "An invoice is made",
+              "The goods are dispatched",
+              "The payment is recorded",
+            ].map((step, i) => (
+              <li key={step} className="flex items-center gap-3">
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white/10 text-xs tabular text-white/70">
+                  {i + 1}
+                </span>
+                {step}
+              </li>
             ))}
-          </div>
+          </ol>
         </div>
 
-        <p className="text-xs text-white/25">© 2026 Porulottam ERP. All rights reserved.</p>
+        <span />
       </div>
 
       {/* ── Right login form ── */}

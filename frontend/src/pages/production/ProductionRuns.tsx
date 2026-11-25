@@ -2,15 +2,15 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Button, Card, EmptyState, ErrorText, Field, Input, Loading, PageHeader, Select, StatusBadge, money } from "@/components/ui";
+import { Button, Card, EmptyState, ErrorText, Field, Input, Loading, PageHeader, Select, StatusBadge, money, qty, unitOf } from "@/components/ui";
 
 type Bom = {
   id: string;
   expectedYieldQty: number;
   finishedItem: { name: string; sku: string };
-  lines: { rawItemId: string; qtyPerBatch: number; rawItem: { sku: string; name: string; type: string } }[];
+  lines: { rawItemId: string; qtyPerBatch: number; rawItem: { sku: string; name: string; type: string; baseUnit: string } }[];
 };
-type RunMaterial = { itemId: string; plannedQtyBase: number; actualQtyBase: number | null; item: { sku: string } };
+type RunMaterial = { itemId: string; plannedQtyBase: number; actualQtyBase: number | null; item: { sku: string; name: string; baseUnit: string } };
 type Run = {
   id: string;
   status: "DRAFT" | "STARTED" | "COMPLETED" | "CANCELLED";
@@ -20,8 +20,9 @@ type Run = {
   bomHeader: { finishedItem: { name: string; sku: string } };
   materials: RunMaterial[];
 };
-type ConsumptionLine = { itemId: string; sku: string; qtyBase: string };
-type PackagingLine = { itemId: string; sku: string; qtyBase: string; damagedQty: string };
+// Form quantities are in kg / L / pcs; converted to base units on submit.
+type ConsumptionLine = { itemId: string; name: string; baseUnit: string; quantity: string };
+type PackagingLine = { itemId: string; name: string; baseUnit: string; quantity: string; damagedQty: string };
 type VarianceLine = { itemId: string; planned: number; actual: number; variancePct: number; flagged: boolean };
 type Variance = { materials: VarianceLine[]; yield: VarianceLine | null };
 type CostLine = { itemId: string; sku: string; name: string; qtyBase: number; unitCostPaise: number; totalCostPaise: number };
@@ -38,6 +39,10 @@ type CostBreakdown = {
 } | null;
 
 const RUN_STATUS_VARIANT = { DRAFT: "neutral", STARTED: "info", COMPLETED: "success", CANCELLED: "destructive" } as const;
+const RUN_STATUS_LABEL = { DRAFT: "Planned", STARTED: "In progress", COMPLETED: "Done", CANCELLED: "Cancelled" } as const;
+
+const toBase = (quantity: string, baseUnit: string) => Math.round((Number(quantity) || 0) * unitOf(baseUnit).factor);
+const fromBase = (qtyBase: number, baseUnit: string) => String(qtyBase / unitOf(baseUnit).factor);
 
 function pct(v: number): string {
   return `${v >= 0 ? "+" : ""}${(v * 100).toFixed(1)}%`;
@@ -94,13 +99,13 @@ export default function ProductionRuns() {
       setBatchSize("1");
       queryClient.invalidateQueries({ queryKey: ["production-runs"] });
     },
-    onError: (err) => setError(err instanceof ApiError ? err.message : "Failed to create production run"),
+    onError: (err) => setError(err instanceof ApiError ? err.message : "Couldn't plan the run."),
   });
 
   const startMutation = useMutation({
     mutationFn: (runId: string) =>
       api.post(`/production-runs/${runId}/start`, {
-        actualConsumption: consumption.map((c) => ({ itemId: c.itemId, qtyBase: Number(c.qtyBase) })),
+        actualConsumption: consumption.map((c) => ({ itemId: c.itemId, qtyBase: toBase(c.quantity, c.baseUnit) })),
       }),
     onSuccess: () => {
       setError(null);
@@ -108,7 +113,7 @@ export default function ProductionRuns() {
       setConsumption([]);
       queryClient.invalidateQueries({ queryKey: ["production-runs"] });
     },
-    onError: (err) => setError(err instanceof ApiError ? err.message : "Failed to start production run"),
+    onError: (err) => setError(err instanceof ApiError ? err.message : "Couldn't start the run. There may not be enough of a material in stock."),
   });
 
   const completeMutation = useMutation({
@@ -119,11 +124,11 @@ export default function ProductionRuns() {
           actualOutputQty: Number(actualOutputQty),
           packagingConsumed: packaging.map((p) => ({
             itemId: p.itemId,
-            qtyBase: Number(p.qtyBase || 0),
+            qtyBase: toBase(p.quantity, p.baseUnit),
             damagedQty: Number(p.damagedQty || 0),
           })),
-          ...(laborCostPaise ? { laborCostPaise: Number(laborCostPaise) } : {}),
-          ...(overheadCostPaise ? { overheadCostPaise: Number(overheadCostPaise) } : {}),
+          ...(laborCostPaise ? { laborCostPaise: Math.round(Number(laborCostPaise) * 100) } : {}),
+          ...(overheadCostPaise ? { overheadCostPaise: Math.round(Number(overheadCostPaise) * 100) } : {}),
         },
         { "Idempotency-Key": `${runId}-${Date.now()}` },
       ),
@@ -136,13 +141,13 @@ export default function ProductionRuns() {
       setOverheadCostPaise("");
       queryClient.invalidateQueries({ queryKey: ["production-runs"] });
     },
-    onError: (err) => setError(err instanceof ApiError ? err.message : "Failed to complete production run"),
+    onError: (err) => setError(err instanceof ApiError ? err.message : "Couldn't finish the run."),
   });
 
   const cancelMutation = useMutation({
     mutationFn: (runId: string) => api.post(`/production-runs/${runId}/cancel`, {}),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["production-runs"] }),
-    onError: (err) => setError(err instanceof ApiError ? err.message : "Failed to cancel production run"),
+    onError: (err) => setError(err instanceof ApiError ? err.message : "Couldn't cancel the run."),
   });
 
   function openStartForm(run: Run) {
@@ -151,7 +156,7 @@ export default function ProductionRuns() {
     const bom = boms?.find((b) => b.finishedItem.sku === run.bomHeader.finishedItem.sku);
     const rawLines = bom?.lines.filter((l) => l.rawItem.type === "RAW_MATERIAL") ?? [];
     setConsumption(
-      rawLines.map((l) => ({ itemId: l.rawItemId, sku: l.rawItem.sku, qtyBase: String(l.qtyPerBatch * run.batchSize) })),
+      rawLines.map((l) => ({ itemId: l.rawItemId, name: l.rawItem.name, baseUnit: l.rawItem.baseUnit, quantity: fromBase(l.qtyPerBatch * run.batchSize, l.rawItem.baseUnit) })),
     );
   }
 
@@ -164,8 +169,9 @@ export default function ProductionRuns() {
     setPackaging(
       packagingLines.map((l) => ({
         itemId: l.rawItemId,
-        sku: l.rawItem.sku,
-        qtyBase: String(l.qtyPerBatch * run.batchSize),
+        name: l.rawItem.name,
+        baseUnit: l.rawItem.baseUnit,
+        quantity: fromBase(l.qtyPerBatch * run.batchSize, l.rawItem.baseUnit),
         damagedQty: "0",
       })),
     );
@@ -173,12 +179,12 @@ export default function ProductionRuns() {
 
   return (
     <div className="w-full min-w-0">
-      <PageHeader title="Production runs" description="Create batches, issue materials, record output and track variance." />
+      <PageHeader title="Production runs" description="Plan a batch, start it to take the materials out of stock, then finish it with how many packets came out." />
 
       {canMutate && (
         <Card className="mb-6 overflow-hidden">
           <div className="border-b border-border/60 bg-secondary/30 px-5 py-3.5">
-            <h2 className="text-sm font-semibold text-foreground">New Production Run</h2>
+            <h2 className="text-sm font-semibold text-foreground">Plan a new run</h2>
           </div>
           <form
             onSubmit={(e) => {
@@ -189,19 +195,19 @@ export default function ProductionRuns() {
           >
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-12">
               <div className="sm:col-span-8">
-                <Field label="BOM / Recipe" required>
+                <Field label="What are you making?" required>
                   <Select value={bomId} required onChange={(e) => setBomId(e.target.value)} className="w-full">
-                    <option value="">Select a recipe…</option>
+                    <option value="">Choose a product</option>
                     {boms?.map((b) => (
                       <option key={b.id} value={b.id}>
-                        {b.finishedItem.sku} — {b.finishedItem.name} (Expected yield: {b.expectedYieldQty}/batch)
+                        {b.finishedItem.name} ({b.expectedYieldQty} packets per batch)
                       </option>
                     ))}
                   </Select>
                 </Field>
               </div>
               <div className="sm:col-span-4">
-                <Field label="Batch Size (Multiplier)" required>
+                <Field label="Number of batches" required>
                   <Input type="number" required min="1" value={batchSize} onChange={(e) => setBatchSize(e.target.value)} className="w-full" />
                 </Field>
               </div>
@@ -211,14 +217,14 @@ export default function ProductionRuns() {
               <p className="text-xs text-muted-foreground">
                 {selectedBom ? (
                   <>
-                    Expected yield: <span className="tabular font-semibold text-foreground">{selectedBom.expectedYieldQty * Number(batchSize || 1)}</span> units
+                    You should get about <span className="tabular font-semibold text-foreground">{selectedBom.expectedYieldQty * Number(batchSize || 1)}</span> packets
                   </>
                 ) : (
-                  "Select a recipe and batch multiplier to plan required materials."
+                  "Pick a product to see how many packets to expect."
                 )}
               </p>
               <Button type="submit" disabled={createMutation.isPending} className="self-end sm:self-auto px-6">
-                {createMutation.isPending ? "Creating…" : "Create Run (DRAFT)"}
+                {createMutation.isPending ? "Saving…" : "Plan run"}
               </Button>
             </div>
           </form>
@@ -231,7 +237,7 @@ export default function ProductionRuns() {
       ) : runsError ? (
         <ErrorText>{(runsError as Error).message}</ErrorText>
       ) : !runs || runs.length === 0 ? (
-        <EmptyState>No production runs yet.</EmptyState>
+        <EmptyState>No runs yet. Plan one above to get started.</EmptyState>
       ) : (
         <ul className="flex flex-col gap-3">
           {runs.map((run) => (
@@ -240,21 +246,20 @@ export default function ProductionRuns() {
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <p className="font-medium text-foreground">
-                      {run.bomHeader.finishedItem.sku} — {run.bomHeader.finishedItem.name}
+                      {run.bomHeader.finishedItem.name}
                     </p>
-                    <p className="text-xs text-muted-foreground">Batch size {run.batchSize}</p>
+                    <p className="text-xs text-muted-foreground">{run.batchSize} {run.batchSize === 1 ? "batch" : "batches"}</p>
                   </div>
-                  <StatusBadge variant={RUN_STATUS_VARIANT[run.status]}>{run.status}</StatusBadge>
+                  <StatusBadge variant={RUN_STATUS_VARIANT[run.status]}>{RUN_STATUS_LABEL[run.status]}</StatusBadge>
                 </div>
 
                 {run.status === "STARTED" && run.materials.length > 0 && (
                   <ul className="mt-2 text-sm text-muted-foreground">
                     {run.materials.map((m, i) => (
                       <li key={i} className="flex justify-between">
-                        <span>{m.item.sku}</span>
+                        <span>{m.item.name}</span>
                         <span className="tabular">
-                          planned {m.plannedQtyBase}
-                          {m.actualQtyBase !== null && `, actual ${m.actualQtyBase}`}
+                          {m.actualQtyBase !== null ? `used ${qty(m.actualQtyBase, m.item.baseUnit)}` : `plan ${qty(m.plannedQtyBase, m.item.baseUnit)}`}
                         </span>
                       </li>
                     ))}
@@ -262,20 +267,20 @@ export default function ProductionRuns() {
                 )}
                 {run.status === "COMPLETED" && (
                   <p className="mt-2 text-sm text-muted-foreground">
-                    Output <span className="tabular font-medium text-foreground">{run.actualOutputQty}</span> · damaged{" "}
-                    <span className="tabular font-medium text-foreground">{run.damagedQty ?? 0}</span>
+                    Made <span className="tabular font-medium text-foreground">{run.actualOutputQty}</span> packets, {" "}
+                    <span className="tabular font-medium text-foreground">{run.damagedQty ?? 0}</span> damaged
                   </p>
                 )}
 
                 <div className="mt-3 flex gap-2">
                   {canMutate && run.status === "DRAFT" && (
                     <Button size="sm" onClick={() => openStartForm(run)}>
-                      Start
+                      Start run
                     </Button>
                   )}
                   {canMutate && run.status === "STARTED" && (
                     <Button size="sm" onClick={() => openCompleteForm(run)}>
-                      Complete
+                      Finish run
                     </Button>
                   )}
                   {canMutate && (run.status === "DRAFT" || run.status === "STARTED") && (
@@ -285,26 +290,26 @@ export default function ProductionRuns() {
                   )}
                   {run.status === "COMPLETED" && (
                     <Button size="sm" variant="secondary" onClick={() => setVarianceRunId(varianceRunId === run.id ? null : run.id)}>
-                      {varianceRunId === run.id ? "Hide variance & cost" : "Variance & cost"}
+                      {varianceRunId === run.id ? "Hide details" : "How did it go?"}
                     </Button>
                   )}
                 </div>
 
                 {varianceRunId === run.id && varianceDetail && (
                   <div className="mt-3 rounded-md border border-border bg-secondary/40 p-3 text-sm">
-                    <p className="mb-2 font-medium text-foreground">Planned vs. actual (±3% tolerance)</p>
+                    <p className="mb-2 font-medium text-foreground">Plan against what was actually used. More than 3% off gets flagged.</p>
                     <ul className="flex flex-col gap-1">
                       {varianceDetail.materials.map((m) => {
-                        const sku = run.materials.find((rm) => rm.itemId === m.itemId)?.item.sku ?? m.itemId;
+                        const item = run.materials.find((rm) => rm.itemId === m.itemId)?.item;
                         return (
                           <li
                             key={m.itemId}
                             className={`flex flex-wrap items-center justify-between gap-1 rounded px-2 py-1 ${m.flagged ? "bg-destructive-bg" : ""}`}
                           >
-                            <span className={m.flagged ? "font-medium text-destructive" : "text-muted-foreground"}>{sku}</span>
+                            <span className={m.flagged ? "font-medium text-destructive" : "text-muted-foreground"}>{item?.name ?? "Material"}</span>
                             <span className="tabular text-right">
-                              planned {m.planned}, actual {m.actual} ({pct(m.variancePct)})
-                              {m.flagged && <span className="ml-1.5 font-medium text-destructive">⚠ flagged</span>}
+                              plan {item ? qty(m.planned, item.baseUnit) : m.planned}, used {item ? qty(m.actual, item.baseUnit) : m.actual} ({pct(m.variancePct)})
+                              {m.flagged && <span className="ml-1.5 font-medium text-destructive">too far off</span>}
                             </span>
                           </li>
                         );
@@ -314,12 +319,12 @@ export default function ProductionRuns() {
                           className={`flex flex-wrap items-center justify-between gap-1 rounded px-2 py-1 ${varianceDetail.yield.flagged ? "bg-destructive-bg" : ""}`}
                         >
                           <span className={varianceDetail.yield.flagged ? "font-medium text-destructive" : "text-muted-foreground"}>
-                            Yield
+                            Packets made
                           </span>
                           <span className="tabular text-right">
-                            planned {varianceDetail.yield.planned}, actual {varianceDetail.yield.actual} (
+                            expected {varianceDetail.yield.planned}, got {varianceDetail.yield.actual} (
                             {pct(varianceDetail.yield.variancePct)})
-                            {varianceDetail.yield.flagged && <span className="ml-1.5 font-medium text-destructive">⚠ flagged</span>}
+                            {varianceDetail.yield.flagged && <span className="ml-1.5 font-medium text-destructive">too far off</span>}
                           </span>
                         </li>
                       )}
@@ -330,13 +335,13 @@ export default function ProductionRuns() {
                           <tbody>
                             {costBreakdown.materialLines.map((l) => (
                               <tr key={l.itemId}>
-                                <td className="py-0.5 text-muted-foreground">{l.sku} ({l.qtyBase})</td>
+                                <td className="py-0.5 text-muted-foreground">{l.name}</td>
                                 <td className="py-0.5 text-right tabular text-foreground">{money(l.totalCostPaise)}</td>
                               </tr>
                             ))}
                             {costBreakdown.packagingLines.map((l) => (
                               <tr key={l.itemId}>
-                                <td className="py-0.5 text-muted-foreground">{l.sku} ({l.qtyBase})</td>
+                                <td className="py-0.5 text-muted-foreground">{l.name}</td>
                                 <td className="py-0.5 text-right tabular text-foreground">{money(l.totalCostPaise)}</td>
                               </tr>
                             ))}
@@ -345,25 +350,25 @@ export default function ProductionRuns() {
                               <td className="py-0.5 text-right tabular text-foreground">{money(costBreakdown.laborCostPaise)}</td>
                             </tr>
                             <tr>
-                              <td className="py-0.5 text-muted-foreground">Overhead (power/gas)</td>
+                              <td className="py-0.5 text-muted-foreground">Gas, power and other running costs</td>
                               <td className="py-0.5 text-right tabular text-foreground">{money(costBreakdown.overheadCostPaise)}</td>
                             </tr>
                             <tr className="border-t border-border/60">
-                              <td className="pt-1.5 font-medium text-foreground">Total ({costBreakdown.goodOutputQty} good units)</td>
+                              <td className="pt-1.5 font-medium text-foreground">Total cost ({costBreakdown.goodOutputQty} good packets)</td>
                               <td className="pt-1.5 text-right tabular font-semibold text-foreground">{money(costBreakdown.totalCostPaise)}</td>
                             </tr>
                             <tr>
-                              <td className="py-0.5 font-medium text-foreground">Cost per good unit</td>
+                              <td className="py-0.5 font-medium text-foreground">Cost per packet</td>
                               <td className="py-0.5 text-right tabular font-semibold text-foreground">{money(costBreakdown.costPerGoodUnitPaise)}</td>
                             </tr>
                             {costBreakdown.sellingPricePaise !== null && (
                               <>
                                 <tr>
-                                  <td className="py-0.5 text-muted-foreground">Selling price (latest invoice rate)</td>
+                                  <td className="py-0.5 text-muted-foreground">Selling price (from the latest invoice)</td>
                                   <td className="py-0.5 text-right tabular text-foreground">{money(costBreakdown.sellingPricePaise)}</td>
                                 </tr>
                                 <tr>
-                                  <td className="py-0.5 font-medium text-foreground">Margin</td>
+                                  <td className="py-0.5 font-medium text-foreground">Profit per packet</td>
                                   <td
                                     className={`py-0.5 text-right tabular font-semibold ${
                                       (costBreakdown.marginPaise ?? 0) >= 0 ? "text-success" : "text-destructive"
@@ -386,14 +391,11 @@ export default function ProductionRuns() {
                         </button>
                         {showCostExplanation && (
                           <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
-                            Each raw-material and packaging line is costed at the moving weighted-average
-                            rate in effect when it was issued (damaged packaging counted at the same rate
-                            as what was used, since it still cost money to make). Labour and overhead are
-                            entered once at completion — overhead defaults to a flat ₹500/batch when left
-                            blank. The total is divided by <strong>good</strong> output only, so damaged or
-                            short-yield units still carry their share of every cost. All of this is read
-                            from the stock ledger as it stood at completion, so it never changes afterward
-                            even if a later purchase or a BOM edit changes today's prices.
+                            Each material is priced at the average you'd paid for it when the run started.
+                            Damaged packaging counts too, because you still paid for it. Running costs are
+                            ₹500 per batch unless you entered your own. The total is then split across the
+                            good packets only. These figures are saved when the run finishes, so later
+                            price changes don't alter them.
                           </p>
                         )}
                       </div>
@@ -409,23 +411,25 @@ export default function ProductionRuns() {
                     }}
                     className="mt-3 flex flex-col gap-2 rounded-md border border-border p-3"
                   >
-                    <p className="text-sm font-medium text-foreground">Actual raw-material consumption</p>
+                    <p className="text-sm font-medium text-foreground">How much of each material are you using? We've filled in the recipe amounts.</p>
                     <div className="grid gap-2 sm:grid-cols-2">
                       {consumption.map((line, i) => (
-                        <Field key={line.itemId} label={line.sku} required>
+                        <Field key={line.itemId} label={`${line.name} (${unitOf(line.baseUnit).label})`} required>
                           <Input
                             type="number"
+                            step="any"
+                            min="0"
                             required
-                            value={line.qtyBase}
+                            value={line.quantity}
                             onChange={(e) =>
-                              setConsumption((prev) => prev.map((l, idx) => (idx === i ? { ...l, qtyBase: e.target.value } : l)))
+                              setConsumption((prev) => prev.map((l, idx) => (idx === i ? { ...l, quantity: e.target.value } : l)))
                             }
                           />
                         </Field>
                       ))}
                     </div>
                     <Button type="submit" disabled={startMutation.isPending} className="mt-1 self-start">
-                      Confirm start (issues stock)
+                      Start, and take these out of stock
                     </Button>
                   </form>
                 )}
@@ -438,26 +442,27 @@ export default function ProductionRuns() {
                     }}
                     className="mt-3 flex flex-col gap-2 rounded-md border border-border p-3"
                   >
-                    <Field label="Actual output quantity" required>
+                    <Field label="Good packets made" required>
                       <Input type="number" required value={actualOutputQty} onChange={(e) => setActualOutputQty(e.target.value)} />
                     </Field>
-                    <p className="mt-1 text-sm font-medium text-foreground">Packaging consumed / damaged</p>
+                    <p className="mt-1 text-sm font-medium text-foreground">Packaging used</p>
                     <div className="flex flex-col gap-2">
                       {packaging.map((line, i) => (
                         <div key={line.itemId} className="flex items-end gap-2">
                           <div className="flex-1">
-                            <Field label={`${line.sku} — consumed`}>
+                            <Field label={`${line.name} used`}>
                               <Input
                                 type="number"
-                                value={line.qtyBase}
+                                min="0"
+                                value={line.quantity}
                                 onChange={(e) =>
-                                  setPackaging((prev) => prev.map((l, idx) => (idx === i ? { ...l, qtyBase: e.target.value } : l)))
+                                  setPackaging((prev) => prev.map((l, idx) => (idx === i ? { ...l, quantity: e.target.value } : l)))
                                 }
                               />
                             </Field>
                           </div>
                           <div className="flex-1">
-                            <Field label="Damaged">
+                            <Field label="Of those, damaged">
                               <Input
                                 type="number"
                                 value={line.damagedQty}
@@ -470,27 +475,31 @@ export default function ProductionRuns() {
                         </div>
                       ))}
                     </div>
-                    <p className="mt-1 text-sm font-medium text-foreground">Actual expense (optional)</p>
+                    <p className="mt-1 text-sm font-medium text-foreground">Other costs (optional)</p>
                     <div className="grid gap-2 sm:grid-cols-2">
-                      <Field label="Labour cost (paise)">
+                      <Field label="Labour (₹)">
                         <Input
                           type="number"
-                          placeholder="Not recorded"
+                          step="0.01"
+                          min="0"
+                          placeholder="Leave blank if not tracked"
                           value={laborCostPaise}
                           onChange={(e) => setLaborCostPaise(e.target.value)}
                         />
                       </Field>
-                      <Field label="Overhead cost (paise)">
+                      <Field label="Gas, power, other (₹)">
                         <Input
                           type="number"
-                          placeholder={`Default: ₹500/batch × ${run.batchSize}`}
+                          step="0.01"
+                          min="0"
+                          placeholder={`Blank uses ₹${500 * run.batchSize}`}
                           value={overheadCostPaise}
                           onChange={(e) => setOverheadCostPaise(e.target.value)}
                         />
                       </Field>
                     </div>
                     <Button type="submit" disabled={completeMutation.isPending} className="mt-1 self-start">
-                      Confirm complete
+                      Finish run
                     </Button>
                   </form>
                 )}

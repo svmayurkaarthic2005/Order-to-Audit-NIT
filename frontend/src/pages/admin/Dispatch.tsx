@@ -49,7 +49,7 @@ export default function Dispatch() {
 
   return (
     <div className="w-full min-w-0">
-      <PageHeader title="Dispatch" description="Ship issued invoices and record what left the warehouse." />
+      <PageHeader title="Dispatch" description="Send out orders that have an invoice. Stock goes down when you record a dispatch." />
 
       {isLoading ? (
         <Loading />

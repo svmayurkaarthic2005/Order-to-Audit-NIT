@@ -17,7 +17,7 @@ const CONFIG: Record<
   Customers: {
     endpoint: "/customers",
     queryKey: "customers",
-    description: "Buyers you sell to, used when raising orders and invoices.",
+    description: "The shops and distributors you sell to.",
     formTitle: "Add Customer",
     addLabel: "Add customer",
     namePlaceholder: "Customer name",
@@ -27,7 +27,7 @@ const CONFIG: Record<
   Suppliers: {
     endpoint: "/suppliers",
     queryKey: "suppliers",
-    description: "Vendors you buy raw material and packaging from.",
+    description: "Where you buy ingredients and packaging.",
     formTitle: "Add Supplier",
     addLabel: "Add supplier",
     namePlaceholder: "Supplier name",

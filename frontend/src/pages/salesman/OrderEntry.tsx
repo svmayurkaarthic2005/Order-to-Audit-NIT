@@ -6,9 +6,11 @@ import { Button, Card, ErrorText, Field, Input, PageHeader, Select, money } from
 
 type Customer = { id: string; name: string };
 type Item = { id: string; sku: string; name: string; type: string };
-type Line = { itemId: string; qtyBase: string; ratePaise: string };
+type Line = { itemId: string; qtyBase: string; price: string };
 
-const emptyLine: Line = { itemId: "", qtyBase: "", ratePaise: "" };
+const toPaise = (rupees: string) => Math.round((Number(rupees) || 0) * 100);
+
+const emptyLine: Line = { itemId: "", qtyBase: "", price: "" };
 
 // ── "Recent" chips — purely a client-side convenience, no backend query.
 // Populated from this salesman's own successful submissions on this device.
@@ -52,7 +54,7 @@ export default function OrderEntry() {
   const recentCustomers = readRecent<Customer>(RECENT_CUSTOMERS_KEY).filter((c) => customers?.items.some((x) => x.id === c.id));
   const recentItems = readRecent<Item>(RECENT_ITEMS_KEY).filter((i) => finishedGoods.some((x) => x.id === i.id));
 
-  const total = lines.reduce((sum, l) => sum + (Number(l.qtyBase) || 0) * (Number(l.ratePaise) || 0), 0);
+  const total = lines.reduce((sum, l) => sum + (Number(l.qtyBase) || 0) * toPaise(l.price), 0);
 
   const createMutation = useMutation({
     mutationFn: () =>
@@ -61,7 +63,7 @@ export default function OrderEntry() {
           customerId,
           items: lines
             .filter((l) => l.itemId)
-            .map((l) => ({ itemId: l.itemId, qtyBase: Number(l.qtyBase), ratePaise: Number(l.ratePaise) })),
+            .map((l) => ({ itemId: l.itemId, qtyBase: Number(l.qtyBase), ratePaise: toPaise(l.price) })),
         },
         idempotencyKey,
       ),
@@ -75,7 +77,7 @@ export default function OrderEntry() {
       queryClient.invalidateQueries({ queryKey: ["orders"] });
       setConfirmation({ status: result.status, customerName, total });
     },
-    onError: (err) => setSubmitError(err instanceof ApiError ? err.message : "Failed to submit order"),
+    onError: (err) => setSubmitError(err instanceof ApiError ? err.message : "Couldn't send the order. Check your connection and try again."),
   });
 
   function updateLine(index: number, patch: Partial<Line>) {
@@ -110,7 +112,7 @@ export default function OrderEntry() {
     setSubmitError(null);
     const validLines = lines.filter((l) => l.itemId);
     if (validLines.length === 0) { setValidationError("Add at least one product."); return; }
-    if (validLines.some((l) => !(Number(l.qtyBase) > 0))) { setValidationError("Every line needs a quantity greater than zero."); return; }
+    if (validLines.some((l) => !(Number(l.qtyBase) > 0))) { setValidationError("Each product needs a quantity of at least 1."); return; }
     setValidationError(null);
     createMutation.mutate();
   }
@@ -119,7 +121,7 @@ export default function OrderEntry() {
     const isQueued = confirmation.status === "queued";
     return (
       <div className="mx-auto max-w-lg">
-        <PageHeader title="New Order" description="Select the customer, then add products." />
+        <PageHeader title="New order" description="Pick the customer, then add what they want." />
         <Card className={`flex flex-col items-center gap-3 p-8 text-center ${isQueued ? "border-warning/30 bg-warning-bg" : "border-success/30 bg-success-bg"}`}>
           <div className={`flex h-12 w-12 items-center justify-center rounded-full ${isQueued ? "bg-warning/15 text-warning" : "bg-success/15 text-success"}`}>
             {isQueued ? (
@@ -133,11 +135,11 @@ export default function OrderEntry() {
             )}
           </div>
           <p className="text-base font-semibold text-foreground">
-            {isQueued ? "Saved — will send when you're back online" : "Order submitted"}
+            {isQueued ? "Saved on this phone" : "Order submitted"}
           </p>
           <p className="text-sm text-muted-foreground">
             {money(confirmation.total)} for {confirmation.customerName}
-            {isQueued && " — no connection right now, this will go out automatically."}
+            {isQueued && ". There's no connection right now; it will send by itself once you're back online."}
           </p>
           <div className="mt-2 flex gap-2">
             <Button onClick={startNewOrder}>New order</Button>
@@ -150,14 +152,14 @@ export default function OrderEntry() {
 
   return (
     <div className="mx-auto max-w-lg">
-      <PageHeader title="New Order" description="Select the customer, then add products." />
+      <PageHeader title="New order" description="Pick the customer, then add what they want." />
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-5">
         {/* Customer */}
         <Card className="p-4">
           <Field label="Customer" required>
             <Select value={customerId} required onChange={(e) => setCustomerId(e.target.value)} className="w-full">
-              <option value="">Select customer…</option>
+              <option value="">Choose a customer</option>
               {customers?.items.map((c) => (
                 <option key={c.id} value={c.id}>{c.name}</option>
               ))}
@@ -200,9 +202,9 @@ export default function OrderEntry() {
                     else setLines((prev) => [...prev, { ...emptyLine, itemId: it.id }]);
                   }}
                   className="rounded-full border border-border bg-white px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:border-muted-foreground/40 hover:text-foreground"
-                  title={`Add ${it.sku} — ${it.name}`}
+                  title={`Add ${it.name}`}
                 >
-                  {it.sku}
+                  {it.name}
                 </button>
               ))}
             </div>
@@ -217,9 +219,9 @@ export default function OrderEntry() {
                     className="w-full"
                     selectClassName="h-auto border-0 bg-transparent py-0 pl-0 shadow-none focus:ring-0 text-sm font-medium"
                   >
-                    <option value="">Select product…</option>
+                    <option value="">Choose a product</option>
                     {finishedGoods.map((it) => (
-                      <option key={it.id} value={it.id}>{it.sku} — {it.name}</option>
+                      <option key={it.id} value={it.id}>{it.name}</option>
                     ))}
                   </Select>
                 </div>
@@ -252,13 +254,15 @@ export default function OrderEntry() {
                       </button>
                     </div>
                   </Field>
-                  <Field label="Rate (paise)" required>
+                  <Field label="Price per packet (₹)" required>
                     <Input
-                      placeholder="e.g. 5000 (= ₹50)"
+                      placeholder="e.g. 50"
                       type="number"
-                      inputMode="numeric"
-                      value={line.ratePaise}
-                      onChange={(e) => updateLine(i, { ratePaise: e.target.value })}
+                      step="0.01"
+                      min="0"
+                      inputMode="decimal"
+                      value={line.price}
+                      onChange={(e) => updateLine(i, { price: e.target.value })}
                       className="w-full"
                     />
                   </Field>
@@ -276,10 +280,10 @@ export default function OrderEntry() {
                     </button>
                   )}
                 </div>
-                {line.itemId && Number(line.qtyBase) > 0 && Number(line.ratePaise) > 0 && (
+                {line.itemId && Number(line.qtyBase) > 0 && Number(line.price) > 0 && (
                   <div className="border-t border-border/40 bg-secondary/20 px-4 py-2 text-right">
                     <span className="tabular text-sm font-semibold text-foreground">
-                      {money(Number(line.qtyBase) * Number(line.ratePaise))}
+                      {money(Number(line.qtyBase) * toPaise(line.price))}
                     </span>
                   </div>
                 )}
@@ -293,7 +297,7 @@ export default function OrderEntry() {
             onClick={() => setLines((prev) => [...prev, { ...emptyLine }])}
             className="mt-3 w-full border-dashed"
           >
-            + Add product
+            Add another product
           </Button>
         </div>
 
@@ -313,9 +317,9 @@ export default function OrderEntry() {
                 <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-25" />
                 <path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" className="opacity-75" />
               </svg>
-              Submitting…
+              Sending…
             </span>
-          ) : "Submit Order"}
+          ) : "Send order"}
         </Button>
       </form>
     </div>

@@ -2,16 +2,16 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Button, Card, EmptyState, ErrorText, Field, Input, Loading, PageHeader, Select } from "@/components/ui";
+import { Button, Card, EmptyState, ErrorText, Field, Input, Loading, PageHeader, Select, qty, unitOf } from "@/components/ui";
 
-type Item = { id: string; sku: string; name: string; type: string };
+type Item = { id: string; sku: string; name: string; type: string; baseUnit: string };
 type BomLineInput = { rawItemId: string; qtyPerBatch: string };
 type Bom = {
   id: string;
   finishedItemId: string;
   expectedYieldQty: number;
   finishedItem: { name: string; sku: string };
-  lines: { rawItem: { sku: string; name: string }; qtyPerBatch: number }[];
+  lines: { rawItem: { sku: string; name: string; baseUnit: string }; qtyPerBatch: number }[];
   packSizes: { id: string; label: string; multiplier: number }[];
 };
 
@@ -25,6 +25,8 @@ export default function BOM() {
   const [expectedYieldQty, setExpectedYieldQty] = useState("");
   const [lines, setLines] = useState<BomLineInput[]>([{ ...emptyLine }]);
   const [error, setError] = useState<string | null>(null);
+  const [showRecipeForm, setShowRecipeForm] = useState(false);
+  const [showPackForm, setShowPackForm] = useState(false);
 
   const [packBomId, setPackBomId] = useState("");
   const [packLabel, setPackLabel] = useState("");
@@ -42,22 +44,24 @@ export default function BOM() {
 
   const finishedGoods = items?.items.filter((i) => i.type === "FINISHED_GOOD") ?? [];
   const rawAndPackagingItems = items?.items.filter((i) => i.type !== "FINISHED_GOOD") ?? [];
+  const baseUnitOf = (itemId: string) => items?.items.find((i) => i.id === itemId)?.baseUnit ?? "PIECE";
 
   const createBomMutation = useMutation({
     mutationFn: () =>
       api.post("/boms", {
         finishedItemId,
         expectedYieldQty: Number(expectedYieldQty),
-        lines: lines.map((l) => ({ rawItemId: l.rawItemId, qtyPerBatch: Number(l.qtyPerBatch) })),
+        lines: lines.map((l) => ({ rawItemId: l.rawItemId, qtyPerBatch: Math.round(Number(l.qtyPerBatch) * unitOf(baseUnitOf(l.rawItemId)).factor) })),
       }),
     onSuccess: () => {
       setError(null);
       setFinishedItemId("");
       setExpectedYieldQty("");
       setLines([{ ...emptyLine }]);
+      setShowRecipeForm(false);
       queryClient.invalidateQueries({ queryKey: ["boms"] });
     },
-    onError: (err) => setError(err instanceof ApiError ? err.message : "Failed to create BOM"),
+    onError: (err) => setError(err instanceof ApiError ? err.message : "Couldn't save the recipe."),
   });
 
   const createPackSizeMutation = useMutation({
@@ -75,9 +79,10 @@ export default function BOM() {
       setPackBomId("");
       setPackLabel("");
       setPackMultiplier("1");
+      setShowPackForm(false);
       queryClient.invalidateQueries({ queryKey: ["boms"] });
     },
-    onError: (err) => setPackError(err instanceof ApiError ? err.message : "Failed to create pack size"),
+    onError: (err) => setPackError(err instanceof ApiError ? err.message : "Couldn't save the pack size."),
   });
 
   function updateLine(index: number, patch: Partial<BomLineInput>) {
@@ -86,11 +91,26 @@ export default function BOM() {
 
   return (
     <div className="w-full min-w-0">
-      <PageHeader title="BOM / recipes" description="Material requirements and expected yield per finished good." />
+      <PageHeader
+        title="Recipes"
+        description="What goes into one batch of each product, and how many packets a batch should make. Production runs use these amounts."
+        actions={
+          canMutate ? (
+            <>
+              <Button size="sm" variant="secondary" onClick={() => setShowPackForm((v) => !v)}>
+                {showPackForm ? "Close" : "New pack size"}
+              </Button>
+              <Button size="sm" onClick={() => setShowRecipeForm((v) => !v)}>
+                {showRecipeForm ? "Close" : "New recipe"}
+              </Button>
+            </>
+          ) : undefined
+        }
+      />
 
-      {canMutate && (
+      {canMutate && showRecipeForm && (
         <Card className="mb-4 p-4">
-          <h2 className="mb-3 text-sm font-semibold text-foreground">New BOM</h2>
+          <h2 className="mb-3 text-sm font-semibold text-foreground">New recipe</h2>
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -99,23 +119,23 @@ export default function BOM() {
             className="flex flex-col gap-3"
           >
             <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="Finished good" required>
+              <Field label="Product" required>
                 <Select value={finishedItemId} required onChange={(e) => setFinishedItemId(e.target.value)} className="w-full">
-                  <option value="">Select…</option>
+                  <option value="">Choose a product</option>
                   {finishedGoods.map((it) => (
                     <option key={it.id} value={it.id}>
-                      {it.sku} — {it.name}
+                      {it.name}
                     </option>
                   ))}
                 </Select>
               </Field>
-              <Field label="Expected yield per batch" required>
+              <Field label="Packets one batch makes" required>
                 <Input type="number" required value={expectedYieldQty} onChange={(e) => setExpectedYieldQty(e.target.value)} className="w-full" />
               </Field>
             </div>
 
             <div>
-              <p className="mb-1.5 text-xs font-medium text-muted-foreground">Material lines</p>
+              <p className="mb-1.5 text-xs font-medium text-muted-foreground">Ingredients and packaging for one batch</p>
               <div className="flex flex-col gap-2">
                 {lines.map((line, i) => (
                   <div key={i} className="flex flex-col sm:flex-row items-center gap-2">
@@ -125,16 +145,19 @@ export default function BOM() {
                       onChange={(e) => updateLine(i, { rawItemId: e.target.value })}
                       className="flex-1 w-full"
                     >
-                      <option value="">Raw material / packaging…</option>
+                      <option value="">Choose an item</option>
                       {rawAndPackagingItems.map((it) => (
                         <option key={it.id} value={it.id}>
-                          {it.sku} — {it.name}
+                          {it.name}
                         </option>
                       ))}
                     </Select>
                     <Input
-                      placeholder="Qty / batch"
+                      placeholder={`Amount (${unitOf(baseUnitOf(line.rawItemId)).label})`}
+                      aria-label={`Amount per batch in ${unitOf(baseUnitOf(line.rawItemId)).label}`}
                       type="number"
+                      step="any"
+                      min="0"
                       required
                       value={line.qtyPerBatch}
                       onChange={(e) => updateLine(i, { qtyPerBatch: e.target.value })}
@@ -145,7 +168,8 @@ export default function BOM() {
                         type="button"
                         onClick={() => setLines((prev) => prev.filter((_, idx) => idx !== i))}
                         className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-destructive-bg hover:text-destructive"
-                        title="Remove line"
+                        title="Remove"
+                        aria-label="Remove this item"
                       >
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                           <path d="M18 6L6 18M6 6l12 12" />
@@ -158,22 +182,22 @@ export default function BOM() {
             </div>
 
             <Button type="button" variant="secondary" size="sm" onClick={() => setLines((prev) => [...prev, { ...emptyLine }])} className="self-start">
-              + Add line
+              Add another item
             </Button>
 
             {error && <ErrorText>{error}</ErrorText>}
 
             <Button type="submit" disabled={createBomMutation.isPending} className="self-start">
-              Create BOM
+              Save recipe
             </Button>
           </form>
         </Card>
       )}
 
-      {canMutate && (
+      {canMutate && showPackForm && (
         <Card className="mb-6 overflow-hidden">
           <div className="border-b border-border/60 bg-secondary/30 px-5 py-3.5">
-            <h2 className="text-sm font-semibold text-foreground">New Pack Size</h2>
+            <h2 className="text-sm font-semibold text-foreground">New pack size</h2>
           </div>
           <form
             onSubmit={(e) => {
@@ -184,24 +208,24 @@ export default function BOM() {
           >
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-12">
               <div className="sm:col-span-2 lg:col-span-6">
-                <Field label="Base Recipe / BOM" required>
+                <Field label="Recipe" required>
                   <Select value={packBomId} required onChange={(e) => setPackBomId(e.target.value)} className="w-full">
-                    <option value="">Select recipe…</option>
+                    <option value="">Choose a recipe</option>
                     {boms?.map((b) => (
                       <option key={b.id} value={b.id}>
-                        {b.finishedItem.sku} — {b.finishedItem.name}
+                        {b.finishedItem.name}
                       </option>
                     ))}
                   </Select>
                 </Field>
               </div>
               <div className="sm:col-span-1 lg:col-span-3">
-                <Field label="Pack Label" required>
+                <Field label="Name" required>
                   <Input placeholder="e.g. 500 g pouch" required value={packLabel} onChange={(e) => setPackLabel(e.target.value)} className="w-full" />
                 </Field>
               </div>
               <div className="sm:col-span-1 lg:col-span-3">
-                <Field label="Multiplier (units/pack)" required>
+                <Field label="Packets in one pack" required>
                   <Input type="number" required value={packMultiplier} onChange={(e) => setPackMultiplier(e.target.value)} className="w-full" />
                 </Field>
               </div>
@@ -209,10 +233,10 @@ export default function BOM() {
 
             <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-t border-border/50 pt-3.5">
               <p className="text-xs text-muted-foreground">
-                Pack sizes allow selling items in multi-packs while tracking single-unit production recipes.
+                Sell several packets together as one pack, using the same recipe.
               </p>
               <Button type="submit" disabled={createPackSizeMutation.isPending} className="self-end sm:self-auto px-6">
-                {createPackSizeMutation.isPending ? "Creating…" : "Create Pack Size"}
+                {createPackSizeMutation.isPending ? "Saving…" : "Save pack size"}
               </Button>
             </div>
           </form>
@@ -225,29 +249,27 @@ export default function BOM() {
       ) : bomsError ? (
         <ErrorText>{(bomsError as Error).message}</ErrorText>
       ) : !boms || boms.length === 0 ? (
-        <EmptyState>No BOMs yet.</EmptyState>
+        <EmptyState>No recipes yet. Add one so production runs know what to use.</EmptyState>
       ) : (
         <ul className="flex flex-col gap-3">
           {boms.map((b) => (
             <li key={b.id}>
               <Card className="p-4">
                 <p className="font-medium text-foreground">
-                  {b.finishedItem.sku} — {b.finishedItem.name}{" "}
-                  <span className="font-normal text-muted-foreground">· yield {b.expectedYieldQty}/batch</span>
+                  {b.finishedItem.name}
+                  <span className="ml-2 font-normal text-muted-foreground">makes {b.expectedYieldQty} packets per batch</span>
                 </p>
                 <ul className="mt-2 text-sm text-muted-foreground">
                   {b.lines.map((l, i) => (
                     <li key={i} className="flex justify-between">
-                      <span>
-                        {l.rawItem.sku} — {l.rawItem.name}
-                      </span>
-                      <span className="tabular">{l.qtyPerBatch}</span>
+                      <span>{l.rawItem.name}</span>
+                      <span className="tabular">{qty(l.qtyPerBatch, l.rawItem.baseUnit)}</span>
                     </li>
                   ))}
                 </ul>
                 {b.packSizes.length > 0 && (
                   <p className="mt-2 border-t border-border pt-2 text-sm text-muted-foreground">
-                    Pack sizes: {b.packSizes.map((p) => `${p.label} (×${p.multiplier})`).join(", ")}
+                    Sold as: {b.packSizes.map((p) => `${p.label} (${p.multiplier} ${p.multiplier === 1 ? "packet" : "packets"})`).join(", ")}
                   </p>
                 )}
               </Card>

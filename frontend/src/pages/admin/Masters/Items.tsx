@@ -61,8 +61,8 @@ export default function Items() {
   return (
     <div className="w-full min-w-0">
       <PageHeader
-        title="Items"
-        description="Raw materials, packaging and finished goods: the one catalog everything else references."
+        title="Products & materials"
+        description="Everything you buy, use or sell. Other pages pick from this list."
         actions={
           <div className="relative">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"

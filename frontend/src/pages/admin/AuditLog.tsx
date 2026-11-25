@@ -84,8 +84,8 @@ export default function AuditLog() {
   return (
     <div className="w-full min-w-0">
       <PageHeader
-        title="Audit Log"
-        description="Immutable record of system changes: who modified what, and when."
+        title="Activity log"
+        description="Every change made in the app: who did it, what changed and when. Entries can't be edited or deleted."
         actions={
           <span className="flex items-center gap-1.5 rounded-full border border-border bg-white px-3 py-1.5 text-xs font-medium text-muted-foreground shadow-xs">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round">

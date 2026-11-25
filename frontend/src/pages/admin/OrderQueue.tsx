@@ -24,6 +24,26 @@ const STATUS_VARIANT: Record<string, "info" | "success" | "destructive" | "neutr
   DISPATCHED: "success",
 } as const;
 
+const STATUS_LABEL: Record<string, string> = {
+  SUBMITTED: "Waiting for approval",
+  APPROVED: "Approved, needs invoice",
+  REJECTED: "Rejected",
+  DISPATCHABLE: "Invoiced",
+  DISPATCHED: "Dispatched",
+};
+
+const TAB_LABEL: Record<(typeof TABS)[number], string> = {
+  SUBMITTED: "To approve",
+  APPROVED: "To invoice",
+  REJECTED: "Rejected",
+};
+
+const EMPTY_TEXT: Record<(typeof TABS)[number], string> = {
+  SUBMITTED: "No orders are waiting for approval.",
+  APPROVED: "Every approved order has an invoice.",
+  REJECTED: "No rejected orders.",
+};
+
 const TAB_ICONS = {
   SUBMITTED: "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2",
   APPROVED: "M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0",
@@ -56,7 +76,7 @@ export default function OrderQueue() {
     onError: (err, orderId) => {
       if (err instanceof ApiError && err.code === "insufficient_stock") {
         const shortfall = (err.details as { shortfall?: number } | undefined)?.shortfall;
-        setShortfallByOrder((prev) => ({ ...prev, [orderId]: `Not enough stock: short by ${shortfall} units.` }));
+        setShortfallByOrder((prev) => ({ ...prev, [orderId]: `Not enough packets in stock. You're ${shortfall} short; make more or edit the order.` }));
       }
     },
   });
@@ -78,18 +98,18 @@ export default function OrderQueue() {
       setEditError(null);
       queryClient.invalidateQueries({ queryKey: ["orders"] });
     },
-    onError: (err) => setEditError(err instanceof ApiError ? err.message : "Failed to save changes"),
+    onError: (err) => setEditError(err instanceof ApiError ? err.message : "Couldn't save your changes."),
   });
 
   function startEditing(o: Order) {
     setEditingOrderId(o.id);
     setEditError(null);
-    setEditLines(o.items.map((l) => ({ itemId: l.itemId, sku: l.item.sku, name: l.item.name, qtyBase: String(l.qtyBase), ratePaise: String(l.ratePaise) })));
+    setEditLines(o.items.map((l) => ({ itemId: l.itemId, sku: l.item.sku, name: l.item.name, qtyBase: String(l.qtyBase), ratePaise: String(l.ratePaise / 100) })));
   }
 
   function saveEdits(orderId: string) {
-    const items = editLines.map((l) => ({ itemId: l.itemId, qtyBase: Number(l.qtyBase), ratePaise: Number(l.ratePaise) }));
-    if (items.some((l) => !(l.qtyBase > 0))) { setEditError("Every line needs a quantity greater than zero."); return; }
+    const items = editLines.map((l) => ({ itemId: l.itemId, qtyBase: Number(l.qtyBase), ratePaise: Math.round(Number(l.ratePaise) * 100) }));
+    if (items.some((l) => !(l.qtyBase > 0))) { setEditError("Each product needs a quantity of at least 1."); return; }
     editMutation.mutate({ orderId, items });
   }
 
@@ -104,8 +124,8 @@ export default function OrderQueue() {
   return (
     <div className="w-full min-w-0">
       <PageHeader
-        title="Order Queue"
-        description="Review, approve and invoice sales orders."
+        title="Orders"
+        description="Approve orders from your salesmen, then create the invoice. Approving sets the stock aside for that customer."
         actions={
           <Link to="/admin/invoices" className="inline-flex items-center gap-1.5 text-sm font-medium text-primary transition-colors hover:text-primary/80">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -130,7 +150,7 @@ export default function OrderQueue() {
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d={TAB_ICONS[t]} />
               </svg>
-              {t}
+              {TAB_LABEL[t]}
             </button>
           ))}
         </div>
@@ -141,13 +161,13 @@ export default function OrderQueue() {
       ) : error ? (
         <ErrorText>{(error as Error).message}</ErrorText>
       ) : !data || data.items.length === 0 ? (
-        <EmptyState>No {tab.toLowerCase()} orders right now.</EmptyState>
+        <EmptyState>{EMPTY_TEXT[tab]}</EmptyState>
       ) : (
         <ul className="flex flex-col gap-3">
           {data.items.map((o) => {
             const total =
               editingOrderId === o.id
-                ? editLines.reduce((sum, l) => sum + (Number(l.qtyBase) || 0) * (Number(l.ratePaise) || 0), 0)
+                ? editLines.reduce((sum, l) => sum + (Number(l.qtyBase) || 0) * Math.round((Number(l.ratePaise) || 0) * 100), 0)
                 : o.items.reduce((sum, l) => sum + l.qtyBase * l.ratePaise, 0);
             return (
               <li key={o.id}>
@@ -158,7 +178,7 @@ export default function OrderQueue() {
                       <p className="font-semibold text-foreground">{o.customer.name}</p>
                       <p className="mt-0.5 text-xs text-muted-foreground">Placed by {o.salesmanUser.name}</p>
                     </div>
-                    <StatusBadge variant={STATUS_VARIANT[o.status] ?? "neutral"}>{o.status}</StatusBadge>
+                    <StatusBadge variant={STATUS_VARIANT[o.status] ?? "neutral"}>{STATUS_LABEL[o.status] ?? o.status}</StatusBadge>
                   </div>
 
                   {/* Card body */}
@@ -168,7 +188,6 @@ export default function OrderQueue() {
                         {editLines.map((l, i) => (
                           <li key={l.itemId} className="flex items-center justify-between gap-3 text-sm">
                             <span className="min-w-0 flex-1 truncate text-foreground">
-                              <span className="mr-1.5 font-mono text-xs text-muted-foreground">{l.sku}</span>
                               {l.name}
                             </span>
                             <Input
@@ -176,15 +195,17 @@ export default function OrderQueue() {
                               value={l.qtyBase}
                               onChange={(e) => setEditLines((prev) => prev.map((p, idx) => (idx === i ? { ...p, qtyBase: e.target.value } : p)))}
                               className="h-8 w-20 text-right"
-                              aria-label={`Quantity for ${l.sku}`}
+                              aria-label={`Quantity of ${l.name}`}
                             />
                             <span className="text-muted-foreground">×</span>
                             <Input
                               type="number"
+                              step="0.01"
+                              min="0"
                               value={l.ratePaise}
                               onChange={(e) => setEditLines((prev) => prev.map((p, idx) => (idx === i ? { ...p, ratePaise: e.target.value } : p)))}
                               className="h-8 w-24 text-right"
-                              aria-label={`Rate (paise) for ${l.sku}`}
+                              aria-label={`Price per packet in rupees for ${l.name}`}
                             />
                           </li>
                         ))}
@@ -194,7 +215,6 @@ export default function OrderQueue() {
                         {o.items.map((l, i) => (
                           <li key={i} className="flex items-center justify-between gap-4 text-sm">
                             <span className="text-foreground">
-                              <span className="mr-1.5 font-mono text-xs text-muted-foreground">{l.item.sku}</span>
                               {l.item.name}
                             </span>
                             <span className="tabular shrink-0 font-medium text-foreground">
@@ -234,7 +254,7 @@ export default function OrderQueue() {
                       {canMutate && o.status === "SUBMITTED" && editingOrderId !== o.id && (
                         <>
                           <Button size="sm" onClick={() => approveMutation.mutate(o.id)} disabled={approveMutation.isPending}>
-                            {approveMutation.isPending && approveMutation.variables === o.id ? "Approving…" : "✓ Approve"}
+                            {approveMutation.isPending && approveMutation.variables === o.id ? "Approving…" : "Approve"}
                           </Button>
                           <Button size="sm" variant="secondary" onClick={() => startEditing(o)}>
                             Edit
@@ -257,13 +277,13 @@ export default function OrderQueue() {
                         className="mt-3 flex gap-2"
                       >
                         <Input
-                          placeholder="Rejection reason…"
+                          placeholder="Why are you rejecting it? The salesman will see this."
                           required
                           value={rejectionReason}
                           onChange={(e) => setRejectionReason(e.target.value)}
                           className="h-9 flex-1"
                         />
-                        <Button type="submit" size="sm" variant="destructive">Confirm</Button>
+                        <Button type="submit" size="sm" variant="destructive">Reject order</Button>
                       </form>
                     )}
                   </div>
