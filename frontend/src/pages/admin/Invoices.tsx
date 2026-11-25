@@ -200,7 +200,7 @@ export default function Invoices() {
                         <Input
                           type="email"
                           aria-label="Email address to send the invoice to"
-                          placeholder={inv.customer.email ?? "Email address"}
+                          placeholder={inv.customer.email ? "Another email (optional)" : "Customer's email"}
                           value={emailOverrideByInvoice[inv.id] ?? ""}
                           onChange={(e) => setEmailOverrideByInvoice((prev) => ({ ...prev, [inv.id]: e.target.value }))}
                           className="h-8 w-52 text-sm"
@@ -208,13 +208,24 @@ export default function Invoices() {
                         <Button
                           size="sm"
                           variant="secondary"
+                          title={
+                            emailOverrideByInvoice[inv.id]
+                              ? `Send to ${emailOverrideByInvoice[inv.id]}`
+                              : inv.customer.email
+                                ? `Send to ${inv.customer.name}'s saved email, ${inv.customer.email}`
+                                : "Type an email address first"
+                          }
                           disabled={emailMutation.isPending || (!inv.customer.email && !emailOverrideByInvoice[inv.id])}
                           onClick={() => {
                             setEmailStatusByInvoice((prev) => ({ ...prev, [inv.id]: "" }));
                             emailMutation.mutate({ invoiceId: inv.id, email: emailOverrideByInvoice[inv.id] || undefined });
                           }}
                         >
-                          {emailMutation.isPending && emailMutation.variables?.invoiceId === inv.id ? "Sending…" : "Email invoice"}
+                          {emailMutation.isPending && emailMutation.variables?.invoiceId === inv.id
+                            ? "Sending…"
+                            : inv.customer.email && !emailOverrideByInvoice[inv.id]
+                              ? `Email ${inv.customer.name}`
+                              : "Email invoice"}
                         </Button>
                       </div>
                     )}
@@ -259,7 +270,9 @@ export default function Invoices() {
                     <div className="flex flex-col gap-2 border-t border-border px-5 py-3">
                       {emailStatusByInvoice[inv.id] && (
                         <p className={`text-sm ${emailStatusByInvoice[inv.id] === "sent" ? "text-success" : "text-destructive"}`}>
-                          {emailStatusByInvoice[inv.id] === "sent" ? "Invoice emailed." : emailStatusByInvoice[inv.id]}
+                          {emailStatusByInvoice[inv.id] === "sent"
+                            ? `Invoice emailed to ${emailOverrideByInvoice[inv.id] || inv.customer.email}.`
+                            : emailStatusByInvoice[inv.id]}
                         </p>
                       )}
                       {paymentErrorByInvoice[inv.id] && <ErrorText>{paymentErrorByInvoice[inv.id]}</ErrorText>}
