@@ -177,11 +177,16 @@ can provide.
 ### Backend + database — Render
 
 `render.yaml` at the repo root is a Render Blueprint: push this repo to GitHub, then in Render
-choose **New → Blueprint** and point it at the repo. It provisions:
+choose **New → Blueprint** and point it at the repo. It provisions, both on Render's **free**
+tier:
 
-- a managed Postgres instance (`porulottam-db`)
+- a managed Postgres instance (`porulottam-db`) — free Postgres is deleted 30 days after creation
+  with no renewal; re-seed on a fresh one (or edit `render.yaml` to `plan: starter`) before then
+  if it needs to outlive that
 - a Node web service (`porulottam-backend`, root directory `backend/`) that on every deploy runs
-  `prisma generate` → `prisma migrate deploy` → `tsc` build, then starts with `npm start`
+  `prisma generate` → `prisma migrate deploy` → `tsc` build, then starts with `npm start` — a free
+  service spins down after 15 minutes idle, so the first request after a gap takes ~30-60s to wake
+  it back up
 
 After the first deploy, set these environment variables in the Render dashboard (the blueprint
 leaves them blank on purpose — they're either secrets or point at the other service):

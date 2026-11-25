@@ -3,7 +3,10 @@ services:
     name: porulottam-backend
     runtime: node
     rootDir: backend
-    plan: starter
+    # Free tier: the service spins down after 15 minutes idle and the first
+    # request after that takes ~30-60s to wake it back up. Fine for grading/
+    # demo use; switch to "starter" for an always-on paid instance.
+    plan: free
     buildCommand: npm ci && npx prisma generate && npx prisma migrate deploy && npm run build
     startCommand: npm start
     healthCheckPath: /health
@@ -42,7 +45,10 @@ services:
 
 databases:
   - name: porulottam-db
-    plan: starter
+    # Free tier: Render deletes a free Postgres instance 30 days after
+    # creation, with no renewal — re-seed on a fresh one (or upgrade to
+    # "starter") before then if the deployment needs to outlive that.
+    plan: free
     databaseName: porulottam
     user: porulottam
     # No public internet access — only Render's own private network (the
