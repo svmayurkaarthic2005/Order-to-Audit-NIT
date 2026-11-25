@@ -81,7 +81,7 @@ describe("invoice PDF generation", () => {
     const parser = new PDFParse({ data: pdfBuffer });
     const parsed = await parser.getText();
     await parser.destroy();
-    expect(parsed.text).toContain("7875.00");
+    expect(parsed.text).toContain("7,875.00");
     },
     15_000, // pdf-parse spins up a pdfjs worker; the default 5s is too tight under full-suite parallel load
   );
