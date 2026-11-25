@@ -1,8 +1,9 @@
 import { Router } from "express";
 import { requireAuth, requireRole } from "../../middleware/auth.js";
 import { validate } from "../../lib/validate.js";
-import { approveOrder, createOrder, getOrder, listOrders, rejectOrder } from "./service.js";
-import { orderCreateSchema, orderListQuerySchema, orderRejectSchema } from "./schema.js";
+import { approveOrder, createOrder, editOrder, getOrder, listOrders, rejectOrder } from "./service.js";
+import { orderCreateSchema, orderEditSchema, orderListQuerySchema, orderRejectSchema } from "./schema.js";
+import { AppError } from "../../lib/AppError.js";
 
 export const ordersRouter = Router();
 
@@ -31,10 +32,19 @@ ordersRouter.get("/:id", canReadOrders, async (req, res) => {
 });
 
 ordersRouter.post("/", canCreateOrders, validate("body", orderCreateSchema), async (req, res) => {
+  const idempotencyKey = req.get("Idempotency-Key");
+  if (!idempotencyKey) {
+    throw new AppError(400, "missing_idempotency_key", "An Idempotency-Key header is required");
+  }
   // Always the caller's own id — a salesman (or admin) can never submit an
   // order on another salesman's behalf, whatever the request body says.
-  const order = await createOrder(req.user!.id, req.body);
+  const order = await createOrder(req.user!.id, req.body, idempotencyKey);
   res.status(201).json({ data: order });
+});
+
+ordersRouter.patch("/:id", canApproveOrders, validate("body", orderEditSchema), async (req, res) => {
+  const order = await editOrder(req.params.id as string, req.body.items, req.user!.id);
+  res.json({ data: order });
 });
 
 ordersRouter.post("/:id/approve", canApproveOrders, async (req, res) => {

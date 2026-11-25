@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { AppError } from "../../lib/AppError.js";
+import { logAudit } from "../../lib/audit.js";
 import { prisma } from "../../lib/prisma.js";
 import { computeOutputCostPaise } from "./costing.js";
 import { syncAlertsForItems } from "../alerts/service.js";
@@ -62,6 +63,7 @@ export async function createProductionRun(data: { bomHeaderId: string; batchSize
 export async function startProductionRun(
   id: string,
   actualConsumption: { itemId: string; qtyBase: number; overrideReason?: string }[],
+  actingUserId: string,
 ) {
   return prisma.$transaction(async (tx) => {
     const run = await tx.productionRun.findUnique({ where: { id }, include: { bomHeader: { include: { lines: { include: { rawItem: true } } } } } });
@@ -82,6 +84,14 @@ export async function startProductionRun(
     if (count === 0) {
       throw new AppError(409, "invalid_status", "Only a DRAFT run can be started");
     }
+    await logAudit(tx, {
+      userId: actingUserId,
+      action: "PRODUCTION_RUN_STARTED",
+      entityType: "ProductionRun",
+      entityId: id,
+      before: { status: "DRAFT" },
+      after: { status: "STARTED", actualConsumption },
+    });
 
     // Snapshot every BOM line's planned quantity now — the only place
     // planned/expected quantities are ever recorded (never in stock_movements).
@@ -143,7 +153,9 @@ export async function completeProductionRun(
     expiryDate?: Date;
     laborCostPaise?: number;
     overheadCostPaise?: number;
+    packSizeId?: string;
   },
+  actingUserId: string,
 ) {
   const alreadyApplied = await prisma.stockMovement.findUnique({ where: { idempotencyKey } });
   if (alreadyApplied) {
@@ -151,7 +163,7 @@ export async function completeProductionRun(
   }
 
   try {
-    return await completeProductionRunInTransaction(id, idempotencyKey, data);
+    return await completeProductionRunInTransaction(id, idempotencyKey, data, actingUserId);
   } catch (err) {
     // The pre-check above is a friendly fast path; the database's unique
     // constraint on idempotencyKey is what actually prevents a replayed
@@ -172,12 +184,28 @@ async function completeProductionRunInTransaction(
     expiryDate?: Date;
     laborCostPaise?: number;
     overheadCostPaise?: number;
+    packSizeId?: string;
   },
+  actingUserId: string,
 ) {
+  // Which item actually receives the output/stock movement — the BOM's own
+  // finished item, unless this run packed one of its registered PackSize
+  // variants instead (same shared raw-material recipe, a different
+  // product-specific packaging configuration and output SKU).
+  let outputItemId = "";
   return prisma.$transaction(async (tx) => {
     const run = await tx.productionRun.findUnique({ where: { id }, include: { bomHeader: { include: { lines: { include: { rawItem: true } } } } } });
     if (!run) {
       throw new AppError(404, "not_found", "Production run not found");
+    }
+
+    outputItemId = run.bomHeader.finishedItemId;
+    if (data.packSizeId) {
+      const packSize = await tx.packSize.findUnique({ where: { id: data.packSizeId } });
+      if (!packSize || packSize.baseBomId !== run.bomHeaderId) {
+        throw new AppError(400, "invalid_pack_size", "packSizeId does not belong to this run's BOM");
+      }
+      outputItemId = packSize.finishedItemId;
     }
 
     // Same atomic-claim pattern as start: compute totalDamaged from the
@@ -198,6 +226,14 @@ async function completeProductionRunInTransaction(
     if (count === 0) {
       throw new AppError(409, "invalid_status", "Only a STARTED run can be completed");
     }
+    await logAudit(tx, {
+      userId: actingUserId,
+      action: "PRODUCTION_RUN_COMPLETED",
+      entityType: "ProductionRun",
+      entityId: id,
+      before: { status: "STARTED" },
+      after: { status: "COMPLETED", actualOutputQty: data.actualOutputQty, damagedQty: totalDamagedQty, outputItemId },
+    });
 
     const packagingLineIds = new Set(
       run.bomHeader.lines.filter((l) => l.rawItem.type === "PACKAGING").map((l) => l.rawItemId),
@@ -253,13 +289,13 @@ async function completeProductionRunInTransaction(
     const unitCostPaise = Math.round(totalCostPaise / data.actualOutputQty);
 
     // Create the finished-goods batch row for FEFO dispatch tracking
-    const fgBatch = await recordProductionOutput(tx, id, run.bomHeader.finishedItemId, data.actualOutputQty, data.expiryDate);
+    const fgBatch = await recordProductionOutput(tx, id, outputItemId, data.actualOutputQty, data.expiryDate);
 
     // The idempotency guard: the finished-goods output row carries the
     // caller's key, so a replay is caught before any row is posted twice.
     await tx.stockMovement.create({
       data: {
-        itemId: run.bomHeader.finishedItemId,
+        itemId: outputItemId,
         qtyBase: data.actualOutputQty,
         unitCostPaise,
         totalCostPaise,
@@ -272,7 +308,7 @@ async function completeProductionRunInTransaction(
 
     return tx.productionRun.findUniqueOrThrow({ where: { id }, include: includeClause() });
   }).then(async (result) => {
-    await syncAlertsForItems([...data.packagingConsumed.map((l) => l.itemId), result.bomHeader.finishedItemId]);
+    await syncAlertsForItems([...data.packagingConsumed.map((l) => l.itemId), outputItemId]);
     await refreshBatchStatuses();
 
     // Notify on significant yield variance (>3% tolerance)
@@ -301,7 +337,7 @@ async function completeProductionRunInTransaction(
 // Reverses whatever raw material was actually issued at STARTED — there is
 // always something to reverse now, since STARTED (not COMPLETED) is where
 // physical issuance happens. Never a delete.
-export async function cancelProductionRun(id: string) {
+export async function cancelProductionRun(id: string, actingUserId: string) {
   let reversedItemIds: string[] = [];
   return prisma.$transaction(async (tx) => {
     const run = await tx.productionRun.findUnique({ where: { id } });
@@ -316,6 +352,14 @@ export async function cancelProductionRun(id: string) {
     if (count === 0) {
       throw new AppError(409, "invalid_status", "Only a DRAFT or STARTED run can be cancelled");
     }
+    await logAudit(tx, {
+      userId: actingUserId,
+      action: "PRODUCTION_RUN_CANCELLED",
+      entityType: "ProductionRun",
+      entityId: id,
+      before: { status: run.status },
+      after: { status: "CANCELLED" },
+    });
 
     const issued = await tx.stockMovement.findMany({ where: { sourceId: id, source: "PRODUCTION_ISSUE" } });
     reversedItemIds = issued.map((m) => m.itemId);

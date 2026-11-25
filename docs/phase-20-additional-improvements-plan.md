@@ -574,7 +574,7 @@ Track execution here as phases land — update ✅/❌ as each file is actually 
 - [ ] FEFO selection + documented override reason
 - [ ] Forward genealogy (supplier lot → dispatch)
 - [ ] Backward genealogy (dispatch → supplier lot)
-- [ ] Shared 200g/500g recipe costing
+- [x] Shared 200g/500g recipe costing
 - [ ] Full existing benchmark regression (`backend/src/benchmark.test.ts` still green)
 
 ## 4. Explicitly out of scope (unchanged)
@@ -586,3 +586,20 @@ HACCP modules. Everything above stays inside the existing modular monolith.
 ## Changelog
 
 - *(fill in as each phase ships: date, phase, commit hash, actual test results)*
+- **2026-11-25 — Phase 27 (Shared 200g/500g BOM):** fixed, not just verified. The opening
+  assumption was wrong: `PackSize` only ever recorded the finishedItem/baseBom/multiplier
+  relationship — nothing read it. `completeProductionRun` always posted output to
+  `bomHeader.finishedItemId`, so a BOM's registered pack sizes were never actually reachable from
+  production; there was no way to complete a run *as* its 500g variant. Fix: `productionRunCompleteSchema`
+  gained an optional `packSizeId`; when present, `completeProductionRunInTransaction` validates it
+  belongs to the run's own BOM (`packSize.baseBomId === run.bomHeaderId`, else 400
+  `invalid_pack_size`) and directs the `FinishedGoodsBatch` + `PRODUCTION_OUTPUT` stock movement +
+  alert sync to `packSize.finishedItemId` instead. No schema change beyond that one optional field,
+  and no change to `costing.ts` — its cost breakdown already reads real `StockMovement` rows per
+  run regardless of which item they target, so it worked correctly as soon as the output itemId
+  did. `backend/src/pack-size-costing.test.ts` (2 tests, passing): a 200g and a 500g run off the
+  same shared BOM each land under their own SKU with their own packaging cost (₹5.00 vs ₹3.60)
+  while sharing one exact raw-material WAC; a `packSizeId` from a different BOM is rejected.
+  Full suite: 153 tests, 151 passing (the 2 failures are the same pre-existing, unrelated bugs
+  already tracked — a `production.test.ts` cleanup ordering bug and a `batches.test.ts`
+  error-message assertion), `benchmark.test.ts` still green (8/8).

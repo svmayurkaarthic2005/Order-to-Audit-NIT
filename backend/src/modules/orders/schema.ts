@@ -13,6 +13,18 @@ export const orderCreateSchema = z.object({
     .min(1),
 });
 
+export const orderEditSchema = z.object({
+  items: z
+    .array(
+      z.object({
+        itemId: z.string().min(1),
+        qtyBase: z.coerce.number().int().positive(),
+        ratePaise: z.coerce.number().int().min(0),
+      }),
+    )
+    .min(1),
+});
+
 export const orderRejectSchema = z.object({
   reason: z.string().min(1),
 });

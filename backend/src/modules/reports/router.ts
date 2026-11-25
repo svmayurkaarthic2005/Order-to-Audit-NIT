@@ -3,15 +3,21 @@ import { requireAuth, requireRole } from "../../middleware/auth.js";
 import { validate } from "../../lib/validate.js";
 import { toCsv, toPdf } from "../../lib/export.js";
 import {
+  getCustomerOutstandingDetail,
+  getCustomerSalesDetail,
+  getGstRateDetail,
+  getInvoicePaymentDetail,
+  getProductionCostDetail,
   gstSummary,
   paymentsCollections,
   productionReport,
   purchaseRegister,
   salesRegister,
+  salesTrend,
   stockLedger,
   stockSummary,
 } from "./service.js";
-import { reportQuerySchema, stockLedgerQuerySchema, stockSummaryQuerySchema } from "./schema.js";
+import { reportQuerySchema, salesTrendQuerySchema, stockLedgerQuerySchema, stockSummaryQuerySchema } from "./schema.js";
 
 export const reportsRouter = Router();
 
@@ -42,6 +48,12 @@ reportsRouter.get("/sales-register", validate("query", reportQuerySchema), async
   const { from, to, format } = req.validatedQuery as Query;
   const data = await salesRegister(from, to);
   await respond(res, "sales-register", format, data, data.customerWise);
+});
+
+reportsRouter.get("/sales-trend", validate("query", salesTrendQuerySchema), async (req, res) => {
+  const { from, to, format, granularity } = req.validatedQuery as Query & { granularity: "monthly" | "yearly" };
+  const data = await salesTrend(granularity, from, to);
+  await respond(res, `sales-trend-${granularity}`, format, data, data.buckets);
 });
 
 reportsRouter.get("/gst-summary", validate("query", reportQuerySchema), async (req, res) => {
@@ -76,5 +88,34 @@ reportsRouter.get("/production", validate("query", reportQuerySchema), async (re
 
 reportsRouter.get("/payments-collections", async (_req, res) => {
   const data = await paymentsCollections();
+  res.json({ data });
+});
+
+// ── Drill-downs ──────────────────────────────────────────────────────────
+
+reportsRouter.get("/invoices/:invoiceId/detail", async (req, res) => {
+  const data = await getInvoicePaymentDetail(req.params.invoiceId as string);
+  res.json({ data });
+});
+
+reportsRouter.get("/customers/:customerId/outstanding-detail", async (req, res) => {
+  const data = await getCustomerOutstandingDetail(req.params.customerId as string);
+  res.json({ data });
+});
+
+reportsRouter.get("/customers/:customerId/sales-detail", validate("query", reportQuerySchema), async (req, res) => {
+  const { from, to } = req.validatedQuery as { from?: Date; to?: Date };
+  const data = await getCustomerSalesDetail(req.params.customerId as string, from, to);
+  res.json({ data });
+});
+
+reportsRouter.get("/gst-summary/:taxRatePct/detail", validate("query", reportQuerySchema), async (req, res) => {
+  const { from, to } = req.validatedQuery as { from?: Date; to?: Date };
+  const data = await getGstRateDetail(Number(req.params.taxRatePct), from, to);
+  res.json({ data });
+});
+
+reportsRouter.get("/production/:runId/cost-detail", async (req, res) => {
+  const data = await getProductionCostDetail(req.params.runId as string);
   res.json({ data });
 });

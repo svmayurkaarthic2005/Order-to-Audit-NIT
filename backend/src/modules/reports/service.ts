@@ -1,5 +1,8 @@
 import { AppError } from "../../lib/AppError.js";
 import { prisma } from "../../lib/prisma.js";
+import { financialYearFor } from "../invoices/service.js";
+import { getProductionRunCostBreakdown } from "../production/costing.js";
+import { getProductionRunVariance } from "../production/variance.js";
 
 function dateRange(from?: Date, to?: Date) {
   if (!from && !to) return {};
@@ -48,6 +51,67 @@ export async function salesRegister(from?: Date, to?: Date) {
   }
 
   return { customerWise: [...customerWise.values()], productWise: [...productWise.values()] };
+}
+
+// (1b) Sales trend — the Sales Register's own totals, just bucketed by
+// calendar month or Indian financial year instead of flattened into one
+// range. Reads the exact same ISSUED invoices salesRegister() does, so a
+// trend total for a given range always reconciles with that range's Sales
+// Register total — never a separate computation.
+type SalesTrendBucket = { key: string; label: string; invoiceCount: number; taxableValuePaise: number; totalPaise: number };
+
+function monthKey(date: Date): string {
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function monthLabel(key: string): string {
+  const [year, month] = key.split("-");
+  return `${MONTH_NAMES[Number(month) - 1]} ${year}`;
+}
+
+export async function salesTrend(granularity: "monthly" | "yearly", from?: Date, to?: Date) {
+  // "Last 12 months" is only a default for monthly when no range was given
+  // — an explicit range is always respected as-is, and yearly has no
+  // default window (a factory's whole invoice history is a handful of FYs).
+  let effectiveFrom = from;
+  let effectiveTo = to;
+  if (granularity === "monthly" && !from && !to) {
+    const now = new Date();
+    effectiveTo = now;
+    effectiveFrom = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 11, 1));
+  }
+
+  const invoices = await prisma.invoice.findMany({
+    where: { status: "ISSUED", createdAt: dateRange(effectiveFrom, effectiveTo) },
+    select: { createdAt: true, taxableValuePaise: true, totalPaise: true },
+  });
+
+  const buckets = new Map<string, SalesTrendBucket>();
+  for (const inv of invoices) {
+    const key = granularity === "monthly" ? monthKey(inv.createdAt) : financialYearFor(inv.createdAt);
+    const label = granularity === "monthly" ? monthLabel(key) : `FY ${key}`;
+    const bucket = buckets.get(key) ?? { key, label, invoiceCount: 0, taxableValuePaise: 0, totalPaise: 0 };
+    bucket.invoiceCount += 1;
+    bucket.taxableValuePaise += inv.taxableValuePaise;
+    bucket.totalPaise += inv.totalPaise;
+    buckets.set(key, bucket);
+  }
+
+  // A default monthly window shows every month in range, zero-filled, so
+  // the chart doesn't silently skip a month with no sales.
+  if (granularity === "monthly" && effectiveFrom) {
+    const cursor = new Date(Date.UTC(effectiveFrom.getUTCFullYear(), effectiveFrom.getUTCMonth(), 1));
+    const end = effectiveTo ?? new Date();
+    while (cursor <= end) {
+      const key = monthKey(cursor);
+      if (!buckets.has(key)) {
+        buckets.set(key, { key, label: monthLabel(key), invoiceCount: 0, taxableValuePaise: 0, totalPaise: 0 });
+      }
+      cursor.setUTCMonth(cursor.getUTCMonth() + 1);
+    }
+  }
+
+  return { granularity, buckets: [...buckets.values()].sort((a, b) => (a.key < b.key ? -1 : 1)) };
 }
 
 // (2) GST summary of outward supplies, shaped for GSTR-1/GSTR-3B mapping.
@@ -225,4 +289,95 @@ export async function paymentsCollections() {
   }
 
   return [...byCustomer.values()];
+}
+
+// ── Drill-downs: the rows behind one aggregate cell in a report above.
+// Every number here is summed straight from the same frozen Invoice/Payment/
+// CreditNote/StockMovement rows the summary itself reads — never re-derived,
+// so a drill-down total always reconciles exactly with the cell it expands.
+
+// (stock-ledger detail is the existing stockLedger(itemId, from, to) above —
+// the summary report just didn't link to it yet; see Reports.tsx.)
+
+export async function getInvoicePaymentDetail(invoiceId: string) {
+  const invoice = await prisma.invoice.findUnique({
+    where: { id: invoiceId },
+    include: { customer: true, payments: true, creditNotes: true },
+  });
+  if (!invoice) {
+    throw new AppError(404, "not_found", "Invoice not found");
+  }
+  const paidPaise = invoice.payments.reduce((sum, p) => sum + p.amountPaise, 0);
+  const creditedPaise = invoice.creditNotes.reduce((sum, c) => sum + c.amountPaise, 0);
+  return {
+    invoiceId: invoice.id,
+    customerName: invoice.customer.name,
+    financialYear: invoice.financialYear,
+    invoiceNumber: invoice.invoiceNumber,
+    taxableValuePaise: invoice.taxableValuePaise,
+    cgstPaise: invoice.cgstPaise,
+    sgstPaise: invoice.sgstPaise,
+    igstPaise: invoice.igstPaise,
+    totalPaise: invoice.totalPaise,
+    payments: invoice.payments.map((p) => ({ id: p.id, amountPaise: p.amountPaise, paidAt: p.paidAt })),
+    creditNotes: invoice.creditNotes.map((c) => ({ id: c.id, amountPaise: c.amountPaise, reason: c.reason, createdAt: c.createdAt })),
+    paidPaise,
+    creditedPaise,
+    outstandingPaise: Math.max(0, invoice.totalPaise - paidPaise - creditedPaise),
+  };
+}
+
+// The Payments & Collections row is per-customer, not per-invoice — its
+// outstandingPaise cell decomposes into this customer's own outstanding
+// invoices, each itself expandable via getInvoicePaymentDetail above.
+export async function getCustomerOutstandingDetail(customerId: string) {
+  const invoiceIds = (
+    await prisma.invoice.findMany({
+      where: { customerId, status: "ISSUED" },
+      select: { id: true },
+      orderBy: { createdAt: "asc" },
+    })
+  ).map((i) => i.id);
+  const details = await Promise.all(invoiceIds.map(getInvoicePaymentDetail));
+  return details.filter((d) => d.outstandingPaise > 0);
+}
+
+export async function getProductionCostDetail(runId: string) {
+  const [variance, cost] = await Promise.all([getProductionRunVariance(runId), getProductionRunCostBreakdown(runId)]);
+  return { variance, cost };
+}
+
+// The Sales Register's customer-wise row decomposes into that customer's
+// own issued invoices in the same date range.
+export async function getCustomerSalesDetail(customerId: string, from?: Date, to?: Date) {
+  const invoices = await prisma.invoice.findMany({
+    where: { customerId, status: "ISSUED", createdAt: dateRange(from, to) },
+    orderBy: { createdAt: "asc" },
+  });
+  return invoices.map((inv) => ({
+    invoiceId: inv.id,
+    financialYear: inv.financialYear,
+    invoiceNumber: inv.invoiceNumber,
+    taxableValuePaise: inv.taxableValuePaise,
+    totalPaise: inv.totalPaise,
+    createdAt: inv.createdAt,
+  }));
+}
+
+// The GST Summary's per-rate taxable-value cell decomposes into the
+// InvoiceItem lines actually taxed at that rate, in the same date range.
+export async function getGstRateDetail(taxRatePct: number, from?: Date, to?: Date) {
+  const items = await prisma.invoiceItem.findMany({
+    where: { taxRatePct, invoice: { status: "ISSUED", createdAt: dateRange(from, to) } },
+    include: { invoice: { include: { customer: true } } },
+    orderBy: { invoice: { createdAt: "asc" } },
+  });
+  return items.map((item) => ({
+    invoiceId: item.invoiceId,
+    invoiceNumber: item.invoice.invoiceNumber,
+    customerName: item.invoice.customer.name,
+    description: item.description,
+    qtyBase: item.qtyBase,
+    taxableValuePaise: item.taxableValuePaise,
+  }));
 }

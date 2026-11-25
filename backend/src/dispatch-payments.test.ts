@@ -27,6 +27,7 @@ async function makeIssuedInvoice(adminCookie: string, salesmanCookie: string, op
   const orderRes = await request(app)
     .post("/orders")
     .set("Cookie", salesmanCookie)
+    .set("Idempotency-Key", crypto.randomUUID())
     .send({ customerId: retailerA.id, items: [{ itemId, qtyBase: qty, ratePaise }] });
   const orderId = orderRes.body.data.id as string;
 

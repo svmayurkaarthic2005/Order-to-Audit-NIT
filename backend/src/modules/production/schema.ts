@@ -31,4 +31,9 @@ export const productionRunCompleteSchema = z.object({
   expiryDate: z.coerce.date().optional(),
   laborCostPaise: z.coerce.number().int().nonnegative().optional(),
   overheadCostPaise: z.coerce.number().int().nonnegative().optional(),
+  // Which PackSize this run actually packed, when the BOM's raw-material
+  // recipe is shared across more than one — e.g. the same batch run as a
+  // 200g or a 500g pack. Omitted, output goes to the BOM's own finished item
+  // exactly as before.
+  packSizeId: z.string().min(1).optional(),
 });

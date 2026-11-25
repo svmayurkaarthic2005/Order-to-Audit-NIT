@@ -1,10 +1,7 @@
-import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
+import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TdHTMLAttributes, TextareaHTMLAttributes } from "react";
 import { Link } from "react-router-dom";
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  Stitch AI — Professional visual language for Porulottam ERP
-//  One consistent system: inputs, buttons, tables, badges, cards, layout.
-// ─────────────────────────────────────────────────────────────────────────────
+// Shared UI primitives: inputs, buttons, tables, badges, cards, layout.
 
 // ── Inputs ───────────────────────────────────────────────────────────────────
 
@@ -221,12 +218,18 @@ export function Th({ children, numeric, className = "" }: { children: ReactNode;
   );
 }
 
-export function Td({ children, numeric, className = "" }: { children: ReactNode; numeric?: boolean; className?: string }) {
+export function Td({
+  children,
+  numeric,
+  className = "",
+  ...rest
+}: { children: ReactNode; numeric?: boolean; className?: string } & TdHTMLAttributes<HTMLTableCellElement>) {
   return (
     <td
       className={`border-t border-border/60 px-4 py-3 text-foreground ${
         numeric ? "tabular text-right whitespace-nowrap" : "text-left break-words"
       } ${className}`}
+      {...rest}
     >
       {children}
     </td>
@@ -302,6 +305,43 @@ export function DateRangeFilter({
         <Input type="date" value={to} onChange={(e) => onTo(e.target.value)} className="w-40" />
       </Field>
       {actions}
+    </div>
+  );
+}
+
+// ── Drawer (right-side slide-over, for report drill-downs etc.) ──────────────
+
+export function Drawer({
+  open,
+  onClose,
+  title,
+  children,
+}: {
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  children: ReactNode;
+}) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end">
+      <div className="absolute inset-0 bg-black/30" onClick={onClose} />
+      <div className="relative flex h-full w-full max-w-lg flex-col overflow-y-auto border-l border-border bg-white shadow-xl">
+        <div className="flex items-center justify-between border-b border-border px-5 py-4">
+          <h2 className="text-sm font-semibold text-foreground">{title}</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M18 6L6 18M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        <div className="flex-1 p-5">{children}</div>
+      </div>
     </div>
   );
 }

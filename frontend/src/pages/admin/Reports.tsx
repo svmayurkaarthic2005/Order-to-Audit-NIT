@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "@/lib/api";
-import { Card, DateRangeFilter, EmptyState, ErrorText, Loading, PageHeader, StatusBadge, TabBar, Table, Td, Th, THead, buttonClass, money } from "@/components/ui";
+import { Card, DateRangeFilter, Drawer, EmptyState, ErrorText, Loading, PageHeader, StatusBadge, TabBar, Table, Td, Th, THead, buttonClass, money } from "@/components/ui";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
 
@@ -26,8 +26,51 @@ type ProductionRow = {
   damagedQty: number | null;
 };
 type CollectionsRow = { customerId: string; customerName: string; outstandingPaise: number; "0-30": number; "31-60": number; "61-90": number; "90+": number };
+type SalesTrendBucket = { key: string; label: string; invoiceCount: number; taxableValuePaise: number; totalPaise: number };
+type SalesTrend = { granularity: "monthly" | "yearly"; buckets: SalesTrendBucket[] };
+
+type StockLedgerEntry = { id: string; qtyBase: number; unitCostPaise: number; totalCostPaise: number; source: string; createdAt: string };
+type InvoiceDetail = {
+  invoiceId: string;
+  customerName: string;
+  financialYear: string;
+  invoiceNumber: number;
+  taxableValuePaise: number;
+  cgstPaise: number;
+  sgstPaise: number;
+  igstPaise: number;
+  totalPaise: number;
+  payments: { id: string; amountPaise: number; paidAt: string }[];
+  creditNotes: { id: string; amountPaise: number; reason: string; createdAt: string }[];
+  paidPaise: number;
+  creditedPaise: number;
+  outstandingPaise: number;
+};
+type CustomerSalesEntry = { invoiceId: string; financialYear: string; invoiceNumber: number; taxableValuePaise: number; totalPaise: number; createdAt: string };
+type GstRateEntry = { invoiceId: string; invoiceNumber: number; customerName: string; description: string; qtyBase: number; taxableValuePaise: number };
+type ProductionCostDetail = {
+  variance: { materials: { itemId: string; planned: number; actual: number; variancePct: number; flagged: boolean }[]; yield: { planned: number; actual: number; variancePct: number; flagged: boolean } | null };
+  cost: {
+    materialLines: { itemId: string; sku: string; name: string; qtyBase: number; totalCostPaise: number }[];
+    packagingLines: { itemId: string; sku: string; name: string; qtyBase: number; totalCostPaise: number }[];
+    laborCostPaise: number;
+    overheadCostPaise: number;
+    totalCostPaise: number;
+    goodOutputQty: number;
+    costPerGoodUnitPaise: number;
+  } | null;
+};
+
+type Drill =
+  | { type: "stock"; itemId: string; sku: string }
+  | { type: "customerSales"; customerId: string; customerName: string }
+  | { type: "customerOutstanding"; customerId: string; customerName: string }
+  | { type: "gstRate"; taxRatePct: number }
+  | { type: "productionCost"; runId: string; sku: string };
 
 const REPORTS = ["Sales Register", "GST Summary", "Purchase Register", "Stock Summary", "Production", "Payments & Collections"] as const;
+
+const clickableCell = "cursor-pointer decoration-dotted underline-offset-2 hover:text-primary hover:underline";
 
 export default function Reports() {
   const [tab, setTab] = useState<(typeof REPORTS)[number]>("Sales Register");
@@ -35,10 +78,16 @@ export default function Reports() {
   const [to, setTo] = useState("");
 
   const query = new URLSearchParams({ ...(from ? { from } : {}), ...(to ? { to } : {}) }).toString();
+  const [trendGranularity, setTrendGranularity] = useState<"monthly" | "yearly">("monthly");
 
   const salesRegister = useQuery({
     queryKey: ["reports", "sales-register", from, to],
     queryFn: () => api.get<SalesRegister>(`/reports/sales-register?${query}`),
+    enabled: tab === "Sales Register",
+  });
+  const salesTrend = useQuery({
+    queryKey: ["reports", "sales-trend", trendGranularity, from, to],
+    queryFn: () => api.get<SalesTrend>(`/reports/sales-trend?granularity=${trendGranularity}&${query}`),
     enabled: tab === "Sales Register",
   });
   const gstSummary = useQuery({
@@ -65,6 +114,20 @@ export default function Reports() {
     queryKey: ["reports", "payments-collections"],
     queryFn: () => api.get<CollectionsRow[]>(`/reports/payments-collections`),
     enabled: tab === "Payments & Collections",
+  });
+
+  const [drill, setDrill] = useState<Drill | null>(null);
+  const drillQuery = useQuery({
+    queryKey: ["reports", "drill", drill, from, to],
+    queryFn: async () => {
+      if (!drill) return null;
+      if (drill.type === "stock") return api.get<StockLedgerEntry[]>(`/reports/stock-ledger?itemId=${drill.itemId}`);
+      if (drill.type === "customerSales") return api.get<CustomerSalesEntry[]>(`/reports/customers/${drill.customerId}/sales-detail?${query}`);
+      if (drill.type === "customerOutstanding") return api.get<InvoiceDetail[]>(`/reports/customers/${drill.customerId}/outstanding-detail`);
+      if (drill.type === "gstRate") return api.get<GstRateEntry[]>(`/reports/gst-summary/${drill.taxRatePct}/detail?${query}`);
+      return api.get<ProductionCostDetail>(`/reports/production/${drill.runId}/cost-detail`);
+    },
+    enabled: drill !== null,
   });
 
   const endpointForExport: Record<(typeof REPORTS)[number], string | null> = {
@@ -142,6 +205,34 @@ export default function Reports() {
       ) : (
         <>
           {/* ── Sales Register ── */}
+          {tab === "Sales Register" && (
+            <Card className="mb-5 p-5">
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-sm font-semibold text-foreground">Sales Trend</h2>
+                <div className="flex gap-0.5 rounded-lg border border-border bg-secondary/50 p-0.5">
+                  {(["monthly", "yearly"] as const).map((g) => (
+                    <button
+                      key={g}
+                      onClick={() => setTrendGranularity(g)}
+                      className={`rounded-md px-2.5 py-1 text-xs font-medium capitalize transition-colors ${
+                        trendGranularity === g ? "bg-white text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      {g}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {salesTrend.isLoading ? (
+                <Loading />
+              ) : !salesTrend.data || salesTrend.data.buckets.every((b) => b.totalPaise === 0) ? (
+                <EmptyState>No sales in this period.</EmptyState>
+              ) : (
+                <SalesTrendBars buckets={salesTrend.data.buckets} />
+              )}
+            </Card>
+          )}
+
           {tab === "Sales Register" && salesRegister.data && (
             salesRegister.data.customerWise.length === 0 ? (
               <EmptyState>No sales in this range.</EmptyState>
@@ -162,7 +253,13 @@ export default function Reports() {
                         <Td className="font-medium text-foreground">{c.customerName}</Td>
                         <Td numeric>{c.qtyBase.toLocaleString("en-IN")}</Td>
                         <Td numeric>{money(c.taxableValuePaise)}</Td>
-                        <Td numeric className="font-semibold text-foreground">{money(c.totalPaise)}</Td>
+                        <Td
+                          numeric
+                          className={`font-semibold text-foreground ${clickableCell}`}
+                          onClick={() => setDrill({ type: "customerSales", customerId: c.customerId, customerName: c.customerName })}
+                        >
+                          {money(c.totalPaise)}
+                        </Td>
                       </tr>
                     ))}
                   </tbody>
@@ -204,7 +301,13 @@ export default function Reports() {
                   {gstSummary.data.byRate.map((r) => (
                     <tr key={r.taxRatePct} className="hover:bg-secondary/30">
                       <Td className="font-medium text-foreground">{r.taxRatePct}%</Td>
-                      <Td numeric>{money(r.taxableValuePaise)}</Td>
+                      <Td
+                        numeric
+                        className={clickableCell}
+                        onClick={() => setDrill({ type: "gstRate", taxRatePct: r.taxRatePct })}
+                      >
+                        {money(r.taxableValuePaise)}
+                      </Td>
                     </tr>
                   ))}
                 </tbody>
@@ -251,7 +354,13 @@ export default function Reports() {
                       <Td className="font-mono text-xs text-muted-foreground">{s.sku}</Td>
                       <Td className="font-medium text-foreground">{s.name}</Td>
                       <Td><span className="text-xs text-muted-foreground">{s.type.replace("_", " ")}</span></Td>
-                      <Td numeric className="font-semibold text-foreground">{s.qtyBase.toLocaleString("en-IN")}</Td>
+                      <Td
+                        numeric
+                        className={`font-semibold text-foreground ${clickableCell}`}
+                        onClick={() => setDrill({ type: "stock", itemId: s.itemId, sku: s.sku })}
+                      >
+                        {s.qtyBase.toLocaleString("en-IN")}
+                      </Td>
                       <Td numeric>{s.movingAverageCostPaise !== null ? money(s.movingAverageCostPaise) : <span className="text-muted-foreground">—</span>}</Td>
                     </tr>
                   ))}
@@ -275,7 +384,13 @@ export default function Reports() {
                       <Td className="font-medium text-foreground">{r.finishedGoodSku}</Td>
                       <Td>{r.status}</Td>
                       <Td numeric>{r.plannedYield}</Td>
-                      <Td numeric>{r.actualYield ?? <span className="text-muted-foreground">—</span>}</Td>
+                      <Td
+                        numeric
+                        className={r.status === "COMPLETED" ? clickableCell : ""}
+                        onClick={() => r.status === "COMPLETED" && setDrill({ type: "productionCost", runId: r.runId, sku: r.finishedGoodSku })}
+                      >
+                        {r.actualYield ?? <span className="text-muted-foreground">—</span>}
+                      </Td>
                       <Td numeric className={r.yieldVariancePct !== null && Math.abs(r.yieldVariancePct) > 0.03 ? "font-semibold text-destructive" : ""}>
                         {r.yieldVariancePct !== null ? `${(r.yieldVariancePct * 100).toFixed(1)}%` : <span className="text-muted-foreground">—</span>}
                       </Td>
@@ -299,7 +414,13 @@ export default function Reports() {
                   {collections.data?.map((c) => (
                     <tr key={c.customerId} className="hover:bg-secondary/30">
                       <Td className="font-medium text-foreground">{c.customerName}</Td>
-                      <Td numeric className="font-bold text-foreground">{money(c.outstandingPaise)}</Td>
+                      <Td
+                        numeric
+                        className={`font-bold text-foreground ${clickableCell}`}
+                        onClick={() => setDrill({ type: "customerOutstanding", customerId: c.customerId, customerName: c.customerName })}
+                      >
+                        {money(c.outstandingPaise)}
+                      </Td>
                       <Td numeric>{money(c["0-30"])}</Td>
                       <Td numeric>{money(c["31-60"])}</Td>
                       <Td numeric>{money(c["61-90"])}</Td>
@@ -312,6 +433,199 @@ export default function Reports() {
           )}
         </>
       )}
+
+      <Drawer open={drill !== null} onClose={() => setDrill(null)} title={drillTitle(drill)}>
+        {drillQuery.isLoading ? (
+          <Loading />
+        ) : drillQuery.error ? (
+          <ErrorText>{(drillQuery.error as Error).message}</ErrorText>
+        ) : drill?.type === "stock" ? (
+          <StockLedgerDrill rows={(drillQuery.data as StockLedgerEntry[] | null) ?? []} />
+        ) : drill?.type === "customerSales" ? (
+          <CustomerSalesDrill rows={(drillQuery.data as CustomerSalesEntry[] | null) ?? []} />
+        ) : drill?.type === "customerOutstanding" ? (
+          <CustomerOutstandingDrill invoices={(drillQuery.data as InvoiceDetail[] | null) ?? []} />
+        ) : drill?.type === "gstRate" ? (
+          <GstRateDrill rows={(drillQuery.data as GstRateEntry[] | null) ?? []} />
+        ) : drill?.type === "productionCost" ? (
+          <ProductionCostDrill detail={drillQuery.data as ProductionCostDetail | null} />
+        ) : null}
+      </Drawer>
     </div>
+  );
+}
+
+function drillTitle(drill: Drill | null): string {
+  if (!drill) return "";
+  if (drill.type === "stock") return `Stock ledger — ${drill.sku}`;
+  if (drill.type === "customerSales") return `Invoices — ${drill.customerName}`;
+  if (drill.type === "customerOutstanding") return `Outstanding invoices — ${drill.customerName}`;
+  if (drill.type === "gstRate") return `Invoice lines taxed at ${drill.taxRatePct}%`;
+  return `Cost breakdown — ${drill.sku}`;
+}
+
+// A plain CSS/flex bar chart — no charting library, since these are the
+// only two axes (one bucket, one rupee total) a <div> and Tailwind already
+// draw correctly.
+function SalesTrendBars({ buckets }: { buckets: SalesTrendBucket[] }) {
+  const maxPaise = Math.max(1, ...buckets.map((b) => b.totalPaise));
+  return (
+    <div className="flex h-48 items-end gap-2 overflow-x-auto pb-1">
+      {buckets.map((b) => (
+        <div key={b.key} className="flex h-full min-w-[2.5rem] flex-1 flex-col items-center justify-end gap-1.5" title={`${b.label}: ${money(b.totalPaise)} (${b.invoiceCount} invoice${b.invoiceCount !== 1 ? "s" : ""})`}>
+          <span className="text-[10px] font-medium tabular text-muted-foreground">
+            {b.totalPaise > 0 ? money(b.totalPaise).replace(".00", "") : ""}
+          </span>
+          <div
+            className={`w-full rounded-t-md transition-all duration-500 ${b.totalPaise > 0 ? "bg-primary" : "bg-secondary"}`}
+            style={{ height: `${Math.max(2, (b.totalPaise / maxPaise) * 100)}%` }}
+          />
+          <span className="whitespace-nowrap text-[10px] text-muted-foreground">{b.label}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function StockLedgerDrill({ rows }: { rows: StockLedgerEntry[] }) {
+  if (rows.length === 0) return <EmptyState>No stock movements yet.</EmptyState>;
+  let running = 0;
+  return (
+    <Table>
+      <THead>
+        <tr><Th>Date</Th><Th>Source</Th><Th numeric>Qty</Th><Th numeric>Running balance</Th><Th numeric>Value</Th></tr>
+      </THead>
+      <tbody>
+        {rows.map((m) => {
+          running += m.qtyBase;
+          return (
+            <tr key={m.id}>
+              <Td className="text-xs text-muted-foreground">{new Date(m.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</Td>
+              <Td className="text-xs">{m.source.replace(/_/g, " ")}</Td>
+              <Td numeric className={m.qtyBase < 0 ? "text-destructive" : "text-success"}>{m.qtyBase > 0 ? "+" : ""}{m.qtyBase.toLocaleString("en-IN")}</Td>
+              <Td numeric className="font-semibold text-foreground">{running.toLocaleString("en-IN")}</Td>
+              <Td numeric>{money(m.totalCostPaise)}</Td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </Table>
+  );
+}
+
+function CustomerSalesDrill({ rows }: { rows: CustomerSalesEntry[] }) {
+  if (rows.length === 0) return <EmptyState>No invoices in this range.</EmptyState>;
+  const total = rows.reduce((sum, r) => sum + r.totalPaise, 0);
+  return (
+    <>
+      <Table>
+        <THead>
+          <tr><Th>Invoice</Th><Th numeric>Taxable</Th><Th numeric>Total</Th></tr>
+        </THead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.invoiceId}>
+              <Td className="font-mono text-xs text-muted-foreground">{r.financialYear}/{r.invoiceNumber}</Td>
+              <Td numeric>{money(r.taxableValuePaise)}</Td>
+              <Td numeric className="font-semibold text-foreground">{money(r.totalPaise)}</Td>
+            </tr>
+          ))}
+        </tbody>
+      </Table>
+      <p className="mt-3 text-right text-sm font-semibold text-foreground">Total: {money(total)}</p>
+    </>
+  );
+}
+
+function CustomerOutstandingDrill({ invoices }: { invoices: InvoiceDetail[] }) {
+  if (invoices.length === 0) return <EmptyState>Nothing outstanding.</EmptyState>;
+  return (
+    <div className="flex flex-col gap-4">
+      {invoices.map((inv) => (
+        <Card key={inv.invoiceId} className="p-4">
+          <p className="mb-2 font-mono text-xs text-muted-foreground">{inv.financialYear}/{inv.invoiceNumber}</p>
+          <dl className="grid grid-cols-2 gap-y-1 text-sm">
+            <dt className="text-muted-foreground">Taxable value</dt><dd className="text-right tabular">{money(inv.taxableValuePaise)}</dd>
+            <dt className="text-muted-foreground">CGST + SGST</dt><dd className="text-right tabular">{money(inv.cgstPaise + inv.sgstPaise)}</dd>
+            <dt className="text-muted-foreground">IGST</dt><dd className="text-right tabular">{money(inv.igstPaise)}</dd>
+            <dt className="font-medium text-foreground">Total</dt><dd className="text-right tabular font-semibold text-foreground">{money(inv.totalPaise)}</dd>
+          </dl>
+          {inv.payments.length > 0 && (
+            <div className="mt-3 border-t border-border/60 pt-2">
+              <p className="mb-1 text-xs font-semibold text-foreground">Payments</p>
+              {inv.payments.map((p) => (
+                <div key={p.id} className="flex justify-between text-sm text-muted-foreground">
+                  <span>{new Date(p.paidAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</span>
+                  <span className="tabular">{money(p.amountPaise)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {inv.creditNotes.length > 0 && (
+            <div className="mt-2 border-t border-border/60 pt-2">
+              <p className="mb-1 text-xs font-semibold text-foreground">Credit notes</p>
+              {inv.creditNotes.map((c) => (
+                <div key={c.id} className="flex justify-between text-sm text-muted-foreground">
+                  <span>{c.reason}</span>
+                  <span className="tabular">{money(c.amountPaise)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <p className="mt-3 border-t border-border/60 pt-2 text-right text-sm font-bold text-destructive">
+            Outstanding: {money(inv.outstandingPaise)}
+          </p>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+function GstRateDrill({ rows }: { rows: GstRateEntry[] }) {
+  if (rows.length === 0) return <EmptyState>No invoice lines at this rate.</EmptyState>;
+  const total = rows.reduce((sum, r) => sum + r.taxableValuePaise, 0);
+  return (
+    <>
+      <Table>
+        <THead>
+          <tr><Th>Invoice</Th><Th>Customer</Th><Th>Item</Th><Th numeric>Taxable</Th></tr>
+        </THead>
+        <tbody>
+          {rows.map((r, i) => (
+            <tr key={`${r.invoiceId}-${i}`}>
+              <Td className="font-mono text-xs text-muted-foreground">#{r.invoiceNumber}</Td>
+              <Td className="text-sm">{r.customerName}</Td>
+              <Td className="text-sm">{r.description}</Td>
+              <Td numeric>{money(r.taxableValuePaise)}</Td>
+            </tr>
+          ))}
+        </tbody>
+      </Table>
+      <p className="mt-3 text-right text-sm font-semibold text-foreground">Total: {money(total)}</p>
+    </>
+  );
+}
+
+function ProductionCostDrill({ detail }: { detail: ProductionCostDetail | null }) {
+  if (!detail?.cost) return <EmptyState>Cost not yet available for this run.</EmptyState>;
+  const { cost } = detail;
+  return (
+    <table className="w-full text-sm">
+      <tbody>
+        {cost.materialLines.map((l) => (
+          <tr key={l.itemId}><td className="py-0.5 text-muted-foreground">{l.sku} ({l.qtyBase})</td><td className="py-0.5 text-right tabular">{money(l.totalCostPaise)}</td></tr>
+        ))}
+        {cost.packagingLines.map((l) => (
+          <tr key={l.itemId}><td className="py-0.5 text-muted-foreground">{l.sku} ({l.qtyBase})</td><td className="py-0.5 text-right tabular">{money(l.totalCostPaise)}</td></tr>
+        ))}
+        <tr><td className="py-0.5 text-muted-foreground">Labour</td><td className="py-0.5 text-right tabular">{money(cost.laborCostPaise)}</td></tr>
+        <tr><td className="py-0.5 text-muted-foreground">Overhead</td><td className="py-0.5 text-right tabular">{money(cost.overheadCostPaise)}</td></tr>
+        <tr className="border-t border-border/60">
+          <td className="pt-1.5 font-medium text-foreground">Total ({cost.goodOutputQty} good units)</td>
+          <td className="pt-1.5 text-right tabular font-semibold text-foreground">{money(cost.totalCostPaise)}</td>
+        </tr>
+        <tr><td className="py-0.5 font-medium text-foreground">Cost per good unit</td><td className="py-0.5 text-right tabular font-semibold text-foreground">{money(cost.costPerGoodUnitPaise)}</td></tr>
+      </tbody>
+    </table>
   );
 }

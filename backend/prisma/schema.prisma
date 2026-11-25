@@ -314,9 +314,17 @@ model SalesOrder {
   status        SalesOrderStatus @default(SUBMITTED)
   rejectionReason String?
   createdAt     DateTime         @default(now())
+  // Lets a replayed submission (the offline queue retrying, or an impatient
+  // double-tap) resolve to the same order instead of posting it twice —
+  // same pattern as StockMovement.idempotencyKey. Scoped to the salesman,
+  // not globally unique, so one salesman can never collide with (or read
+  // back) another's order by guessing or replaying their key.
+  idempotencyKey String?
 
   items    OrderItem[]
   invoices Invoice[]
+
+  @@unique([salesmanUserId, idempotencyKey])
 }
 
 model OrderItem {

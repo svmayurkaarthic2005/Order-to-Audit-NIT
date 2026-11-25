@@ -60,7 +60,7 @@ productionRouter.post(
   canManageRuns,
   validate("body", productionRunStartSchema),
   async (req, res) => {
-    const run = await startProductionRun(req.params.id as string, req.body.actualConsumption);
+    const run = await startProductionRun(req.params.id as string, req.body.actualConsumption, req.user!.id);
     res.json({ data: run });
   },
 );
@@ -74,12 +74,12 @@ productionRouter.post(
     if (!idempotencyKey) {
       throw new AppError(400, "missing_idempotency_key", "An Idempotency-Key header is required");
     }
-    const run = await completeProductionRun(req.params.id as string, idempotencyKey, req.body);
+    const run = await completeProductionRun(req.params.id as string, idempotencyKey, req.body, req.user!.id);
     res.json({ data: run });
   },
 );
 
 productionRouter.post("/:id/cancel", canManageRuns, async (req, res) => {
-  const run = await cancelProductionRun(req.params.id as string);
+  const run = await cancelProductionRun(req.params.id as string, req.user!.id);
   res.json({ data: run });
 });

@@ -1,4 +1,4 @@
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { AppError } from "../../lib/AppError.js";
 import { logAudit } from "../../lib/audit.js";
 import { prisma } from "../../lib/prisma.js";
@@ -24,6 +24,7 @@ export async function listOrders(filter: { salesmanId?: string; status?: string 
     prisma.salesOrder.findMany({
       where,
       include: { items: { include: { item: true } }, customer: true, salesmanUser: publicUserSelect },
+      omit: { idempotencyKey: true },
       skip: (page - 1) * PAGE_SIZE,
       take: PAGE_SIZE,
       orderBy: { createdAt: "desc" },
@@ -37,6 +38,7 @@ export async function getOrder(id: string) {
   const order = await prisma.salesOrder.findUnique({
     where: { id },
     include: { items: { include: { item: true } }, customer: true, salesmanUser: publicUserSelect },
+    omit: { idempotencyKey: true },
   });
   if (!order) {
     throw new AppError(404, "not_found", "Order not found");
@@ -46,7 +48,44 @@ export async function getOrder(id: string) {
 
 // No stock check here — that's Phase 11's job, at approval time. A salesman
 // only ever orders finished goods, never raw materials or packaging.
-export async function createOrder(salesmanUserId: string, data: { customerId: string; items: OrderItemInput[] }) {
+//
+// Idempotent on the caller-supplied key: the offline queue (or an impatient
+// double-tap while a submission is still in flight) can replay the same
+// payload any number of times and only ever get the one order it created.
+export async function createOrder(
+  salesmanUserId: string,
+  data: { customerId: string; items: OrderItemInput[] },
+  idempotencyKey: string,
+) {
+  // Scoped to the caller: the key is only ever looked up alongside their own
+  // salesmanUserId, so one salesman can never collide with — or read back —
+  // another's order by guessing or replaying their Idempotency-Key.
+  const key = { salesmanUserId_idempotencyKey: { salesmanUserId, idempotencyKey } };
+  const alreadyApplied = await prisma.salesOrder.findUnique({ where: key });
+  if (alreadyApplied) {
+    return getOrder(alreadyApplied.id);
+  }
+
+  try {
+    return await createOrderInTransaction(salesmanUserId, data, idempotencyKey);
+  } catch (err) {
+    // The pre-check above is a friendly fast path; the database's unique
+    // constraint on (salesmanUserId, idempotencyKey) is what actually
+    // prevents a replayed request from posting its rows twice under
+    // concurrency.
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      const existing = await prisma.salesOrder.findUniqueOrThrow({ where: key });
+      return getOrder(existing.id);
+    }
+    throw err;
+  }
+}
+
+async function createOrderInTransaction(
+  salesmanUserId: string,
+  data: { customerId: string; items: OrderItemInput[] },
+  idempotencyKey: string,
+) {
   return prisma.$transaction(async (tx) => {
     const customer = await tx.customer.findUnique({ where: { id: data.customerId } });
     if (!customer || !customer.active) {
@@ -67,6 +106,7 @@ export async function createOrder(salesmanUserId: string, data: { customerId: st
       data: {
         customerId: data.customerId,
         salesmanUserId,
+        idempotencyKey,
         items: { create: data.items },
       },
     });
@@ -74,6 +114,7 @@ export async function createOrder(salesmanUserId: string, data: { customerId: st
     return tx.salesOrder.findUniqueOrThrow({
       where: { id: order.id },
       include: { items: { include: { item: true } }, customer: true },
+      omit: { idempotencyKey: true },
     });
   });
 }
@@ -82,6 +123,7 @@ function withOrderInclude(id: string, tx: TxClient) {
   return tx.salesOrder.findUniqueOrThrow({
     where: { id },
     include: { items: { include: { item: true } }, customer: true, salesmanUser: publicUserSelect },
+    omit: { idempotencyKey: true },
   });
 }
 
@@ -144,6 +186,51 @@ export async function approveOrder(id: string, actingUserId: string) {
     // availability.
     await syncAlertsForItems(result.items.map((i) => i.itemId));
     return result;
+  });
+}
+
+// Admin-side correction before verification completes: quantities or prices
+// typed in over the phone/WhatsApp often need a fix before approval. Once an
+// order leaves SUBMITTED (approved, rejected, or further) it's either
+// already reserved stock or a closed decision — never editable again.
+export async function editOrder(id: string, items: OrderItemInput[], actingUserId: string) {
+  return prisma.$transaction(async (tx) => {
+    const before = await tx.salesOrder.findUnique({ where: { id }, include: { items: { include: { item: true } } } });
+    if (!before) {
+      throw new AppError(404, "not_found", "Order not found");
+    }
+
+    for (const line of items) {
+      const item = await tx.item.findUnique({ where: { id: line.itemId } });
+      if (!item || !item.active) {
+        throw new AppError(404, "not_found", `Item ${line.itemId} not found`);
+      }
+      if (item.type !== "FINISHED_GOOD") {
+        throw new AppError(400, "invalid_item_type", "Orders can only contain finished goods");
+      }
+    }
+
+    // Same atomic-claim pattern as approve/reject: conditioning the write on
+    // status still being SUBMITTED closes the race against a concurrent
+    // approve/reject landing between our read above and this write.
+    const { count } = await tx.salesOrder.updateMany({ where: { id, status: "SUBMITTED" }, data: { status: "SUBMITTED" } });
+    if (count === 0) {
+      throw new AppError(409, "invalid_status", "Only a SUBMITTED order can be edited");
+    }
+
+    await tx.orderItem.deleteMany({ where: { salesOrderId: id } });
+    await tx.orderItem.createMany({ data: items.map((line) => ({ ...line, salesOrderId: id })) });
+
+    await logAudit(tx, {
+      userId: actingUserId,
+      action: "EDIT",
+      entityType: "SalesOrder",
+      entityId: id,
+      before: { items: before.items.map((i) => ({ itemId: i.itemId, sku: i.item.sku, qtyBase: i.qtyBase, ratePaise: i.ratePaise })) },
+      after: { items },
+    });
+
+    return withOrderInclude(id, tx);
   });
 }
 

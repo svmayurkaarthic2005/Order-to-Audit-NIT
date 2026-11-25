@@ -10,6 +10,10 @@ export const stockLedgerQuerySchema = reportQuerySchema.extend({
   itemId: z.string().min(1),
 });
 
+export const salesTrendQuerySchema = reportQuerySchema.extend({
+  granularity: z.enum(["monthly", "yearly"]).default("monthly"),
+});
+
 export const stockSummaryQuerySchema = z.object({
   type: z.enum(["RAW_MATERIAL", "PACKAGING", "FINISHED_GOOD"]).optional(),
 });

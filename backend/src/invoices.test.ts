@@ -33,6 +33,7 @@ async function makeApprovedOrder(
   const orderRes = await request(app)
     .post("/orders")
     .set("Cookie", salesmanCookie)
+    .set("Idempotency-Key", crypto.randomUUID())
     .send({ customerId: customer.id, items: [{ itemId, qtyBase: opts.qtyBase, ratePaise: opts.ratePaise }] });
   const orderId = orderRes.body.data.id as string;
 
@@ -152,6 +153,7 @@ describe("invoices", () => {
     const orderRes = await request(app)
       .post("/orders")
       .set("Cookie", salesmanCookie)
+      .set("Idempotency-Key", crypto.randomUUID())
       .send({ customerId: retailerA.id, items: [{ itemId: itemRes.body.data.id, qtyBase: 1, ratePaise: 100 }] });
 
     const res = await request(app).post("/invoices").set("Cookie", adminCookie).send({ orderId: orderRes.body.data.id });

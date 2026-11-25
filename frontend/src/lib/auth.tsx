@@ -24,6 +24,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     fetch(`${API_BASE}/auth/me`, { credentials: "include" })
       .then((res) => (res.ok ? res.json() : null))
       .then((body) => setUser(body?.data ?? null))
+      .catch(() => setUser(null))
       .finally(() => setLoading(false));
   }, []);
 

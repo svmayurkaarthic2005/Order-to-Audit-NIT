@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
 import { api } from "@/lib/api";
-import { Card, EmptyState, ErrorText, LinkButton, Loading, PageHeader, StatusBadge, money } from "@/components/ui";
+import { Card, EmptyState, ErrorText, LinkButton, Loading, PageHeader, Select, StatusBadge, money } from "@/components/ui";
 
 type Order = {
   id: string;
@@ -23,6 +24,13 @@ export default function OrderHistory() {
     queryKey: ["orders"],
     queryFn: () => api.get<{ items: Order[] }>("/orders"),
   });
+  const [customerFilter, setCustomerFilter] = useState("");
+
+  const customerNames = useMemo(
+    () => [...new Set(data?.items.map((o) => o.customer.name) ?? [])].sort(),
+    [data],
+  );
+  const visibleOrders = customerFilter ? data?.items.filter((o) => o.customer.name === customerFilter) : data?.items;
 
   return (
     <div className="mx-auto max-w-lg">
@@ -50,45 +58,59 @@ export default function OrderHistory() {
           <EmptyState>No orders yet. Submit your first one above.</EmptyState>
         </div>
       ) : (
-        <ul className="flex flex-col gap-3">
-          {data.items.map((o) => {
-            const total = o.items.reduce((sum, l) => sum + l.qtyBase * l.ratePaise, 0);
-            return (
-              <li key={o.id}>
-                <Card className="overflow-hidden transition-shadow hover:shadow-md">
-                  <div className="flex items-start justify-between gap-3 border-b border-border/60 bg-secondary/30 px-4 py-3.5">
-                    <div>
-                      <p className="font-semibold text-foreground">{o.customer.name}</p>
-                      <p className="mt-0.5 text-xs text-muted-foreground">
-                        {new Date(o.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
-                      </p>
-                    </div>
-                    <StatusBadge variant={STATUS_VARIANT[o.status] ?? "neutral"}>{o.status}</StatusBadge>
-                  </div>
-                  <div className="px-4 py-3">
-                    <ul className="mb-2 space-y-1">
-                      {o.items.map((l, i) => (
-                        <li key={i} className="flex items-center justify-between text-sm">
-                          <span className="text-foreground">
-                            <span className="mr-1 font-mono text-xs text-muted-foreground">{l.item.sku}</span>
-                            {l.item.name}
+        <>
+          {customerNames.length > 1 && (
+            <Select value={customerFilter} onChange={(e) => setCustomerFilter(e.target.value)} className="mb-4 w-full">
+              <option value="">All customers</option>
+              {customerNames.map((name) => (
+                <option key={name} value={name}>{name}</option>
+              ))}
+            </Select>
+          )}
+          {visibleOrders && visibleOrders.length === 0 ? (
+            <EmptyState>No orders for this customer.</EmptyState>
+          ) : (
+            <ul className="flex flex-col gap-3">
+              {visibleOrders?.map((o) => {
+                const total = o.items.reduce((sum, l) => sum + l.qtyBase * l.ratePaise, 0);
+                return (
+                  <li key={o.id}>
+                    <Card className="overflow-hidden transition-shadow hover:shadow-md">
+                      <div className="flex items-start justify-between gap-3 border-b border-border/60 bg-secondary/30 px-4 py-3.5">
+                        <div>
+                          <p className="font-semibold text-foreground">{o.customer.name}</p>
+                          <p className="mt-0.5 text-xs text-muted-foreground">
+                            {new Date(o.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+                          </p>
+                        </div>
+                        <StatusBadge variant={STATUS_VARIANT[o.status] ?? "neutral"}>{o.status}</StatusBadge>
+                      </div>
+                      <div className="px-4 py-3">
+                        <ul className="mb-2 space-y-1">
+                          {o.items.map((l, i) => (
+                            <li key={i} className="flex items-center justify-between text-sm">
+                              <span className="text-foreground">
+                                <span className="mr-1 font-mono text-xs text-muted-foreground">{l.item.sku}</span>
+                                {l.item.name}
+                              </span>
+                              <span className="tabular shrink-0 text-muted-foreground">×{l.qtyBase}</span>
+                            </li>
+                          ))}
+                        </ul>
+                        <div className="flex items-center justify-between border-t border-border/50 pt-2.5">
+                          <span className="text-xs text-muted-foreground">
+                            {o.items.length} item{o.items.length !== 1 ? "s" : ""}
                           </span>
-                          <span className="tabular shrink-0 text-muted-foreground">×{l.qtyBase}</span>
-                        </li>
-                      ))}
-                    </ul>
-                    <div className="flex items-center justify-between border-t border-border/50 pt-2.5">
-                      <span className="text-xs text-muted-foreground">
-                        {o.items.length} item{o.items.length !== 1 ? "s" : ""}
-                      </span>
-                      <span className="tabular text-sm font-bold text-foreground">{money(total)}</span>
-                    </div>
-                  </div>
-                </Card>
-              </li>
-            );
-          })}
-        </ul>
+                          <span className="tabular text-sm font-bold text-foreground">{money(total)}</span>
+                        </div>
+                      </div>
+                    </Card>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </>
       )}
     </div>
   );

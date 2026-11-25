@@ -30,6 +30,7 @@ async function makeInvoice(adminCookie: string, salesmanCookie: string) {
   const orderRes = await request(app)
     .post("/orders")
     .set("Cookie", salesmanCookie)
+    .set("Idempotency-Key", crypto.randomUUID())
     .send({ customerId: retailerA.id, items: [{ itemId, qtyBase: 150, ratePaise: 5_000 }] });
   const orderId = orderRes.body.data.id as string;
 
