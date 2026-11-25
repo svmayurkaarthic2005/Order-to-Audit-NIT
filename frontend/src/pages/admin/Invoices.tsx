@@ -196,16 +196,22 @@ export default function Invoices() {
                         {canMutate && outstandingPaise > 0 && (
                           <div className="flex items-center gap-1.5">
                             <Input
-                              placeholder="Amount (paise)"
+                              placeholder="Amount (₹)"
                               type="number"
+                              step="0.01"
+                              min="0"
+                              max={outstandingPaise / 100}
                               value={amountByInvoice[inv.id] ?? ""}
                               onChange={(e) => setAmountByInvoice((prev) => ({ ...prev, [inv.id]: e.target.value }))}
-                              className="h-9 w-40"
+                              className="h-9 w-32"
                             />
                             <Button
                               size="sm"
                               onClick={() =>
-                                paymentMutation.mutate({ invoiceId: inv.id, amountPaise: Number(amountByInvoice[inv.id] || 0) })
+                                paymentMutation.mutate({
+                                  invoiceId: inv.id,
+                                  amountPaise: Math.round(Number(amountByInvoice[inv.id] || 0) * 100),
+                                })
                               }
                               disabled={paymentMutation.isPending}
                             >
