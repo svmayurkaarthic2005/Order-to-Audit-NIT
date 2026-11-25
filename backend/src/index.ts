@@ -13,7 +13,7 @@ import { LOCAL_STORAGE_DIR } from "./lib/storage.js";
 import { requireAuth, requireRole } from "./middleware/auth.js";
 import { dispatchRouter } from "./modules/dispatch/router.js";
 import { inventoryRouter } from "./modules/inventory/router.js";
-import { invoicesRouter } from "./modules/invoices/router.js";
+import { invoiceShareRouter, invoicesRouter } from "./modules/invoices/router.js";
 import { itemsRouter } from "./modules/items/router.js";
 import { ordersRouter } from "./modules/orders/router.js";
 import { paymentsRouter } from "./modules/payments/router.js";
@@ -37,6 +37,8 @@ app.use(csrfOriginCheck);
 app.get("/health", (_req, res) => {
   res.status(200).json({ data: { status: "ok" } });
 });
+
+app.use("/share/invoices", invoiceShareRouter);
 
 // Local stand-in for Supabase Storage (see lib/storage.ts) — only used
 // when SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY aren't configured. These are

@@ -34,6 +34,10 @@ services:
         sync: false
       - key: MANUFACTURER_GSTIN
         sync: false
+      # This service's own public URL (e.g. https://porulottam-backend.onrender.com),
+      # used in the invoice links sent over WhatsApp.
+      - key: PUBLIC_API_URL
+        sync: false
       - key: MANUFACTURER_STATE
         value: "Tamil Nadu"
       # Gmail SMTP for the "Email invoice" button — a Gmail App Password, not

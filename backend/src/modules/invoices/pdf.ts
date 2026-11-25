@@ -1,7 +1,7 @@
 import PDFDocument from "pdfkit";
 
 const MANUFACTURER_GSTIN = process.env.MANUFACTURER_GSTIN || "33AAAAA0000A1Z5";
-const MANUFACTURER_NAME = "Porulottam Foods";
+export const MANUFACTURER_NAME = "Porulottam Foods";
 
 type InvoiceForPdf = {
   financialYear: string;

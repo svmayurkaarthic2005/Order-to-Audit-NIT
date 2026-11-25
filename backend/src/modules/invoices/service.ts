@@ -4,7 +4,12 @@ import { sendMail } from "../../lib/mailer.js";
 import { prisma } from "../../lib/prisma.js";
 import { uploadInvoicePdf, urlForInvoicePdf } from "../../lib/storage.js";
 import { calculate } from "../gst/calculate.js";
-import { renderInvoicePdf } from "./pdf.js";
+import { getOutstandingPaise } from "../payments/service.js";
+import { MANUFACTURER_NAME, renderInvoicePdf } from "./pdf.js";
+import { createShareToken, verifyShareToken } from "./share.js";
+
+const rupees = (paise: number) =>
+  `₹${(paise / 100).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 // The factory's own state for CGST+SGST vs IGST determination — never
 // configured per-invoice, so a dev fallback is fine here (same pattern as
@@ -177,14 +182,44 @@ export async function sendInvoiceEmail(invoiceId: string, actingUserId: string, 
   }
 
   const pdfBuffer = await renderInvoicePdf(invoice);
+  const number = `${invoice.financialYear}/${invoice.invoiceNumber}`;
+  const outstandingPaise = await getOutstandingPaise(invoiceId);
   await sendMail({
     to,
-    subject: `Invoice ${invoice.financialYear}/${invoice.invoiceNumber}`,
-    text: `Please find attached your invoice ${invoice.financialYear}/${invoice.invoiceNumber} for ₹${(invoice.totalPaise / 100).toFixed(2)}.`,
+    subject: `Invoice ${number} from ${MANUFACTURER_NAME}`,
+    text: [
+      `Dear ${invoice.customer.name},`,
+      "",
+      `Please find attached GST invoice ${number} for ${rupees(invoice.totalPaise)}.`,
+      outstandingPaise > 0 ? `Amount due: ${rupees(outstandingPaise)}.` : "This invoice is fully paid. Thank you.",
+      "",
+      "Regards,",
+      MANUFACTURER_NAME,
+    ].join("\n"),
     attachments: [{ filename: `invoice-${invoice.financialYear}-${invoice.invoiceNumber}.pdf`, content: pdfBuffer }],
   });
 
   await prisma.$transaction((tx) =>
     logAudit(tx, { userId: actingUserId, action: "EMAIL_SENT", entityType: "Invoice", entityId: invoiceId, after: { to } }),
   );
+}
+
+// For the WhatsApp share: a link the customer can open without an account,
+// plus a ready-to-send message. baseUrl is the API's public address.
+export async function getInvoiceShareLink(invoiceId: string, baseUrl: string) {
+  const invoice = await getInvoice(invoiceId);
+  const { expires, signature } = createShareToken(invoice.id);
+  const url = `${baseUrl}/share/invoices/${invoice.id}?e=${expires}&s=${signature}`;
+  const number = `${invoice.financialYear}/${invoice.invoiceNumber}`;
+  const message = `Invoice ${number} from ${MANUFACTURER_NAME} for ${rupees(invoice.totalPaise)}. View or download it here: ${url}`;
+  return { url, message, expiresAt: new Date(expires * 1000) };
+}
+
+// Returns null for a bad or expired link so the caller can answer 404
+// without revealing whether the invoice exists.
+export async function renderSharedInvoicePdf(invoiceId: string, expires: number, signature: string) {
+  if (!verifyShareToken(invoiceId, expires, signature)) return null;
+  const invoice = await prisma.invoice.findUnique({ where: { id: invoiceId }, include: includeClause });
+  if (!invoice) return null;
+  return { invoice, pdf: await renderInvoicePdf(invoice) };
 }

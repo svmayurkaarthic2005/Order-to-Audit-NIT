@@ -48,11 +48,13 @@ export default function Invoices() {
     if (tab) tab.location.href = url;
   }
 
+  // wa.me needs the country code; a plain 10-digit Indian mobile gets 91.
+  // With no number, WhatsApp opens and lets you pick the contact.
   async function shareOnWhatsApp(inv: Invoice) {
     const tab = window.open("", "_blank");
-    const { url } = await pdfMutation.mutateAsync(inv.id);
-    const number = (whatsappNumberByInvoice[inv.id] ?? "").replace(/\D/g, "");
-    const message = `Invoice ${inv.financialYear}/${inv.invoiceNumber} for ₹${(inv.totalPaise / 100).toFixed(2)}: ${url}`;
+    const { message } = await api.get<{ message: string }>(`/invoices/${inv.id}/share-link`);
+    let number = (whatsappNumberByInvoice[inv.id] ?? "").replace(/\D/g, "").replace(/^0+/, "");
+    if (number.length === 10) number = `91${number}`;
     if (tab) tab.location.href = `https://wa.me/${number}?text=${encodeURIComponent(message)}`;
   }
 
@@ -182,9 +184,11 @@ export default function Invoices() {
                       Download PDF
                     </Button>
 
+                    {canMutate && (
                     <div className="flex items-center gap-1.5">
                       <Input
-                        placeholder="WhatsApp number"
+                        placeholder="WhatsApp no. (optional)"
+                        inputMode="tel"
                         aria-label="WhatsApp number to share with"
                         value={whatsappNumberByInvoice[inv.id] ?? ""}
                         onChange={(e) => setWhatsappNumberByInvoice((prev) => ({ ...prev, [inv.id]: e.target.value }))}
@@ -194,6 +198,7 @@ export default function Invoices() {
                         Share on WhatsApp
                       </Button>
                     </div>
+                    )}
 
                     {canMutate && (
                       <div className="flex items-center gap-1.5">

@@ -6,7 +6,7 @@ if (process.env.NODE_ENV === "production" && !process.env.JWT_SECRET) {
   throw new Error("JWT_SECRET must be set in production — refusing to start with a fallback secret.");
 }
 
-const JWT_SECRET = process.env.JWT_SECRET ?? DEV_FALLBACK_SECRET;
+export const JWT_SECRET = process.env.JWT_SECRET ?? DEV_FALLBACK_SECRET;
 const ALGORITHM = "HS256" as const;
 
 export const AUTH_COOKIE = "porulottam_token";
