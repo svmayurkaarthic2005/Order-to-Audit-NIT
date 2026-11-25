@@ -14,7 +14,7 @@ shortlisting task.
 - **Database**: PostgreSQL
 - **Auth**: JWT (httpOnly cookie) + bcrypt + role-based access control
 - **Testing**: Vitest + Supertest (151 tests, run against a real Postgres instance)
-- **Invoicing**: PDFKit + Supabase Storage (falls back to local disk) + WhatsApp click-to-chat (`wa.me`)
+- **Invoicing**: PDFKit + Supabase Storage (falls back to local disk) + WhatsApp click-to-chat (`wa.me`) + Gmail SMTP email delivery
 
 Five roles: **Salesman**, **Admin**, **Production**, **Accountant**, **Owner** — see
 `docs/design-note.md` for what each can do.
@@ -191,6 +191,10 @@ leaves them blank on purpose — they're either secrets or point at the other se
   invoice PDFs (fine for a demo, but PDFs are lost on every redeploy since Render's local disk
   isn't persistent)
 - `MANUFACTURER_GSTIN` — the real manufacturer GSTIN used on every generated invoice
+- `GMAIL_USER` / `GMAIL_APP_PASSWORD` — optional; omit to leave invoice emailing disabled (the
+  "Email" button on Invoices returns a clear 503 instead of silently doing nothing). A Gmail
+  [App Password](https://myaccount.google.com/apppasswords) is required, not the account password —
+  Gmail SMTP rejects ordinary passwords for third-party apps
 
 Then seed the fresh database once: `npm run db:seed` via a Render one-off job (or `psql` the
 managed Postgres connection string from `backend/prisma/seed.ts` locally).

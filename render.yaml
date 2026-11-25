@@ -33,6 +33,12 @@ services:
         sync: false
       - key: MANUFACTURER_STATE
         value: "Tamil Nadu"
+      # Gmail SMTP for the "Email invoice" button — a Gmail App Password, not
+      # the account password. Leave unset to disable (returns a 503).
+      - key: GMAIL_USER
+        sync: false
+      - key: GMAIL_APP_PASSWORD
+        sync: false
 
 databases:
   - name: porulottam-db

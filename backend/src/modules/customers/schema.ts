@@ -4,6 +4,7 @@ export const customerCreateSchema = z.object({
   name: z.string().min(1),
   state: z.string().min(1),
   gstin: z.string().optional(),
+  email: z.string().email().optional(),
 });
 
 export const customerUpdateSchema = customerCreateSchema.partial();

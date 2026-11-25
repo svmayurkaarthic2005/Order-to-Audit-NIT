@@ -14,7 +14,7 @@ type Invoice = {
   sgstPaise: number;
   igstPaise: number;
   totalPaise: number;
-  customer: { name: string; state: string };
+  customer: { name: string; state: string; email: string | null };
   items: { description: string; qtyBase: number; ratePaise: number }[];
   creditNotes: { reason: string; amountPaise: number }[];
   payments: { id: string; amountPaise: number; paidAt: string }[];
@@ -29,6 +29,8 @@ export default function Invoices() {
   const [whatsappNumberByInvoice, setWhatsappNumberByInvoice] = useState<Record<string, string>>({});
   const [amountByInvoice, setAmountByInvoice] = useState<Record<string, string>>({});
   const [paymentErrorByInvoice, setPaymentErrorByInvoice] = useState<Record<string, string>>({});
+  const [emailOverrideByInvoice, setEmailOverrideByInvoice] = useState<Record<string, string>>({});
+  const [emailStatusByInvoice, setEmailStatusByInvoice] = useState<Record<string, string>>({});
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["invoices"],
@@ -52,6 +54,17 @@ export default function Invoices() {
     const message = `Invoice ${inv.financialYear}/${inv.invoiceNumber} for ₹${(inv.totalPaise / 100).toFixed(2)}: ${url}`;
     if (tab) tab.location.href = `https://wa.me/${number}?text=${encodeURIComponent(message)}`;
   }
+
+  const emailMutation = useMutation({
+    mutationFn: ({ invoiceId, email }: { invoiceId: string; email?: string }) =>
+      api.post(`/invoices/${invoiceId}/send-email`, { email }),
+    onSuccess: (_data, { invoiceId }) => setEmailStatusByInvoice((prev) => ({ ...prev, [invoiceId]: "sent" })),
+    onError: (err, { invoiceId }) =>
+      setEmailStatusByInvoice((prev) => ({
+        ...prev,
+        [invoiceId]: err instanceof ApiError ? err.message : "Failed to send email",
+      })),
+  });
 
   const creditNoteMutation = useMutation({
     mutationFn: ({ invoiceId, reason }: { invoiceId: string; reason: string }) =>
@@ -229,12 +242,42 @@ export default function Invoices() {
                         </Button>
                       </div>
 
+                      <div className="flex items-center gap-1.5">
+                        <Input
+                          type="email"
+                          placeholder={inv.customer.email ?? "Email address"}
+                          value={emailOverrideByInvoice[inv.id] ?? ""}
+                          onChange={(e) => setEmailOverrideByInvoice((prev) => ({ ...prev, [inv.id]: e.target.value }))}
+                          className="h-9 w-48 text-sm"
+                        />
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          disabled={emailMutation.isPending || (!inv.customer.email && !emailOverrideByInvoice[inv.id])}
+                          onClick={() => {
+                            setEmailStatusByInvoice((prev) => ({ ...prev, [inv.id]: "" }));
+                            emailMutation.mutate({ invoiceId: inv.id, email: emailOverrideByInvoice[inv.id] || undefined });
+                          }}
+                        >
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M4 4h16v16H4z" /><path d="M22 6l-10 7L2 6" />
+                          </svg>
+                          Email
+                        </Button>
+                      </div>
+
                       {canMutate && inv.status === "ISSUED" && (
                         <Button size="sm" variant="danger" onClick={() => setCreditNoteInvoiceId(inv.id)}>
                           Credit note / cancel
                         </Button>
                       )}
                     </div>
+
+                    {emailStatusByInvoice[inv.id] && (
+                      <p className={`mt-2 text-sm ${emailStatusByInvoice[inv.id] === "sent" ? "text-success" : "text-destructive"}`}>
+                        {emailStatusByInvoice[inv.id] === "sent" ? "Invoice emailed." : emailStatusByInvoice[inv.id]}
+                      </p>
+                    )}
 
                     {canMutate && creditNoteInvoiceId === inv.id && (
                       <form

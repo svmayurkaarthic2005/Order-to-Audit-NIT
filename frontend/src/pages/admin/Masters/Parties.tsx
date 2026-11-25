@@ -5,7 +5,7 @@ import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Button, Card, EmptyState, ErrorText, Input, Loading, PageHeader, Table, TabBar, Td, Th, THead } from "@/components/ui";
 
-type Party = { id: string; name: string; state: string; gstin: string | null };
+type Party = { id: string; name: string; state: string; gstin: string | null; email?: string | null };
 
 const TABS = ["Customers", "Suppliers"] as const;
 type Tab = (typeof TABS)[number];
@@ -45,13 +45,13 @@ export default function Parties() {
   const config = CONFIG[tab];
 
   const [search, setSearch] = useState("");
-  const [form, setForm] = useState({ name: "", state: "", gstin: "" });
+  const [form, setForm] = useState({ name: "", state: "", gstin: "", email: "" });
   const [rowError, setRowError] = useState<string | null>(null);
 
   function switchTab(t: string) {
     setSearchParams(t === "Suppliers" ? { type: "supplier" } : {});
     setSearch("");
-    setForm({ name: "", state: "", gstin: "" });
+    setForm({ name: "", state: "", gstin: "", email: "" });
     setRowError(null);
   }
 
@@ -61,9 +61,15 @@ export default function Parties() {
   });
 
   const createMutation = useMutation({
-    mutationFn: () => api.post(config.endpoint, { name: form.name, state: form.state, gstin: form.gstin || undefined }),
+    mutationFn: () =>
+      api.post(config.endpoint, {
+        name: form.name,
+        state: form.state,
+        gstin: form.gstin || undefined,
+        ...(tab === "Customers" ? { email: form.email || undefined } : {}),
+      }),
     onSuccess: () => {
-      setForm({ name: "", state: "", gstin: "" });
+      setForm({ name: "", state: "", gstin: "", email: "" });
       setRowError(null);
       queryClient.invalidateQueries({ queryKey: [config.queryKey] });
     },
@@ -144,6 +150,20 @@ export default function Parties() {
                   className="w-full font-mono text-xs uppercase"
                 />
               </div>
+              {tab === "Customers" && (
+                <div className="sm:col-span-2 lg:col-span-6">
+                  <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Email
+                  </label>
+                  <Input
+                    type="email"
+                    placeholder="Optional — needed to email invoices"
+                    value={form.email}
+                    onChange={(e) => setForm({ ...form, email: e.target.value })}
+                    className="w-full"
+                  />
+                </div>
+              )}
             </div>
 
             <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-t border-border/50 pt-3.5">
@@ -173,6 +193,7 @@ export default function Parties() {
               <Th>Name</Th>
               <Th>State</Th>
               <Th>GSTIN</Th>
+              {tab === "Customers" && <Th>Email</Th>}
               {canMutate && <Th>Action</Th>}
             </tr>
           </THead>
@@ -182,6 +203,7 @@ export default function Parties() {
                 <Td className="font-semibold text-foreground">{p.name}</Td>
                 <Td className="text-muted-foreground">{p.state}</Td>
                 <Td className="font-mono text-xs text-muted-foreground">{p.gstin ?? "—"}</Td>
+                {tab === "Customers" && <Td className="text-muted-foreground">{p.email ?? "—"}</Td>}
                 {canMutate && (
                   <Td>
                     <Button size="sm" variant="danger" onClick={() => deleteMutation.mutate(p.id)}>

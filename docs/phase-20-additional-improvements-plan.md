@@ -603,3 +603,16 @@ HACCP modules. Everything above stays inside the existing modular monolith.
   Full suite: 153 tests, 151 passing (the 2 failures are the same pre-existing, unrelated bugs
   already tracked — a `production.test.ts` cleanup ordering bug and a `batches.test.ts`
   error-message assertion), `benchmark.test.ts` still green (8/8).
+- **2026-11-25 — Invoice email delivery:** the brief's 4.2 only asks for "a WhatsApp share link
+  or email," and WhatsApp was already covered by the `wa.me` click-to-chat link — this adds the
+  email half via Gmail SMTP (`GMAIL_USER`/`GMAIL_APP_PASSWORD`, a Gmail App Password). The
+  out-of-scope note above refers to building generic notification infrastructure, not this
+  specific per-invoice delivery path. New `Customer.email` field (optional), a `POST
+  /invoices/:id/send-email` route (same read-role gate as the existing PDF/outstanding routes,
+  since it shares already-visible data rather than mutating anything), and an audit log entry per
+  send. The PDF is rendered fresh from the invoice's own frozen fields for the attachment, not
+  fetched from storage, so it works even without Supabase configured. With no SMTP credentials
+  set, the route returns a clear 503 rather than a silent no-op. `backend/src/invoice-email.test.ts`
+  (6 tests, passing): mocks only `nodemailer` (the one real external boundary) — covers the 503
+  when unconfigured, the customer's email-on-file, an explicit override address, the 400 when
+  neither is present, the audit entry, and RBAC.

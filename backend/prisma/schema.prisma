@@ -82,6 +82,7 @@ model Customer {
   id        String   @id @default(uuid())
   name      String
   gstin     String?
+  email     String?
   state     String
   active    Boolean  @default(true)
   createdAt DateTime @default(now())

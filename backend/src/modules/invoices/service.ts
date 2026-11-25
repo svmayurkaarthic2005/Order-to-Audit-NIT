@@ -1,5 +1,6 @@
 import { AppError } from "../../lib/AppError.js";
 import { logAudit } from "../../lib/audit.js";
+import { sendMail } from "../../lib/mailer.js";
 import { prisma } from "../../lib/prisma.js";
 import { uploadInvoicePdf, urlForInvoicePdf } from "../../lib/storage.js";
 import { calculate } from "../gst/calculate.js";
@@ -163,4 +164,27 @@ export async function getOrGenerateInvoicePdfUrl(invoiceId: string): Promise<str
   }
 
   return urlForInvoicePdf(key);
+}
+
+// Renders the PDF fresh from the invoice's own frozen fields (same as
+// getOrGenerateInvoicePdfUrl) rather than fetching the stored copy, so
+// this never depends on storage being configured.
+export async function sendInvoiceEmail(invoiceId: string, actingUserId: string, overrideEmail?: string) {
+  const invoice = await getInvoice(invoiceId);
+  const to = overrideEmail ?? invoice.customer.email;
+  if (!to) {
+    throw new AppError(400, "missing_email", "This customer has no email on file; pass one explicitly to send to it once");
+  }
+
+  const pdfBuffer = await renderInvoicePdf(invoice);
+  await sendMail({
+    to,
+    subject: `Invoice ${invoice.financialYear}/${invoice.invoiceNumber}`,
+    text: `Please find attached your invoice ${invoice.financialYear}/${invoice.invoiceNumber} for ₹${(invoice.totalPaise / 100).toFixed(2)}.`,
+    attachments: [{ filename: `invoice-${invoice.financialYear}-${invoice.invoiceNumber}.pdf`, content: pdfBuffer }],
+  });
+
+  await prisma.$transaction((tx) =>
+    logAudit(tx, { userId: actingUserId, action: "EMAIL_SENT", entityType: "Invoice", entityId: invoiceId, after: { to } }),
+  );
 }

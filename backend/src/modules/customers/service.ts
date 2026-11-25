@@ -32,14 +32,14 @@ function checkGstin(gstin: string | undefined, state: string) {
   }
 }
 
-export async function createCustomer(data: { name: string; state: string; gstin?: string }) {
+export async function createCustomer(data: { name: string; state: string; gstin?: string; email?: string }) {
   checkGstin(data.gstin, data.state);
   return prisma.customer.create({ data });
 }
 
 export async function updateCustomer(
   id: string,
-  data: { name?: string; state?: string; gstin?: string },
+  data: { name?: string; state?: string; gstin?: string; email?: string },
 ) {
   const existing = await getCustomer(id);
   const state = data.state ?? existing.state;

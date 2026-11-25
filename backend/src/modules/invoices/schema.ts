@@ -7,3 +7,7 @@ export const invoiceCreateSchema = z.object({
 export const creditNoteCreateSchema = z.object({
   reason: z.string().min(1),
 });
+
+export const invoiceSendEmailSchema = z.object({
+  email: z.string().email().optional(),
+});
