@@ -5,6 +5,7 @@ import { prisma } from "../../lib/prisma.js";
 import { getOnHandQty } from "../inventory/service.js";
 import { getProductionRunVariance, TOLERANCE_PCT } from "../production/variance.js";
 import { getOutstandingPaise } from "../payments/service.js";
+import { notify } from "../notifications/service.js";
 
 type CheckResult = {
   checkType: "STOCK" | "PRODUCTION_VARIANCE" | "PACKAGING" | "INVOICE" | "DISPATCH";
@@ -179,7 +180,29 @@ export async function checkDispatchReconciliation(dispatchId: string): Promise<C
 async function upsertException(result: CheckResult) {
   const dedupeKey = `${result.checkType}:${result.sourceId}`;
   const existing = await prisma.reconciliationException.findUnique({ where: { dedupeKey } });
-  const status: ExceptionStatus = existing?.status === "RESOLVED" || !existing ? "OPEN" : existing.status;
+  const isNewOrReopened = !existing || existing.status === "RESOLVED";
+  const status: ExceptionStatus = isNewOrReopened ? "OPEN" : existing.status;
+
+  // Same transition-only notify as LOW_STOCK/STOCK_REPLENISHED in alerts/
+  // service.ts: fires once when an exception first appears or reopens,
+  // never again while it's already OPEN/REVIEWED, so re-running the checks
+  // doesn't spam the same discrepancy.
+  if (isNewOrReopened) {
+    await notify({
+      // Not ADMIN: AUDIT_EXCEPTION is deliberately ACCOUNTANT's (and OWNER's,
+      // who sees every type) domain — see notifications/service.ts's
+      // visibilityFilter and notifications.test.ts's "ADMIN does NOT see
+      // AUDIT_EXCEPTION" case.
+      recipientRoles: ["OWNER", "ACCOUNTANT"],
+      type: "AUDIT_EXCEPTION",
+      title: `Reconciliation exception: ${result.checkType}`,
+      message: `Expected ${result.expectedValue}, got ${result.actualValue} (diff ${result.differenceValue})`,
+      severity: result.severity,
+      sourceType: "ReconciliationException",
+      sourceId: dedupeKey,
+    });
+  }
+
   await prisma.reconciliationException.upsert({
     where: { dedupeKey },
     update: {

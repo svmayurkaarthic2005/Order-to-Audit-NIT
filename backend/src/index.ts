@@ -68,7 +68,14 @@ app.use("/audit-log", auditRouter);
 app.use("/batches", batchesRouter);
 app.use("/reconciliation", reconciliationRouter);
 app.use("/notifications", notificationsRouter);
-app.use("/debug", debugRouter);
+
+// Exercises the error handler / validator / RBAC middleware shapes
+// directly (see errorHandler.test.ts, auth.test.ts) — never mounted in a
+// real deployment, since /debug/error-test deliberately throws and takes
+// no auth at all.
+if (process.env.NODE_ENV !== "production") {
+  app.use("/debug", debugRouter);
+}
 
 app.use(errorHandler);
 

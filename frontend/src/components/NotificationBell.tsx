@@ -43,6 +43,11 @@ function sourceToPath(sourceType: string, _sourceId: string): string {
       return `/admin/orders`;
     case "AuditLog":
       return `/admin/audit-log`;
+    case "RawMaterialBatch":
+    case "FinishedGoodsBatch":
+      return "/admin/batches";
+    case "ReconciliationException":
+      return "/admin/reconciliation";
     default:
       return "/";
   }

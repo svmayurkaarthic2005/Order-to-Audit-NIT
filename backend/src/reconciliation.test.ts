@@ -123,6 +123,16 @@ describe("reconciliation", () => {
     const packaging = exceptions.find((e) => e.checkType === "PACKAGING" && e.sourceId === runId);
     expect(packaging?.differenceValue).toBe("14"); // 194 consumed - 180 capacity, not the brief's "8"
 
+    // Every new exception above also notified ACCOUNTANT (and OWNER, who
+    // sees every type) — ADMIN deliberately doesn't get AUDIT_EXCEPTION,
+    // see notifications.test.ts.
+    const accountantCookie = await loginAs("accountant@porulottam.test");
+    const accountantNotifications = await request(app).get("/notifications").set("Cookie", accountantCookie);
+    const auditExceptionTitles = accountantNotifications.body.data.items
+      .filter((n: { type: string }) => n.type === "AUDIT_EXCEPTION")
+      .map((n: { message: string }) => n.message);
+    expect(auditExceptionTitles.some((m: string) => m.includes("5.0%"))).toBe(true);
+
     // reviewException never touches the source run/items it was raised against.
     const packagingRow = await prisma.reconciliationException.findFirst({
       where: { checkType: "PACKAGING", sourceId: runId },
