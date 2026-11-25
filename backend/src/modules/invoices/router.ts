@@ -34,7 +34,7 @@ invoicesRouter.get("/:id/outstanding", canReadInvoices, async (req, res) => {
 
 invoicesRouter.post(
   "/:id/send-email",
-  canReadInvoices,
+  canManageInvoices,
   validate("body", invoiceSendEmailSchema),
   async (req, res) => {
     await sendInvoiceEmail(req.params.id as string, req.user!.id, req.body.email);

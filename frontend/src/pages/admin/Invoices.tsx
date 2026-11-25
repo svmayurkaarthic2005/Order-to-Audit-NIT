@@ -242,6 +242,7 @@ export default function Invoices() {
                         </Button>
                       </div>
 
+                      {canMutate && (
                       <div className="flex items-center gap-1.5">
                         <Input
                           type="email"
@@ -265,6 +266,7 @@ export default function Invoices() {
                           Email
                         </Button>
                       </div>
+                      )}
 
                       {canMutate && inv.status === "ISSUED" && (
                         <Button size="sm" variant="danger" onClick={() => setCreditNoteInvoiceId(inv.id)}>

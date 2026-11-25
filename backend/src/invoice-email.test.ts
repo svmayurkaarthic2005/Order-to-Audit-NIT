@@ -142,4 +142,10 @@ describe("invoice email delivery", () => {
     const res = await request(app).post(`/invoices/${invoiceId}/send-email`).set("Cookie", cookie).send({});
     expect(res.status).toBe(403);
   });
+
+  it("ACCOUNTANT (read-only) cannot send invoice emails either — this sends real mail and takes a free-form override address", async () => {
+    const cookie = await loginAs("accountant@porulottam.test");
+    const res = await request(app).post(`/invoices/${invoiceId}/send-email`).set("Cookie", cookie).send({});
+    expect(res.status).toBe(403);
+  });
 });
