@@ -4,10 +4,10 @@ import { api, ApiError } from "@/lib/api";
 import {
   Button,
   Card,
-  Drawer,
   EmptyState,
   ErrorText,
   Loading,
+  Modal,
   PageHeader,
   Select,
   StatusBadge,
@@ -74,11 +74,11 @@ function ReviewRow({ exception }: { exception: ReconciliationException }) {
         {exception.status === "RESOLVED" ? "View note" : "Review"}
       </Button>
 
-      {/* A Drawer, not an inline expansion: this used to render straight into
-          the table cell, which forced the Review column (and the whole
-          table) to the width of the open form, pushing every other column
-          off-screen the moment any row was reviewed. */}
-      <Drawer open={open} onClose={() => setOpen(false)} title={`${CHECK_LABEL[exception.checkType]} exception`}>
+      {/* A centered Modal, not an inline expansion: this used to render
+          straight into the table cell, which forced the Review column (and
+          the whole table) to the width of the open form, pushing every
+          other column off-screen the moment any row was reviewed. */}
+      <Modal open={open} onClose={() => setOpen(false)} title={`${CHECK_LABEL[exception.checkType]} exception`}>
         <div className="mb-4 rounded-lg border border-border bg-secondary/30 p-3 text-sm">
           <p className="text-foreground">{exception.sourceType}</p>
           <p className="font-mono text-xs text-muted-foreground">{exception.sourceId}</p>
@@ -116,7 +116,7 @@ function ReviewRow({ exception }: { exception: ReconciliationException }) {
             </>
           )}
         </div>
-      </Drawer>
+      </Modal>
     </>
   );
 }
