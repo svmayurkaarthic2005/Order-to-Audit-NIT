@@ -18,13 +18,16 @@ type Purchase = {
 const emptyLine: Line = { itemId: "", quantity: "", pricePerUnit: "", lotNo: "", expiryDate: "" };
 
 // The form takes kg/L/pcs and rupees per kg/L/pc; the API stores whole base
-// units (g/ml/pc) and a whole-paise rate per base unit.
+// units (g/ml/pc).
 function toApiLine(line: Line, baseUnit: string) {
   const { factor } = unitOf(baseUnit);
   return {
     itemId: line.itemId,
     qtyBase: Math.round(Number(line.quantity) * factor),
     rateBasePaise: Math.round((Number(line.pricePerUnit) * 100) / factor),
+    // The exact line value: ₹45/kg is 4.5 paise per gram, which the rate
+    // above can't hold, so the server books this total instead.
+    totalCostPaise: Math.round(Number(line.quantity) * Number(line.pricePerUnit) * 100),
     // Either of these turns the line into a tracked batch (see Batches).
     ...(line.lotNo.trim() ? { supplierBatchNo: line.lotNo.trim() } : {}),
     ...(line.expiryDate ? { expiryDate: line.expiryDate } : {}),
@@ -108,7 +111,7 @@ export default function Purchases() {
                 {lines.map((line, i) => {
                   const unit = unitOf(baseUnitOf(line.itemId)).label;
                   const apiLine = toApiLine(line, baseUnitOf(line.itemId));
-                  const lineTotal = line.quantity && line.pricePerUnit ? apiLine.qtyBase * apiLine.rateBasePaise : null;
+                  const lineTotal = line.quantity && line.pricePerUnit ? apiLine.totalCostPaise : null;
                   return (
                   <div key={i} className="rounded-lg border border-border p-3">
                   <div className="grid grid-cols-1 items-center gap-2 sm:grid-cols-[1fr_130px_150px_110px_auto]">

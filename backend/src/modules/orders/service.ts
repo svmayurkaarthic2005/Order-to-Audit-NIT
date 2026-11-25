@@ -162,14 +162,21 @@ export async function approveOrder(id: string, actingUserId: string) {
       throw new AppError(409, "invalid_status", "Only a SUBMITTED order can be approved");
     }
 
+    // Checked per product, totalling every line for it, so an order that
+    // reached the database with a product split over two lines (older data,
+    // or a direct insert) still can't slip past the stock check.
+    const requestedByItem = new Map<string, number>();
     for (const line of fresh.items) {
-      const onHand = await getOnHandQty(tx, line.itemId);
-      const reserved = await getReservedQty(tx, line.itemId);
+      requestedByItem.set(line.itemId, (requestedByItem.get(line.itemId) ?? 0) + line.qtyBase);
+    }
+    for (const [itemId, requested] of requestedByItem) {
+      const onHand = await getOnHandQty(tx, itemId);
+      const reserved = await getReservedQty(tx, itemId);
       const available = onHand - reserved;
-      if (line.qtyBase > available) {
+      if (requested > available) {
         throw new AppError(409, "insufficient_stock", "Not enough stock to approve this order", {
-          itemId: line.itemId,
-          shortfall: line.qtyBase - available,
+          itemId,
+          shortfall: requested - available,
         });
       }
     }

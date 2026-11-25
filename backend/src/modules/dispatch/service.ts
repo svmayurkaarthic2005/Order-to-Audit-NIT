@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { AppError } from "../../lib/AppError.js";
 import { logAudit } from "../../lib/audit.js";
 import { prisma } from "../../lib/prisma.js";
+import { issueValuePaise, ledgerPosition } from "../../lib/valuation.js";
 import { syncAlertsForItems } from "../alerts/service.js";
 import {
   issueFromFinishedBatches,
@@ -9,14 +10,6 @@ import {
   selectFinishedBatchesFEFO,
 } from "../batches/service.js";
 
-type TxClient = Prisma.TransactionClient;
-
-async function movingAverageCostPaise(tx: TxClient, itemId: string): Promise<number> {
-  const agg = await tx.stockMovement.aggregate({ where: { itemId }, _sum: { qtyBase: true, totalCostPaise: true } });
-  const qty = agg._sum.qtyBase ?? 0;
-  const cost = agg._sum.totalCostPaise ?? 0;
-  return qty > 0 ? Math.round(cost / qty) : 0;
-}
 
 export async function listDispatches() {
   return prisma.dispatch.findMany({ include: { invoice: { include: { customer: true } } }, orderBy: { dispatchedAt: "desc" } });
@@ -44,7 +37,7 @@ export async function createDispatch(invoiceId: string, qty: number, actingUserI
 
       const itemId = invoice.items[0]!.itemId;
       dispatchedItemId = itemId;
-      const unitCostPaise = await movingAverageCostPaise(tx, itemId);
+      const valuePaise = issueValuePaise(qty, await ledgerPosition(tx, itemId));
 
       const selections = await selectFinishedBatchesFEFO(itemId, qty);
       await issueFromFinishedBatches(
@@ -54,7 +47,7 @@ export async function createDispatch(invoiceId: string, qty: number, actingUserI
         selections,
         itemId,
         qty,
-        unitCostPaise,
+        valuePaise,
         actingUserId,
         overrideReason,
       );

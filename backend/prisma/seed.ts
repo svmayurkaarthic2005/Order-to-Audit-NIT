@@ -56,6 +56,7 @@ async function postOpeningStock(itemId: string, qtyBase: number, totalCostPaise:
 async function main() {
   // --- users: one per role ---
   await upsertUser("salesman@porulottam.test", "Salesman A", "SALESMAN");
+  await upsertUser("salesman.b@porulottam.test", "Salesman B", "SALESMAN");
   await upsertUser("admin@porulottam.test", "Factory Admin", "ADMIN");
   await upsertUser("production@porulottam.test", "Production Supervisor", "PRODUCTION");
   await upsertUser("accountant@porulottam.test", "Accountant", "ACCOUNTANT");
@@ -118,9 +119,11 @@ async function main() {
 
   // --- opening stock (benchmark section 5) ---
   // qty in base units; cost is the TOTAL in paise (exact), unit cost is derived/rounded
-  await postOpeningStock(flour.id, 100_000, 100 * 45_00); // 100 kg @ Rs45/kg
+  // Rates from the brief's master-data table: flour ₹42 for opening stock
+  // (₹45 is the later purchase), oil ₹140/L, spice mix ₹200/kg.
+  await postOpeningStock(flour.id, 100_000, 100 * 42_00); // 100 kg @ Rs42/kg
   await postOpeningStock(oil.id, 30_000, 30 * 140_00); // 30 L @ Rs140/L
-  await postOpeningStock(spiceMix.id, 5_000, 0);
+  await postOpeningStock(spiceMix.id, 5_000, 5 * 200_00); // 5 kg @ Rs200/kg
   await postOpeningStock(pouches.id, 500, 500 * 2_50); // Rs 2.50 each
   await postOpeningStock(cartons.id, 30, 30 * 15_00); // Rs 15 each
   await postOpeningStock(murukku200g.id, 50, 0); // opening finished-goods stock
@@ -158,7 +161,7 @@ async function main() {
   });
 
   console.log("Seed complete.", {
-    users: 5,
+    users: 6,
     customers: [retailerA.name, distributorB.name],
     items: [flour.name, oil.name, spiceMix.name, pouches.name, cartons.name, murukku200g.name],
     bom: bom.id,

@@ -2,6 +2,7 @@ import { type Prisma } from "@prisma/client";
 import { AppError } from "../../lib/AppError.js";
 import { logAudit } from "../../lib/audit.js";
 import { prisma } from "../../lib/prisma.js";
+import { displayUnitCostPaise, splitValue } from "../../lib/valuation.js";
 import { notify } from "../notifications/service.js";
 
 type TxClient = Prisma.TransactionClient;
@@ -16,8 +17,13 @@ export function genBatchNo(prefix: "RM" | "FG"): string {
 
 // ── Raw material batch receipt ────────────────────────────────────────────
 
-export async function receiveBatch(
-  purchaseItemId: string,
+// Creates the batch for a purchase line inside the purchase's own
+// transaction, before its receipt movement is posted, so the movement can
+// carry rawMaterialBatchId from the start. The ledger is append-only: a
+// posted movement is never edited to attach a batch afterwards.
+export async function createRawBatchForPurchaseLine(
+  tx: TxClient,
+  line: { purchaseItemId: string; itemId: string; qtyBase: number; supplierId: string; receiptDate: Date },
   batchDetails: {
     supplierBatchNo?: string;
     manufactureDate?: Date;
@@ -25,44 +31,21 @@ export async function receiveBatch(
     qualityDocRef?: string;
   },
 ) {
-  const pi = await prisma.purchaseItem.findUnique({
-    where: { id: purchaseItemId },
-    include: { item: true, purchase: true },
-  });
-  if (!pi) throw new AppError(404, "not_found", "Purchase item not found");
-
-  // Idempotent — a PurchaseItem can only have one batch (relation is @unique)
-  const existing = await prisma.rawMaterialBatch.findUnique({ where: { purchaseItemId } });
-  if (existing) return existing;
-
-  const batch = await prisma.rawMaterialBatch.create({
+  return tx.rawMaterialBatch.create({
     data: {
-      itemId: pi.itemId,
+      itemId: line.itemId,
       internalBatchNo: genBatchNo("RM"),
       supplierBatchNo: batchDetails.supplierBatchNo ?? null,
-      supplierId: pi.purchase.supplierId,
-      purchaseItemId,
-      receivedQtyBase: pi.qtyBase,
-      remainingQtyBase: pi.qtyBase,
-      receiptDate: pi.purchase.purchaseDate,
+      supplierId: line.supplierId,
+      purchaseItemId: line.purchaseItemId,
+      receivedQtyBase: line.qtyBase,
+      remainingQtyBase: line.qtyBase,
+      receiptDate: line.receiptDate,
       manufactureDate: batchDetails.manufactureDate ?? null,
       expiryDate: batchDetails.expiryDate ?? null,
       qualityDocRef: batchDetails.qualityDocRef ?? null,
     },
   });
-
-  // Link the receipt stock movement so SUM(StockMovement WHERE rawMaterialBatchId = X) matches remainingQtyBase
-  await prisma.stockMovement.updateMany({
-    where: {
-      source: "PURCHASE",
-      sourceId: pi.purchaseId,
-      itemId: pi.itemId,
-      rawMaterialBatchId: null,
-    },
-    data: { rawMaterialBatchId: batch.id },
-  });
-
-  return batch;
 }
 
 // ── FEFO selection ────────────────────────────────────────────────────────
@@ -161,17 +144,18 @@ export async function issueFromRawBatches(
   itemId: string,
   productionRunId: string,
   qtyNeeded: number,
-  unitCostPaise: number,
+  issueValuePaise: number,
   actingUserId: string | null = null,
   overrideReason?: string,
 ) {
+  const unitCostPaise = displayUnitCostPaise(issueValuePaise, qtyNeeded);
   if (selections.length === 0) {
     await tx.stockMovement.create({
       data: {
         itemId,
         qtyBase: -qtyNeeded,
         unitCostPaise,
-        totalCostPaise: -(qtyNeeded * unitCostPaise),
+        totalCostPaise: -issueValuePaise,
         source: "PRODUCTION_ISSUE",
         sourceId: productionRunId,
       },
@@ -179,7 +163,8 @@ export async function issueFromRawBatches(
     return;
   }
 
-  for (const sel of selections) {
+  const values = splitValue(issueValuePaise, selections.map((sel) => sel.qty));
+  for (const [i, sel] of selections.entries()) {
     // Decrement remainingQtyBase atomically
     const updated = await tx.rawMaterialBatch.updateMany({
       where: { id: sel.batchId, remainingQtyBase: { gte: sel.qty } },
@@ -194,7 +179,7 @@ export async function issueFromRawBatches(
         itemId,
         qtyBase: -sel.qty,
         unitCostPaise,
-        totalCostPaise: -(sel.qty * unitCostPaise),
+        totalCostPaise: -values[i]!,
         source: "PRODUCTION_ISSUE",
         sourceId: productionRunId,
         rawMaterialBatchId: sel.batchId,
@@ -222,17 +207,18 @@ export async function issueFromFinishedBatches(
   selections: BatchSelection[],
   itemId: string,
   qtyNeeded: number,
-  unitCostPaise: number,
+  issueValuePaise: number,
   actingUserId: string | null = null,
   overrideReason?: string,
 ) {
+  const unitCostPaise = displayUnitCostPaise(issueValuePaise, qtyNeeded);
   if (selections.length === 0) {
     await tx.stockMovement.create({
       data: {
         itemId,
         qtyBase: -qtyNeeded,
         unitCostPaise,
-        totalCostPaise: -(qtyNeeded * unitCostPaise),
+        totalCostPaise: -issueValuePaise,
         source: "DISPATCH",
         sourceId: invoiceId,
       },
@@ -240,7 +226,8 @@ export async function issueFromFinishedBatches(
     return;
   }
 
-  for (const sel of selections) {
+  const values = splitValue(issueValuePaise, selections.map((sel) => sel.qty));
+  for (const [i, sel] of selections.entries()) {
     const updated = await tx.finishedGoodsBatch.updateMany({
       where: { id: sel.batchId, remainingQtyBase: { gte: sel.qty } },
       data: { remainingQtyBase: { decrement: sel.qty } },
@@ -254,7 +241,7 @@ export async function issueFromFinishedBatches(
         itemId,
         qtyBase: -sel.qty,
         unitCostPaise,
-        totalCostPaise: -(sel.qty * unitCostPaise),
+        totalCostPaise: -values[i]!,
         source: "DISPATCH",
         sourceId: invoiceId,
         finishedGoodsBatchId: sel.batchId,
@@ -288,14 +275,14 @@ export async function issueFromBatches(
   itemId: string,
   targetId: string,
   qtyNeeded: number,
-  unitCostPaise: number,
+  issueValuePaise: number,
   actingUserId: string | null = null,
   overrideReason?: string,
 ) {
   if (selections.length > 0 && selections[0].batchType === "finished") {
-    return issueFromFinishedBatches(tx, targetId, targetId, selections, itemId, qtyNeeded, unitCostPaise, actingUserId, overrideReason);
+    return issueFromFinishedBatches(tx, targetId, targetId, selections, itemId, qtyNeeded, issueValuePaise, actingUserId, overrideReason);
   }
-  return issueFromRawBatches(tx, selections, itemId, targetId, qtyNeeded, unitCostPaise, actingUserId, overrideReason);
+  return issueFromRawBatches(tx, selections, itemId, targetId, qtyNeeded, issueValuePaise, actingUserId, overrideReason);
 }
 
 // ── Record finished-goods production output ───────────────────────────────

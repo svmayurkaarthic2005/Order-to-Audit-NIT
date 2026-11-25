@@ -7,7 +7,6 @@ import {
   genealogyForward,
   issueFromFinishedBatches,
   issueFromRawBatches,
-  receiveBatch,
   recordProductionOutput,
   refreshBatchStatuses,
   selectFinishedBatchesFEFO,
@@ -209,24 +208,26 @@ describe("batch & lot tracking — FEFO, expiry, genealogy & ledger reconciliati
     const rawItemId = await makeTestItem(adminCookie, "RAW_MATERIAL", "G");
     const supplier = await testSupplier();
 
-    // Step 1: Simulate purchase receipt of 500g
-    const purchase = await prisma.purchase.create({ data: { supplierId: supplier.id } });
-    const purchaseItem = await prisma.purchaseItem.create({
-      data: { purchaseId: purchase.id, itemId: rawItemId, qtyBase: 500, rateBasePaise: 10 },
-    });
-    await prisma.stockMovement.create({
-      data: {
-        itemId: rawItemId,
-        qtyBase: 500,
-        unitCostPaise: 10,
-        totalCostPaise: 5000,
-        source: "PURCHASE",
-        sourceId: purchase.id,
-      },
-    });
-    const batch = await receiveBatch(purchaseItem.id, {
-      supplierBatchNo: "SUPP-LOT-999",
-      expiryDate: new Date(Date.now() + 90 * 86_400_000),
+    // Step 1: a real purchase of 500 g with lot details. The batch and its
+    // receipt movement are created together, in the purchase's transaction.
+    const purchaseRes = await request(app)
+      .post("/purchases")
+      .set("Cookie", adminCookie as string)
+      .send({
+        supplierId: supplier.id,
+        items: [
+          {
+            itemId: rawItemId,
+            qtyBase: 500,
+            rateBasePaise: 10,
+            supplierBatchNo: "SUPP-LOT-999",
+            expiryDate: new Date(Date.now() + 90 * 86_400_000).toISOString(),
+          },
+        ],
+      });
+    expect(purchaseRes.status).toBe(201);
+    const batch = await prisma.rawMaterialBatch.findUniqueOrThrow({
+      where: { purchaseItemId: purchaseRes.body.data.items[0].id },
     });
 
     // Initial check: remainingQtyBase should be 500, and SUM of movements with rawMaterialBatchId = 500
@@ -250,7 +251,7 @@ describe("batch & lot tracking — FEFO, expiry, genealogy & ledger reconciliati
         rawItemId,
         run.id,
         150,
-        10,
+        1_500, // value of the 150 g issued
       );
     });
 

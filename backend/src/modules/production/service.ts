@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { AppError } from "../../lib/AppError.js";
 import { logAudit } from "../../lib/audit.js";
 import { prisma } from "../../lib/prisma.js";
+import { displayUnitCostPaise, issueValuePaise, ledgerPosition } from "../../lib/valuation.js";
 import { computeOutputCostPaise } from "./costing.js";
 import { syncAlertsForItems } from "../alerts/service.js";
 import { notify } from "../notifications/service.js";
@@ -14,14 +15,27 @@ import {
 
 type TxClient = Prisma.TransactionClient;
 
-async function movingAverageCostPaise(tx: TxClient, itemId: string): Promise<number> {
-  const agg = await tx.stockMovement.aggregate({
-    where: { itemId },
-    _sum: { qtyBase: true, totalCostPaise: true },
-  });
-  const qty = agg._sum.qtyBase ?? 0;
-  const cost = agg._sum.totalCostPaise ?? 0;
-  return qty > 0 ? Math.round(cost / qty) : 0;
+// Every BOM line of the given kind must be reported exactly once: a missing
+// line would leave real consumption unrecorded (and the variance and cost
+// silently wrong), a repeated one would double-issue it.
+function requireEachLineOnce(lineItemIds: Set<string>, reportedItemIds: string[], what: string, allRequired = true) {
+  const seen = new Set<string>();
+  for (const itemId of reportedItemIds) {
+    if (!lineItemIds.has(itemId)) {
+      throw new AppError(400, "invalid_item", `Item ${itemId} is not a ${what} line on this BOM`);
+    }
+    if (seen.has(itemId)) {
+      throw new AppError(400, "duplicate_line", `Item ${itemId} is listed more than once; report each ${what} once`);
+    }
+    seen.add(itemId);
+  }
+  const missing = [...lineItemIds].filter((id) => !seen.has(id));
+  if (!allRequired && seen.size === 0 && lineItemIds.size > 0) {
+    throw new AppError(400, "missing_line", `Report the ${what} used for this pack size`);
+  }
+  if (allRequired && missing.length > 0) {
+    throw new AppError(400, "missing_line", `Every ${what} on the recipe must be reported; missing ${missing.join(", ")}`);
+  }
 }
 
 function includeClause() {
@@ -109,11 +123,10 @@ export async function startProductionRun(
       run.bomHeader.lines.filter((l) => l.rawItem.type === "RAW_MATERIAL").map((l) => l.rawItemId),
     );
 
+    requireEachLineOnce(rawMaterialLineIds, actualConsumption.map((c) => c.itemId), "raw material");
+
     for (const consumed of actualConsumption) {
-      if (!rawMaterialLineIds.has(consumed.itemId)) {
-        throw new AppError(400, "invalid_item", `Item ${consumed.itemId} is not a raw-material line on this BOM`);
-      }
-      const unitCostPaise = await movingAverageCostPaise(tx, consumed.itemId);
+      const valuePaise = issueValuePaise(consumed.qtyBase, await ledgerPosition(tx, consumed.itemId));
 
       // FEFO selection — select eligible batches in expiry order
       const selections = await selectRawBatchesFEFO(consumed.itemId, consumed.qtyBase);
@@ -123,7 +136,7 @@ export async function startProductionRun(
         consumed.itemId,
         id,
         consumed.qtyBase,
-        unitCostPaise,
+        valuePaise,
         null,
         consumed.overrideReason,
       );
@@ -239,19 +252,25 @@ async function completeProductionRunInTransaction(
       run.bomHeader.lines.filter((l) => l.rawItem.type === "PACKAGING").map((l) => l.rawItemId),
     );
 
+    // A recipe with several pack sizes lists every pack's packaging, and one
+    // run uses only its own; so with a pack size, each reported line must be
+    // valid and listed once, but unused packs needn't be listed.
+    requireEachLineOnce(packagingLineIds, data.packagingConsumed.map((l) => l.itemId), "packaging item", !data.packSizeId);
+
     for (const line of data.packagingConsumed) {
-      if (!packagingLineIds.has(line.itemId)) {
-        throw new AppError(400, "invalid_item", `Item ${line.itemId} is not a packaging line on this BOM`);
-      }
-      const unitCostPaise = await movingAverageCostPaise(tx, line.itemId);
+      // Value used + damaged together, then split, so the two rows add up
+      // to exactly what the combined quantity is worth.
+      const position = await ledgerPosition(tx, line.itemId);
+      const usedValue = issueValuePaise(line.qtyBase, position);
+      const damagedValue = issueValuePaise(line.qtyBase + line.damagedQty, position) - usedValue;
 
       if (line.qtyBase > 0) {
         await tx.stockMovement.create({
           data: {
             itemId: line.itemId,
             qtyBase: -line.qtyBase,
-            unitCostPaise,
-            totalCostPaise: -(line.qtyBase * unitCostPaise),
+            unitCostPaise: displayUnitCostPaise(usedValue, line.qtyBase),
+            totalCostPaise: -usedValue,
             source: "PRODUCTION_PACKAGING",
             sourceId: id,
           },
@@ -262,8 +281,8 @@ async function completeProductionRunInTransaction(
           data: {
             itemId: line.itemId,
             qtyBase: -line.damagedQty,
-            unitCostPaise,
-            totalCostPaise: -(line.damagedQty * unitCostPaise),
+            unitCostPaise: displayUnitCostPaise(damagedValue, line.damagedQty),
+            totalCostPaise: -damagedValue,
             source: "PRODUCTION_DAMAGE",
             sourceId: id,
           },
@@ -286,7 +305,7 @@ async function completeProductionRunInTransaction(
       data.overheadCostPaise,
       data.laborCostPaise,
     );
-    const unitCostPaise = Math.round(totalCostPaise / data.actualOutputQty);
+    const unitCostPaise = displayUnitCostPaise(totalCostPaise, data.actualOutputQty);
 
     // Create the finished-goods batch row for FEFO dispatch tracking
     const fgBatch = await recordProductionOutput(tx, id, outputItemId, data.actualOutputQty, data.expiryDate);
@@ -361,6 +380,10 @@ export async function cancelProductionRun(id: string, actingUserId: string) {
       after: { status: "CANCELLED" },
     });
 
+    // Each issue is reversed against the same batch it came from, and that
+    // batch's remaining quantity is put back, so FEFO can issue the returned
+    // material again. Without this the ledger said the stock was back while
+    // the batch still showed it as used.
     const issued = await tx.stockMovement.findMany({ where: { sourceId: id, source: "PRODUCTION_ISSUE" } });
     reversedItemIds = issued.map((m) => m.itemId);
     for (const movement of issued) {
@@ -372,8 +395,15 @@ export async function cancelProductionRun(id: string, actingUserId: string) {
           totalCostPaise: -movement.totalCostPaise,
           source: "PRODUCTION_ISSUE_REVERSAL",
           sourceId: id,
+          rawMaterialBatchId: movement.rawMaterialBatchId,
         },
       });
+      if (movement.rawMaterialBatchId) {
+        await tx.rawMaterialBatch.update({
+          where: { id: movement.rawMaterialBatchId },
+          data: { remainingQtyBase: { increment: -movement.qtyBase } },
+        });
+      }
     }
 
     return tx.productionRun.findUniqueOrThrow({ where: { id }, include: includeClause() });

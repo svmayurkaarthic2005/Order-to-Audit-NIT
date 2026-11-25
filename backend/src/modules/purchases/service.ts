@@ -1,7 +1,8 @@
 import { AppError } from "../../lib/AppError.js";
 import { prisma } from "../../lib/prisma.js";
 import { syncAlertsForItems } from "../alerts/service.js";
-import { receiveBatch, refreshBatchStatuses } from "../batches/service.js";
+import { displayUnitCostPaise } from "../../lib/valuation.js";
+import { createRawBatchForPurchaseLine, refreshBatchStatuses } from "../batches/service.js";
 
 const PAGE_SIZE = 20;
 
@@ -9,6 +10,7 @@ type PurchaseItemInput = {
   itemId: string;
   qtyBase: number;
   rateBasePaise: number;
+  totalCostPaise?: number;
   // Optional batch fields — if provided, a RawMaterialBatch row is created
   supplierBatchNo?: string;
   manufactureDate?: string;
@@ -39,10 +41,10 @@ export async function getPurchase(id: string) {
   return purchase;
 }
 
-// Creates the purchase, its line items, and one receipt stock_movements row
-// per line — all inside a single transaction, so a bad line item (unknown
-// item, finished good, inactive supplier) rolls back everything, never a
-// partial purchase.
+// Creates the purchase, its line items, any batches, and one receipt
+// stock_movements row per line, all inside a single transaction, so a bad
+// line item (unknown item, finished good, inactive supplier) rolls back
+// everything, never a partial purchase.
 export async function createPurchase(data: { supplierId: string; items: PurchaseItemInput[] }) {
   return prisma.$transaction(async (tx) => {
     const supplier = await tx.supplier.findUnique({ where: { id: data.supplierId } });
@@ -61,23 +63,45 @@ export async function createPurchase(data: { supplierId: string; items: Purchase
         throw new AppError(400, "invalid_item_type", "Finished goods are produced, not purchased");
       }
 
-      await tx.purchaseItem.create({
+      const valuePaise = line.totalCostPaise ?? line.qtyBase * line.rateBasePaise;
+      const purchaseItem = await tx.purchaseItem.create({
         data: {
           purchaseId: purchase.id,
           itemId: line.itemId,
           qtyBase: line.qtyBase,
-          rateBasePaise: line.rateBasePaise,
+          rateBasePaise: line.totalCostPaise !== undefined ? displayUnitCostPaise(valuePaise, line.qtyBase) : line.rateBasePaise,
         },
       });
+
+      const hasBatchDetails = Boolean(line.supplierBatchNo || line.expiryDate || line.manufactureDate || line.qualityDocRef);
+      const batch = hasBatchDetails
+        ? await createRawBatchForPurchaseLine(
+            tx,
+            {
+              purchaseItemId: purchaseItem.id,
+              itemId: line.itemId,
+              qtyBase: line.qtyBase,
+              supplierId: data.supplierId,
+              receiptDate: purchase.purchaseDate,
+            },
+            {
+              supplierBatchNo: line.supplierBatchNo,
+              manufactureDate: line.manufactureDate ? new Date(line.manufactureDate) : undefined,
+              expiryDate: line.expiryDate ? new Date(line.expiryDate) : undefined,
+              qualityDocRef: line.qualityDocRef,
+            },
+          )
+        : null;
 
       await tx.stockMovement.create({
         data: {
           itemId: line.itemId,
           qtyBase: line.qtyBase,
-          unitCostPaise: line.rateBasePaise,
-          totalCostPaise: line.qtyBase * line.rateBasePaise,
+          unitCostPaise: displayUnitCostPaise(valuePaise, line.qtyBase),
+          totalCostPaise: valuePaise,
           source: "PURCHASE",
           sourceId: purchase.id,
+          rawMaterialBatchId: batch?.id ?? null,
         },
       });
     }
@@ -85,18 +109,6 @@ export async function createPurchase(data: { supplierId: string; items: Purchase
     return tx.purchase.findUniqueOrThrow({ where: { id: purchase.id }, include: { items: true } });
   }).then(async (result) => {
     await syncAlertsForItems(result.items.map((i) => i.itemId));
-    // Create batch rows for any line that carried batch details
-    for (const pi of result.items) {
-      const input = data.items.find((d) => d.itemId === pi.itemId);
-      if (input && (input.supplierBatchNo || input.expiryDate || input.manufactureDate || input.qualityDocRef)) {
-        await receiveBatch(pi.id, {
-          supplierBatchNo: input.supplierBatchNo,
-          manufactureDate: input.manufactureDate ? new Date(input.manufactureDate) : undefined,
-          expiryDate: input.expiryDate ? new Date(input.expiryDate) : undefined,
-          qualityDocRef: input.qualityDocRef,
-        });
-      }
-    }
     await refreshBatchStatuses();
     return result;
   });
@@ -125,15 +137,29 @@ export async function cancelPurchase(id: string) {
       throw new AppError(409, "already_cancelled", "Purchase is already cancelled");
     }
 
-    for (const line of purchase.items) {
+    // Reverse each receipt exactly as it was posted (value and batch), and
+    // take the quantity back off its batch. If some of a batch has already
+    // been used, the purchase can no longer be cancelled as a whole.
+    const receipts = await tx.stockMovement.findMany({ where: { source: "PURCHASE", sourceId: purchase.id } });
+    for (const receipt of receipts) {
+      if (receipt.rawMaterialBatchId) {
+        const taken = await tx.rawMaterialBatch.updateMany({
+          where: { id: receipt.rawMaterialBatchId, remainingQtyBase: { gte: receipt.qtyBase } },
+          data: { remainingQtyBase: { decrement: receipt.qtyBase } },
+        });
+        if (taken.count === 0) {
+          throw new AppError(409, "already_used", "Some of this purchase has already been used in production, so it can't be cancelled");
+        }
+      }
       await tx.stockMovement.create({
         data: {
-          itemId: line.itemId,
-          qtyBase: -line.qtyBase,
-          unitCostPaise: line.rateBasePaise,
-          totalCostPaise: -(line.qtyBase * line.rateBasePaise),
+          itemId: receipt.itemId,
+          qtyBase: -receipt.qtyBase,
+          unitCostPaise: receipt.unitCostPaise,
+          totalCostPaise: -receipt.totalCostPaise,
           source: "PURCHASE_REVERSAL",
           sourceId: purchase.id,
+          rawMaterialBatchId: receipt.rawMaterialBatchId,
         },
       });
     }

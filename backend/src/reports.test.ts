@@ -8,30 +8,10 @@ async function loginAs(email: string) {
   return res.headers["set-cookie"];
 }
 
-describe("reports (traceable against the real benchmark data already posted)", () => {
-  it("sales register shows Retailer A's real 150-packet, ₹7,500-taxable invoice line", async () => {
-    const cookie = await loginAs("admin@porulottam.test");
-    const res = await request(app).get("/reports/sales-register").set("Cookie", cookie);
-    expect(res.status).toBe(200);
-    const retailerA = res.body.data.customerWise.find((c: { customerName: string }) => c.customerName.includes("Retailer A"));
-    expect(retailerA).toBeDefined();
-    expect(retailerA.qtyBase).toBeGreaterThanOrEqual(150);
-    expect(retailerA.taxableValuePaise).toBeGreaterThanOrEqual(750_000);
-  });
-
-  it("GST summary totals include the ₹7,875 Retailer A invoice (traceable to the invoices table, never recomputed)", async () => {
-    const cookie = await loginAs("admin@porulottam.test");
-    const res = await request(app).get("/reports/gst-summary").set("Cookie", cookie);
-    expect(res.status).toBe(200);
-
-    const expectedInvoiceAgg = await prisma.invoice.aggregate({
-      where: { status: "ISSUED" },
-      _sum: { taxableValuePaise: true, cgstPaise: true, sgstPaise: true, igstPaise: true, totalPaise: true },
-    });
-    expect(res.body.data.totals.totalPaise).toBe(expectedInvoiceAgg._sum.totalPaise);
-    expect(res.body.data.totals.cgstPaise).toBe(expectedInvoiceAgg._sum.cgstPaise);
-  });
-
+// The benchmark-specific report checks (sales register, GST summary, stock
+// ledger, production report) live in benchmark.test.ts, which replays the
+// benchmark on a fresh database; these only need whatever data exists.
+describe("reports", () => {
   it("purchase register lists real purchases, each with a non-negative total", async () => {
     const cookie = await loginAs("admin@porulottam.test");
     const res = await request(app).get("/reports/purchase-register").set("Cookie", cookie);
@@ -51,27 +31,6 @@ describe("reports (traceable against the real benchmark data already posted)", (
 
     const row = reportRes.body.data.find((r: { itemId: string }) => r.itemId === murukku.id);
     expect(row.qtyBase).toBe(invRes.body.data.qtyBase); // never disagrees with Phase 5's own endpoint
-  });
-
-  it("stock ledger for Murukku returns its real posted movements in chronological order", async () => {
-    const cookie = await loginAs("admin@porulottam.test");
-    const murukku = await prisma.item.findUniqueOrThrow({ where: { sku: "FG-MURUKKU-200G" } });
-    const res = await request(app).get(`/reports/stock-ledger?itemId=${murukku.id}`).set("Cookie", cookie);
-    expect(res.status).toBe(200);
-    expect(res.body.data.length).toBeGreaterThan(0);
-    const sources = res.body.data.map((m: { source: string }) => m.source);
-    expect(sources).toContain("OPENING_STOCK");
-    expect(sources).toContain("PRODUCTION_OUTPUT");
-    expect(sources).toContain("DISPATCH");
-  });
-
-  it("production report shows the real benchmark run's -6% yield variance", async () => {
-    const cookie = await loginAs("admin@porulottam.test");
-    const res = await request(app).get("/reports/production").set("Cookie", cookie);
-    expect(res.status).toBe(200);
-    const murukkuRun = res.body.data.find((r: { finishedGoodSku: string; status: string }) => r.finishedGoodSku === "FG-MURUKKU-200G" && r.status === "COMPLETED");
-    expect(murukkuRun).toBeDefined();
-    expect(murukkuRun.yieldVariancePct).toBeCloseTo(-0.06, 5);
   });
 
   it("payments & collections' Retailer A outstanding matches a live recomputation from invoices/payments/credit notes", async () => {

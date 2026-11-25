@@ -221,7 +221,7 @@ describe("production lifecycle", () => {
 
   it("closes the complete race: two concurrent /complete calls (different idempotency keys) post output exactly once", async () => {
     const cookie = await loginAs("admin@porulottam.test");
-    const { bomId, finishedId, rawId } = await makeTestBom(cookie);
+    const { bomId, finishedId, rawId, packagingId } = await makeTestBom(cookie);
     const createRes = await request(app).post("/production-runs").set("Cookie", cookie).send({ bomHeaderId: bomId, batchSize: 1 });
     const runId = createRes.body.data.id;
     await request(app)
@@ -234,12 +234,12 @@ describe("production lifecycle", () => {
         .post(`/production-runs/${runId}/complete`)
         .set("Cookie", cookie)
         .set("Idempotency-Key", `race-a-${runId}`)
-        .send({ actualOutputQty: 100, packagingConsumed: [] }),
+        .send({ actualOutputQty: 100, packagingConsumed: [{ itemId: packagingId, qtyBase: 100, damagedQty: 0 }] }),
       request(app)
         .post(`/production-runs/${runId}/complete`)
         .set("Cookie", cookie)
         .set("Idempotency-Key", `race-b-${runId}`)
-        .send({ actualOutputQty: 100, packagingConsumed: [] }),
+        .send({ actualOutputQty: 100, packagingConsumed: [{ itemId: packagingId, qtyBase: 100, damagedQty: 0 }] }),
     ]);
     const statuses = [a.status, b.status].sort();
     expect(statuses).toEqual([200, 409]);

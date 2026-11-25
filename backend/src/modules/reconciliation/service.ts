@@ -204,7 +204,7 @@ async function upsertException(result: CheckResult) {
       recipientRoles: ["OWNER", "ACCOUNTANT"],
       type: "AUDIT_EXCEPTION",
       title: `${CHECK_NAME[result.checkType]} numbers don't add up`,
-      message: `Expected ${result.expectedValue}, found ${result.actualValue}. See Reports, then Checks.`,
+      message: `Expected ${result.expectedValue}, found ${result.actualValue} (${result.differenceValue} off). See Reports, then Checks.`,
       severity: result.severity,
       sourceType: "ReconciliationException",
       sourceId: dedupeKey,
