@@ -1,258 +1,291 @@
 # Porulottam ERP (பொருளோட்டம்)
 
-> Every material. Every process. One connected system.
-
-An Order-to-Audit system for a small South Indian food manufacturer — sales orders, BOM-driven
-production, raw material and finished-goods inventory, GST billing, dispatch, payments, costing
-and audit reporting, in one role-based application. Built for the NIT Tiruchirappalli internship
+An Order-to-Audit system for a small South Indian food manufacturer: field orders, BOM-driven
+production, raw-material and finished-goods stock, GST billing, dispatch, payments, costing and
+audit reporting, in one role-based application. Built for the NIT Tiruchirappalli internship
 shortlisting task.
 
-## Stack
+- **Live demo:** see [Deployment](#deployment) for the current link and status
+- **Run it locally:** five commands, below
+- **Re-run the benchmark yourself:** `cd backend && npm run benchmark` (builds a brand-new database
+  and replays section 5 end to end; details [below](#the-benchmark-section-5))
 
-- **Frontend**: React + Vite + TypeScript + Tailwind CSS + React Router + TanStack Query
-- **Backend**: Node.js + Express 5 + TypeScript + Prisma 6
-- **Database**: PostgreSQL
-- **Auth**: JWT (httpOnly cookie) + bcrypt + role-based access control
-- **Testing**: Vitest + Supertest (151 tests, run against a real Postgres instance)
-- **Invoicing**: PDFKit + Supabase Storage (falls back to local disk) + WhatsApp click-to-chat (`wa.me`) with a signed, expiring customer link + Gmail SMTP email with the PDF attached
+## Stack, and why
 
-Five roles: **Salesman**, **Admin**, **Production**, **Accountant**, **Owner** — see
-`docs/design-note.md` for what each can do.
+| Layer | Choice |
+|---|---|
+| Frontend | React + Vite + TypeScript, Tailwind CSS, React Router, TanStack Query |
+| Backend | Node.js, Express 5, TypeScript, Prisma 6 |
+| Database | PostgreSQL (Docker locally; Supabase when hosted) |
+| Auth | JWT in an httpOnly cookie, bcrypt, role checks on every route |
+| Invoices | PDFKit; stored in Supabase Storage (private bucket) or local disk |
+| Tests | Vitest + Supertest against a real Postgres: 171 tests, plus the benchmark replay |
+| CI | GitHub Actions: migrate, seed, typecheck, tests, benchmark, frontend build |
 
-## Workflow
+One web app serves every role: the salesman gets a phone-sized order screen that keeps working
+offline, while the office and floor get desktop pages, so there's no separate mobile app to
+build or install. PostgreSQL gives real transactions, row locks and constraints, which the stock
+and money rules depend on. TypeScript runs end to end, so the API and the screens share the
+same shapes, and Prisma keeps the schema and its migrations in one place.
 
-```mermaid
-flowchart TD
-    subgraph SALES["Sales → cash (Salesman / Admin / Owner / Accountant)"]
-        A["Salesman submits order\n(SUBMITTED)"] --> B{"Admin/Owner approves?"}
-        B -- "stock available" --> C["Order APPROVED\n(stock reserved)"]
-        B -- "insufficient stock" --> R["Order REJECTED"]
-        C --> D["Admin/Owner generates\nGST invoice"]
-        D --> E["Order DISPATCHABLE\nInvoice ISSUED"]
-        E --> F["Dispatch posted"]
-        F --> G["Order DISPATCHED"]
-        G --> H["Accountant records\npayment(s) / credit notes"]
-        H --> I["Outstanding tracked\n(ageing buckets)"]
-    end
+## Roles
 
-    subgraph PRODUCTION["Production (Production / Admin / Owner)"]
-        P1["BOM / recipe\n+ pack sizes"] --> P2["Production run\ncreated (DRAFT)"]
-        P2 --> P3["Run STARTED\nraw material issued (FEFO)"]
-        P3 --> P4["Run COMPLETED\npackaging consumed,\nlabour/overhead entered"]
-        P4 --> P5["Finished-goods batch\n+ stock movement posted"]
-    end
+| Role | Uses it on | Can do |
+|---|---|---|
+| Salesman | Phone | Place orders (offline too), see own orders, their status, rejection reasons and customer-wise sales |
+| Admin | Desktop | Approve/edit/reject orders, raise GST invoices, dispatch, record payments, credit notes, masters, recipes, purchases |
+| Production | Desktop or tablet | Purchases (material receipts), production runs: issue materials, record output and wastage; batches |
+| Accountant | Desktop | Read-only: every report and export, invoices, stock, activity log, checks |
+| Owner | Any | Everything Admin can, plus the dashboard summary of orders, stock, variance, cost per packet and dues |
 
-    P5 -. "reserved against" .-> C
-    F -. "drawn FEFO from" .-> P5
+## Run it locally
 
-    subgraph BACKGROUND["Runs after every stock-moving action"]
-        N1["Low-stock alerts"]
-        N2["Notifications"]
-        N3["Reconciliation exceptions"]
-        N4["Reports + drill-downs"]
-    end
-
-    P5 -.-> N1
-    P5 -.-> N3
-    F -.-> N3
-    H -.-> N3
-    N1 -.-> N2
-    P4 -.-> N2
-    I -.-> N4
-    P4 -.-> N4
-```
-
-The two lanes run independently — a sale doesn't wait for a specific run, it just needs enough
-finished-goods stock on hand at approval time, FEFO-drawn from whichever batches exist. Audit,
-alerts, notifications and reports never write back into this flow; they only ever read it.
-
-## Local setup
-
-Requires Node.js 20+ and Docker (for local Postgres).
+Needs Node.js 22+ and Docker.
 
 ```bash
-docker compose up -d
-cp .env.example backend/.env   # local Postgres runs on host port 5433
+docker compose up -d                 # Postgres on localhost:5433
+cp .env.example backend/.env
 
 cd backend
 npm install
-npm run db:migrate
-npm run db:seed
-npm run dev        # http://localhost:4000
+npx prisma migrate deploy
+npm run db:seed                      # section 5 master data
+npm run dev                          # API on http://localhost:4000
 
-# in a second terminal
+# second terminal
 cd frontend
 npm install
-npm run dev         # http://localhost:5173
+npm run dev                          # app on http://localhost:5173
 ```
 
-Backend health check: `GET http://localhost:4000/health` → `{"data":{"status":"ok"}}`
+The test suite deletes the rows it creates, so a development database has to opt in to that
+(production databases never do; see [Audit and integrity](#audit-and-integrity)):
 
-Seeded logins (password `password123` for all):
+```bash
+docker exec -it $(docker compose ps -q postgres) \
+  psql -U porulottam -c "ALTER DATABASE porulottam SET app.allow_ledger_cleanup = 'on';"
+cd backend && npm test
+```
 
-| Role       | Email                        |
-|------------|-------------------------------|
-| Salesman   | salesman@porulottam.test      |
-| Admin      | admin@porulottam.test         |
-| Production | production@porulottam.test    |
-| Accountant | accountant@porulottam.test    |
-| Owner      | owner@porulottam.test         |
+### Test logins (password `password123` for all)
 
-## Running the tests
+| Role | Email |
+|---|---|
+| Salesman A | salesman@porulottam.test |
+| Salesman B | salesman.b@porulottam.test |
+| Admin | admin@porulottam.test |
+| Production | production@porulottam.test |
+| Accountant | accountant@porulottam.test |
+| Owner | owner@porulottam.test |
+
+The login page also has one-click buttons for each.
+
+## The benchmark (section 5)
+
+`npm run benchmark` (in `backend/`) creates a database that has never been used, applies every
+migration, loads the seed (exactly the section 5 master data) and then drives all nine steps
+through the real HTTP API as the roles the brief names: the production supervisor buys flour
+and runs production, Salesman A orders for Retailer A, Admin approves, invoices and dispatches,
+Salesman B orders for Distributor B, and Admin records the payment. It then checks every result
+below. It never deletes or edits a row, and the append-only triggers stay on for the whole run.
+The same command runs in CI on every push.
+
+| # | Check | Expected (brief) | This system |
+|---|---|---|---|
+| 1 | Flour closing balance | 120 kg | 120 kg |
+| 2 | Oil closing balance | 19.5 L | 19.5 L |
+| 3 | Pouches closing balance | 306 | 306 (also: spice mix 3.8 kg, cartons 21) |
+| 4 | Finished goods after run | 238 packets | 238 |
+| 5 | After Retailer A dispatch | 88 packets | 88 |
+| 6 | Yield variance | −6%, flagged | −6.0%, flagged (tolerance ±3%) |
+| 7 | Oil consumption variance | +5%, flagged | +5.0%, flagged |
+| 8 | Retailer A invoice | ₹7,500 + ₹187.50 CGST + ₹187.50 SGST = ₹7,875 | Same, invoice #1 of FY 2026-27 |
+| 9 | Retailer A outstanding | ₹3,875 | ₹3,875 |
+| 10 | Distributor B | Shortage of 32 flagged; IGST if invoiced | Approval refused, shortfall 32; IGST ₹300 (no CGST/SGST) |
+| 11 | Cost per packet | Your figure, with method stated | **₹31.14** |
+
+It also checks the month's reports (GST summary, sales register, Murukku stock ledger,
+production report, payments and ageing) against the same figures. There are no differences
+from the brief to explain.
+
+### How ₹31.14 is worked out
+
+Valuation is **moving weighted average**: every issue is valued at (value on hand ÷ quantity on
+hand) at that moment, and only the final paise amount is rounded. Overheads are the run's
+actual labour and gas/power, entered when the run is finished (step 8). If they're left blank
+the system assumes ₹500 per batch, and says so on the run.
+
+| Cost | Working | Amount |
+|---|---|---|
+| Flour | 100 kg at ₹42 + 60 kg at ₹45 = ₹6,900 for 160 kg, so ₹43.125/kg × 40 kg | ₹1,725.00 |
+| Cooking oil | ₹140/L × 10.5 L | ₹1,470.00 |
+| Spice mix | ₹200/kg × 1.2 kg | ₹240.00 |
+| Pouches | ₹2.50 × (188 used + 6 damaged) | ₹485.00 |
+| Cartons | ₹15 × 9 | ₹135.00 |
+| Labour | entered | ₹1,200.00 |
+| Gas/power | entered | ₹600.00 |
+| **Total** | | **₹5,855.00** |
+| **Per good packet** | ₹5,855 ÷ 188 | **₹31.14** |
+
+Damaged pouches are charged to the good packets: they were paid for and used up making them.
+Against the ₹50 selling price, the margin is ₹18.86 a packet (shown on the run's cost
+breakdown). Each run's breakdown is saved when it finishes, so later purchases at different
+prices never change an earlier run's cost.
+
+## What was built, against section 6
+
+**Must have:** all done.
+
+- Login with five roles (salesman, admin, production, accountant, owner)
+- Product, raw-material, packaging, customer and supplier masters; recipes (BOM) with pack sizes
+- Phone-friendly order entry; admin approve, edit or reject, with a stock check before approval
+- GST invoice PDF: GSTIN, HSN, taxable value, CGST+SGST or IGST by place of supply, numbering per
+  financial year
+- Production runs that move raw-material, packaging and finished-goods stock automatically
+- Planned against actual consumption and yield, with variance shown and flagged beyond ±3%
+- Stock summary and per-item stock ledger
+- Sales register and stock report, exported to CSV (opens in Excel) and PDF
+
+**Should have:** all done.
+
+- Purchases and suppliers (a purchase can carry the supplier's lot number and expiry)
+- Payments, outstanding per invoice and customer, ageing buckets (0-30, 31-60, 61-90, 90+)
+- Cost per packet with overheads, with a per-run breakdown and margin
+- GST summary report, by rate
+- Variance alerts beyond tolerance, as notifications
+- Owner dashboard: today's to-do list, sales, dues, stock levels, latest orders
+
+**Stretch goals done:**
+
+- Offline order capture with sync, safe against double-posting (idempotency key per order)
+- Batch and expiry tracking, first-expiry-first-out issue and dispatch, batch tracing
+- Reorder levels and low-stock alerts
+
+**Also built:** a "Checks" page that cross-checks the ledger against itself (stock, yield,
+packaging, invoice totals, dispatch), invoice delivery by email (PDF attached) and by WhatsApp
+(a signed link that opens without a login and expires in 30 days), and drill-downs from every
+report figure to the rows behind it.
+
+**Not built:** production planning from pending orders, GPS visit logs, Tally export,
+e-Invoice/e-Way Bill format, and a Tamil interface for floor staff.
+
+## Audit and integrity
+
+- **Stock is never a stored number.** Every balance is the sum of the stock movement ledger,
+  and every movement links back to its source: a purchase, production run, invoice (dispatch) or
+  opening stock.
+- **The ledger and the activity log are append-only, enforced by the database.** Triggers
+  refuse any UPDATE or DELETE on `StockMovement` and `AuditLog`. Corrections are new rows:
+  a cancelled run posts reversals, a cancelled purchase reverses its receipts, and a posted
+  invoice is cancelled with a credit note. Only throwaway test databases opt in to deletes, so
+  the suite can clean up after itself (`app.allow_ledger_cleanup`).
+- **Money is integer paise**, never floats. Rates that don't fit a whole paise per gram (₹45/kg
+  is 4.5 paise/g) are booked from the exact line total.
+- **Every change is logged** with user and time: order edits (before and after), approvals,
+  invoices, credit notes, payments, dispatch, and each production run's start, finish and cancel.
+- **Concurrency:** approving orders takes a per-product lock, so two approvals can't sell the
+  same packets twice; run start/finish/cancel claim the status change atomically; a dispatch is
+  unique per invoice; offline orders carry an idempotency key.
+- **Batches stay in step with the ledger:** a purchase creates its batch in the same
+  transaction as the receipt; cancelling a run puts the material back on the batch it came from.
+- **Orders can't dodge the stock check** by splitting one product over two lines: duplicates
+  are refused, and approval totals quantities per product anyway.
+- **Production inputs must be complete:** starting a run must report every raw material on the
+  recipe exactly once, and finishing must report its packaging.
+
+## Assumptions
+
+- The factory is in Tamil Nadu (`MANUFACTURER_STATE`); same-state customers get CGST + SGST,
+  others IGST. GST is 5% on Murukku, set on the product.
+- Opening finished goods (50 packets) carry no cost, since the brief doesn't give one; this
+  doesn't affect the run's cost per packet.
+- Stock is held in grams, millilitres and pieces so quantities stay whole numbers; the screens
+  show kg, litres and pieces.
+- One dispatch per invoice, for the full invoiced quantity or less (partial dispatch and returns
+  are optional in the brief and not built).
+- Overpayment is allowed and shown as nothing outstanding, rather than refused; it's the
+  business's call.
+
+## Known gaps
+
+- Dispatch handles single-line invoices only (the benchmark's are), so a multi-product order is
+  invoiced fine but dispatched as one line.
+- Customer-specific prices and schemes aren't modelled; the salesman enters the price per order
+  and the admin can edit it before approval.
+- The demo video is not recorded yet.
+- The hosted demo runs on free tiers (see below), so the first request after a quiet spell can
+  be slow, and Supabase pauses a project after a week with no activity.
+
+## Tests
 
 ```bash
 cd backend
-npm test
+npm test            # 171 tests, real Postgres, about 20 seconds
+npm run benchmark   # section 5 on a brand-new database, 15 checks
 ```
 
-The suite exercises the full order-to-audit flow (orders, approval, invoicing, GST, dispatch,
-payments, production variance/costing, reports, audit log) plus every unhappy path (wrong
-password, 403s on every role boundary, insufficient-stock approval, duplicate dispatch,
-double-complete, concurrent-approval races) — and the features built beyond the mandatory scope:
-batch/lot FEFO tracking and expiry, notifications, ledger reconciliation, the production
-cost-breakdown drill-down, report drill-downs, and the salesman offline order queue (including its
-idempotency-key replay and per-user scoping). `src/benchmark.test.ts` is the single end-to-end
-pass that asserts all 11 mandatory benchmark checks below in one run, against the real data the
-manual walkthrough produced — not synthetic fixtures.
-
-## The benchmark scenario
-
-The problem statement's own worked example, reproduced exactly against this build:
-
-| # | Check                                       | Value                    |
-|---|----------------------------------------------|--------------------------|
-| 1 | Flour closing balance                         | 120 kg                    |
-| 2 | Oil closing balance                           | 19.5 L                    |
-| 3 | Pouches closing balance                       | 306                        |
-| 4 | Finished goods, this run's output alone       | 188 packets (238 with opening stock) |
-| 5 | Finished goods after Retailer A dispatch      | 88 packets                 |
-| 6 | Yield variance                                | −6% (flagged, outside ±3%) |
-| 7 | Oil consumption variance                      | +5% (flagged)              |
-| 8 | Retailer A invoice                            | ₹7,875                     |
-| 9 | Retailer A outstanding                        | ₹3,875                     |
-| 10| Distributor B shortage                        | 32 packets                 |
-| 11| Cost per packet                               | ₹56.33 — moving weighted-average material cost + ₹500/batch overhead, divided by actual output (see `docs/design-note.md`) |
-
-Self-checks: spice mix closing 3.8 kg, cartons closing 21.
-
-## Beyond the mandatory benchmark
-
-A second round of scope, built on top of the benchmark above once it passed end-to-end (see
-`docs/phase-20-additional-improvements-plan.md` for the brief each of these came from):
-
-- **Batch & lot tracking** — FEFO issuing for raw and finished-goods stock, expiry/quarantine
-  handling, and forward/backward genealogy (`backend/src/modules/batches`,
-  `frontend/src/pages/admin/{Batches,BatchGenealogy}.tsx`).
-- **Low-stock alerts** — per-item reorder levels, synced after every stock-moving action
-  (`backend/src/modules/alerts`, `frontend/src/pages/admin/LowStockAlerts.tsx`, now also carrying
-  the opening-stock form).
-- **Notifications** — low-stock, replenishment and production-variance events surfaced through a
-  bell in the app shell (`backend/src/modules/notifications`,
-  `frontend/src/components/NotificationBell.tsx`).
-- **Ledger reconciliation** — read-only cross-checks of the ledger against itself (stock-movement
-  completeness, production yield/material variance, packaging, invoice GST totals, dispatch-vs-order
-  consistency), tracked and reviewed without ever touching the transactions they were raised against
-  (`backend/src/modules/reconciliation`, `frontend/src/pages/admin/Reconciliation.tsx`).
-- **Explainable production costing** — a per-run cost breakdown (material/packaging lines, labour,
-  overhead, margin against the latest invoice rate) that's a permanent historical snapshot once a
-  run completes, with an optional labour/overhead entry at completion time replacing the flat
-  ₹500/batch default (`backend/src/modules/production/costing.ts`,
-  `frontend/src/pages/production/ProductionRuns.tsx`).
-- **Report drill-downs** — every report's aggregate cells (stock on-hand, GST by rate, sales and
-  outstanding by customer, production cost) open the real rows behind them in a side drawer, which
-  always reconciles exactly with the summary figure it expands (`backend/src/modules/reports`,
-  `frontend/src/pages/admin/Reports.tsx`).
-- **Offline-safe order entry** — "Recent" customer/product chips, a quantity stepper, a live
-  running total, and a post-submit confirmation; a failed submission queues locally and replays
-  automatically on reconnect, carrying a per-salesman idempotency key so a replay or an impatient
-  retry can never double-post (`frontend/src/lib/api.ts`, `frontend/src/pages/salesman/OrderEntry.tsx`,
-  `backend/src/modules/orders/service.ts`).
+The tests cover the full order-to-cash and production flows and the unhappy paths: wrong
+password, every role boundary (403s), insufficient stock, duplicate order lines, incomplete
+production input, duplicate dispatch, double completion, concurrent approval and start races,
+cancellation reversals (including batch quantities), the append-only triggers, exact
+moving-average valuation, offline order replay, invoice email and share links, and every report.
+CI runs all of it, plus the benchmark, on a fresh database on every push.
 
 ## Deployment
 
-**Status: configured, not yet deployed to a live URL.** This repo is ready to deploy as-is; the
-two steps below need a GitHub remote and Vercel/Render account access that only the project owner
-can provide.
+Hosted on **Vercel** (frontend and API) with **Supabase** (Postgres and private PDF storage).
 
-### Backend + database — Render
+- **Frontend:** the `frontend/` folder as its own Vercel project. `frontend/vercel.json`
+  forwards `/api/*` to the API project, so the app and the API share one address and the login
+  cookie stays first-party. Set `VITE_API_BASE_URL=/api`.
+- **API:** the `backend/` folder as its own Vercel project. `backend/vercel.json` builds with
+  `npm run vercel-build` (generate client, apply migrations, compile) and serves the Express
+  app as one function (`backend/api/index.js`).
+- **Database:** Supabase project `porulottam-erp` (Mumbai). Use the **Session pooler**
+  connection string with `?connection_limit=1&pool_timeout=20` on the end: serverless functions
+  open one connection each, and the free pooler allows only a few.
 
-The database and invoice-PDF storage live on **Supabase** (free project `porulottam-erp`,
-region ap-south-1, with a private `invoices` bucket that accepts only PDFs). Unlike Render's free
-Postgres, a free Supabase database isn't deleted after 30 days; it only pauses after a week with
-no activity and can be resumed from the dashboard.
+API environment variables:
 
-`render.yaml` at the repo root is a Render Blueprint: push this repo to GitHub, then in Render
-choose **New → Blueprint** and point it at the repo. It provisions, on Render's **free** tier:
+| Variable | Value |
+|---|---|
+| `DATABASE_URL` | Supabase session pooler string, plus `?connection_limit=1&pool_timeout=20` |
+| `JWT_SECRET` | a long random string |
+| `FRONTEND_ORIGIN` | the frontend's Vercel URL, exact, no trailing slash |
+| `PUBLIC_API_URL` | the frontend URL followed by `/api` (used in WhatsApp invoice links) |
+| `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` | project URL and secret key, for PDF storage |
+| `MANUFACTURER_GSTIN` | the factory's GSTIN, printed on invoices |
+| `GMAIL_USER` / `GMAIL_APP_PASSWORD` | optional; a Gmail App Password enables "Email invoice" |
 
-- a Node web service (`porulottam-backend`, root directory `backend/`) that on every deploy runs
-  `prisma generate` → `prisma migrate deploy` → `tsc` build, then starts with `npm start` — a free
-  service spins down after 15 minutes idle, so the first request after a gap takes ~30-60s to wake
-  it back up
+Load the master data into a fresh hosted database once, from your machine:
+`DATABASE_URL="<session pooler string>" npm run db:seed`.
 
-After the first deploy, set these environment variables in the Render dashboard (the blueprint
-leaves them blank on purpose — they're either secrets or point at the other service):
+Supabase publishes every table through a REST API that the public key can reach; a migration
+turns on row-level security for all of them with no policies, which shuts that API off. The app
+connects as the table owner and is unaffected.
 
-- `DATABASE_URL` — Supabase → Connect → **Session pooler** connection string (port 5432, with
-  your database password filled in), plus `?connection_limit=5&pool_timeout=20` on the end.
-  Not the direct `db.*` host: that's IPv6-only and Render's free tier can't reach it. The limit
-  matters: the free pooler allows only a few sessions, and without it Prisma opens one per CPU
-  and requests start failing with "can't reach database server"
-- `FRONTEND_ORIGIN` — the deployed Vercel URL, exact, no trailing slash
-- `SUPABASE_URL` — `https://rlqdmqlepivsktzmzmiu.supabase.co`
-- `SUPABASE_SERVICE_ROLE_KEY` — Supabase → Project Settings → API keys → `service_role` (server
-  only; never put it in the frontend). Without these two, PDFs fall back to local disk, which
-  Render wipes on every redeploy
-- `MANUFACTURER_GSTIN` — the real manufacturer GSTIN used on every generated invoice
-- `PUBLIC_API_URL` — this backend's own public URL, no trailing slash. Invoice links shared over
-  WhatsApp point here; they open the PDF without a login, are signed so they can't be altered
-  or guessed, and expire after 30 days
-- `GMAIL_USER` / `GMAIL_APP_PASSWORD` — optional; omit to leave invoice emailing disabled (the
-  "Email" button on Invoices returns a clear 503 instead of silently doing nothing). A Gmail
-  [App Password](https://myaccount.google.com/apppasswords) is required, not the account password —
-  Gmail SMTP rejects ordinary passwords for third-party apps
-
-Every deploy runs `prisma migrate deploy`, so the tables are created automatically, including
-one migration that turns on row-level security for every table. That closes Supabase's
-public REST API (reachable with the publishable key) to all app data; the app itself connects
-as the table owner and isn't affected. Seed once,
-from your machine: `cd backend && DATABASE_URL="<session pooler string>" npm run db:seed`.
-
-### Frontend — Vercel
-
-Import the repo into Vercel with **Root Directory** set to `frontend/`. The Vite framework preset
-is auto-detected; `frontend/vercel.json` adds the SPA rewrite so client-side routes survive a
-page refresh. Set one environment variable:
-
-- `VITE_API_BASE_URL` — the deployed Render backend URL (no trailing slash)
-
-### Re-verifying the benchmark on the deployed environment
-
-Once both are live: sign in as `admin@porulottam.test`, repeat the same walkthrough used to build
-the local benchmark (opening stock → BOM → production run → orders → approval → invoice →
-dispatch → payment), and confirm the same 11 exact numbers above hold. `docs/demo-video-script.md`
-is written to double as this verification script.
+`render.yaml` is kept as an alternative: it deploys the same API to Render instead.
 
 ## Documentation
 
-- `docs/design-note.md` — 2-page design note: architecture, the data-integrity patterns this
-  build relies on, and the decisions the problem statement left open
-- `docs/er-diagram.md` — entity-relationship diagram (Mermaid)
-- `docs/demo-video-script.md` — the ≤8-minute demo script, scene by scene
-- `docs/phase-20-additional-improvements-plan.md` — the brief the "Beyond the mandatory benchmark"
-  work above was built from (low-stock alerts, notifications, batch/expiry/FEFO, audit
-  reconciliation, explainable costing, evidence-linked reports, salesman UX), with an
-  existing-vs-missing feature matrix and a phase-by-phase file-level build spec
+- `docs/design-note.md`: architecture, data model, how stock and BOM consumption are computed,
+  costing and valuation
+- `docs/er-diagram.md`: entity-relationship diagram
+- `docs/demo-video-script.md`: the demo, scene by scene
+- `docs/phase-20-additional-improvements-plan.md`: the plan the "also built" features came from
 
 ## Project structure
 
 ```
 backend/
-  src/modules/<domain>/{router,service,schema}.ts   -- one module per business area
-  src/lib/                                          -- AppError, validate, prisma, audit, storage, export
-  prisma/schema.prisma                              -- full data model
+  src/modules/<area>/{router,service,schema}.ts   one module per business area
+  src/lib/                                        valuation, audit, storage, mailer, auth helpers
+  prisma/schema.prisma, prisma/migrations/        data model and its history
+  prisma/seed.ts                                  section 5 master data
+  scripts/benchmark.ts                            fresh-database benchmark replay
+  api/index.js, vercel.json                       Vercel entry and config
 frontend/
-  src/pages/<role-or-area>/                         -- one file per screen
-  src/components/{AppShell,ui,NotificationBell}.tsx -- shared layout and design-system primitives
-docs/
-  design-note.md, er-diagram.md, demo-video-script.md, phase-20-additional-improvements-plan.md
+  src/pages/<area>/                               one file per screen
+  src/components/                                 layout, shared UI, notification bell
+.github/workflows/ci.yml                          CI
 ```

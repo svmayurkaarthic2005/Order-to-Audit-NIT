@@ -81,10 +81,13 @@ if (process.env.NODE_ENV !== "production") {
 
 app.use(errorHandler);
 
-if (process.env.NODE_ENV !== "test") {
+// On Vercel the platform calls the exported app per request (api/index.js);
+// everywhere else it runs as a normal long-lived server.
+if (process.env.NODE_ENV !== "test" && !process.env.VERCEL) {
   app.listen(PORT, () => {
     console.log(`Porulottam ERP backend listening on :${PORT}`);
   });
 }
 
 export { app };
+export default app;

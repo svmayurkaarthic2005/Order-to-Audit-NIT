@@ -25,8 +25,9 @@ here, never duplicated into the ledger."*
 Murukku recipe. Start it: show the actual raw-material consumption form pre-filled from the BOM,
 adjust Oil upward (10.5 L instead of 10 L planned), confirm — point out the stock ledger just
 posted a negative movement at the *current* moving-average cost. Complete the run: actual output
-188, pouches 194 consumed / 6 damaged, cartons 9 consumed. Expand **Variance & cost**: Oil +5%
-flagged, yield −6% flagged, cartons −10% flagged, cost per packet ₹56.33 with its stated method
+188, pouches 188 used / 6 damaged, cartons 9 used, labour ₹1,200 and gas/power ₹600. Open
+**How did it go?**: Oil +5% flagged, yield −6% flagged, cartons −10% flagged, cost per packet
+₹31.14 (₹5,855 ÷ 188) with its stated method
 visible right there. *"Anything outside ±3% tolerance is flagged immediately — not buried in a
 report someone has to go look for."*
 

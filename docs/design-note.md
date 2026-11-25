@@ -30,10 +30,13 @@ and "what did we pay for it" can never drift out of sync with the audit trail, b
 same query. The cost of that choice is that every on-hand lookup is an aggregate, not a row read —
 acceptable at this scale, and indexed on `itemId`.
 
-**Cost is moving weighted-average, computed the same way.** `SUM(totalCostPaise) / SUM(qtyBase)`
-over the same ledger. A production run issues raw material at *that* number, not a hand-entered
-one, so the cost of a finished-goods unit is traceable back to the actual purchase prices that went
-into it, not a standard cost someone set once and forgot to update.
+**Cost is moving weighted-average, computed the same way.** An issue of `q` is valued at
+`round(q × SUM(totalCostPaise) / SUM(qtyBase))` over the same ledger: the exact ratio, with only
+the final paise rounded. Rounding the per-gram rate first would lose real money (flour at
+₹43.125/kg is 4.3125 paise/g; rounded to 4 it would cost the benchmark's 40 kg at ₹1,600 instead
+of ₹1,725). A purchase line is booked at its exact total for the same reason. A production run
+issues raw material at that value, not a hand-entered one, so a finished packet's cost traces back
+to the actual purchase prices that went into it.
 
 **Every "claim a status transition" operation is atomic by construction.** Approving an order,
 starting or completing a production run, creating an invoice, recording a dispatch — each of these
@@ -63,18 +66,21 @@ Invoice numbering is a single locked `InvoiceSequence` row per financial year, i
 the same transaction as invoice creation, so numbers are gapless and never collide under
 concurrent invoicing.
 
-**The audit log is append-only by omission, not by convention.** There is no update or delete
-route for `AuditLog` anywhere in the router tree — it isn't disabled, it was never written. The
-same is true of invoice mutation: there is no PATCH or DELETE route on `/invoices` at all.
+**The ledger and the audit log are append-only, enforced by the database.** Triggers refuse any
+UPDATE or DELETE on `StockMovement` and `AuditLog`; only a throwaway test database opts in to
+deletes (`app.allow_ledger_cleanup`), so the test suite can clean up. There is also no route that
+edits either, and no PATCH or DELETE route on `/invoices` at all. Corrections are always new rows:
+reversals for a cancelled run or purchase (put back on the same batch), a credit note for an
+invoice.
 
 ## Assumptions made where the problem statement was silent
 
-- **Production overhead**: a flat ₹500 per batch by default, since no single mandated overhead
-  figure or allocation method was given. A supervisor can instead enter the batch's actual labour
-  and overhead (power/gas, etc.) when completing a run; whichever applies is added to the
-  moving-average material cost before dividing by actual output, and is stated on the run's own
-  cost-breakdown panel, never silently baked into a number. Once a run completes, its figure is a
-  historical snapshot — a later BOM edit or purchase price never changes it.
+- **Production overhead**: the run's actual labour and gas/power, entered when it's finished
+  (the benchmark's ₹1,200 + ₹600). If left blank, a flat ₹500 per batch is assumed and the run's
+  cost panel says so. Material cost + labour + overhead, divided by good packets, gives the cost
+  per packet: ₹5,855 ÷ 188 = ₹31.14 for the benchmark run. Damaged packaging is part of the
+  material cost. Once a run completes, its figure is a historical snapshot; a later purchase
+  price or recipe edit never changes it.
 - **Variance tolerance**: ±3%, applied identically to every material line and to yield.
 - **Packaging damage**: recorded per packaging line (pouches vs. cartons can each have their own
   damaged quantity), not as one top-level figure, because the benchmark scenario's own numbers
@@ -82,8 +88,8 @@ same is true of invoice mutation: there is no PATCH or DELETE route on `/invoice
 
 ## What this build deliberately does not do
 
-No offline order queue, no multi-warehouse, no multi-currency, no partial GST credit workflows,
+No multi-warehouse, no multi-currency, no partial GST credit workflows,
 no user-management UI (roles are seeded). These are explicitly out of the problem statement's
 scope, and the 19-phase build plan treats every one of them as a stretch item to build only after
-the mandatory benchmark passes — which it now does, end-to-end, in one automated run
-(`backend/src/benchmark.test.ts`).
+the mandatory benchmark passes, which it now does end to end on a brand-new database
+(`npm run benchmark`, also run by CI on every push).
