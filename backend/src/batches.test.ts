@@ -30,6 +30,24 @@ async function makeTestItem(cookie: string | string[], type: "RAW_MATERIAL" | "F
   return res.body.data.id as string;
 }
 
+// Never borrow a real supplier or recipe: every run of this suite used to
+// attach purchases and production runs to whichever real ones came first,
+// which filled the Production runs page with dozens of stuck runs.
+const TEST_SUPPLIER_NAME = "Batch Test Supplier";
+const testBomIds: string[] = [];
+
+async function testSupplier() {
+  const existing = await prisma.supplier.findFirst({ where: { name: TEST_SUPPLIER_NAME } });
+  return existing ?? prisma.supplier.create({ data: { name: TEST_SUPPLIER_NAME, state: "Tamil Nadu" } });
+}
+
+async function testBom(cookie: string | string[]) {
+  const finishedItemId = await makeTestItem(cookie, "FINISHED_GOOD", "PIECE");
+  const bom = await prisma.bomHeader.create({ data: { finishedItemId, expectedYieldQty: 100 } });
+  testBomIds.push(bom.id);
+  return bom;
+}
+
 describe("batch & lot tracking — FEFO, expiry, genealogy & ledger reconciliation", () => {
   // The genealogy test below creates a full order→invoice→dispatch chain
   // and its own production run/BOM — none of that is reachable by the
@@ -63,6 +81,13 @@ describe("batch & lot tracking — FEFO, expiry, genealogy & ledger reconciliati
     await prisma.stockMovement.deleteMany({
       where: { item: { sku: { startsWith: TEST_PREFIX } } },
     });
+    const testRuns = await prisma.productionRun.findMany({ where: { bomHeaderId: { in: testBomIds } }, select: { id: true } });
+    await prisma.productionRunMaterial.deleteMany({ where: { productionRunId: { in: testRuns.map((r) => r.id) } } });
+    await prisma.productionRun.deleteMany({ where: { id: { in: testRuns.map((r) => r.id) } } });
+    await prisma.bomHeader.deleteMany({ where: { id: { in: testBomIds } } });
+    await prisma.purchaseItem.deleteMany({ where: { purchase: { supplier: { name: TEST_SUPPLIER_NAME } } } });
+    await prisma.purchase.deleteMany({ where: { supplier: { name: TEST_SUPPLIER_NAME } } });
+    await prisma.supplier.deleteMany({ where: { name: TEST_SUPPLIER_NAME } });
     await prisma.item.updateMany({
       where: { sku: { startsWith: TEST_PREFIX } },
       data: { active: false },
@@ -73,7 +98,7 @@ describe("batch & lot tracking — FEFO, expiry, genealogy & ledger reconciliati
   it("multi-lot & FEFO selection: picks earliest expiry first, respects remaining quantity", async () => {
     const adminCookie = await loginAs("admin@porulottam.test");
     const rawItemId = await makeTestItem(adminCookie, "RAW_MATERIAL", "G");
-    const supplier = await prisma.supplier.findFirstOrThrow({ where: { active: true } });
+    const supplier = await testSupplier();
 
     // Create 3 batches with different expiry dates:
     // Lot A: expires in 30 days, 100g
@@ -126,7 +151,7 @@ describe("batch & lot tracking — FEFO, expiry, genealogy & ledger reconciliati
   it("expired & quarantined stock blocked: rejects when eligible stock is insufficient", async () => {
     const adminCookie = await loginAs("admin@porulottam.test");
     const rawItemId = await makeTestItem(adminCookie, "RAW_MATERIAL", "G");
-    const supplier = await prisma.supplier.findFirstOrThrow({ where: { active: true } });
+    const supplier = await testSupplier();
 
     // Create an expired lot and a quarantined lot
     await prisma.rawMaterialBatch.create({
@@ -155,11 +180,11 @@ describe("batch & lot tracking — FEFO, expiry, genealogy & ledger reconciliati
     });
 
     // FEFO selection should reject because 0 eligible stock exists
-    await expect(selectRawBatchesFEFO(rawItemId, 10)).rejects.toThrow(/insufficient_batch_stock/);
+    await expect(selectRawBatchesFEFO(rawItemId, 10)).rejects.toMatchObject({ code: "insufficient_batch_stock" });
 
     // Same check for finished goods
     const fgItemId = await makeTestItem(adminCookie, "FINISHED_GOOD", "PIECE");
-    const bomHeader = await prisma.bomHeader.findFirstOrThrow({ where: { active: true } });
+    const bomHeader = await testBom(adminCookie);
     const run = await prisma.productionRun.create({
       data: { bomHeaderId: bomHeader.id, batchSize: 1, status: "COMPLETED" },
     });
@@ -176,13 +201,13 @@ describe("batch & lot tracking — FEFO, expiry, genealogy & ledger reconciliati
       },
     });
 
-    await expect(selectFinishedBatchesFEFO(fgItemId, 10)).rejects.toThrow(/insufficient_batch_stock/);
+    await expect(selectFinishedBatchesFEFO(fgItemId, 10)).rejects.toMatchObject({ code: "insufficient_batch_stock" });
   });
 
   it("ledger reconciliation invariant: remainingQtyBase always equals SUM of movements for that batch", async () => {
     const adminCookie = await loginAs("admin@porulottam.test");
     const rawItemId = await makeTestItem(adminCookie, "RAW_MATERIAL", "G");
-    const supplier = await prisma.supplier.findFirstOrThrow({ where: { active: true } });
+    const supplier = await testSupplier();
 
     // Step 1: Simulate purchase receipt of 500g
     const purchase = await prisma.purchase.create({ data: { supplierId: supplier.id } });
@@ -213,7 +238,7 @@ describe("batch & lot tracking — FEFO, expiry, genealogy & ledger reconciliati
     expect(initialAgg._sum.qtyBase).toBe(500);
 
     // Step 2: Issue 150g from this batch
-    const bomHeader = await prisma.bomHeader.findFirstOrThrow({ where: { active: true } });
+    const bomHeader = await testBom(adminCookie);
     const run = await prisma.productionRun.create({
       data: { bomHeaderId: bomHeader.id, batchSize: 1, status: "STARTED" },
     });
@@ -244,7 +269,7 @@ describe("batch & lot tracking — FEFO, expiry, genealogy & ledger reconciliati
     const adminCookie = await loginAs("admin@porulottam.test");
     const rawItemId = await makeTestItem(adminCookie, "RAW_MATERIAL", "G");
     const fgItemId = await makeTestItem(adminCookie, "FINISHED_GOOD", "PIECE");
-    const supplier = await prisma.supplier.findFirstOrThrow({ where: { active: true } });
+    const supplier = await testSupplier();
     const customer = await prisma.customer.create({ data: { name: "Batch Genealogy Test Customer", state: "Tamil Nadu" } });
     genealogyCustomerId = customer.id;
 
@@ -362,7 +387,7 @@ describe("batch & lot tracking — FEFO, expiry, genealogy & ledger reconciliati
   it("refreshBatchStatuses: transitions to EXPIRING/EXPIRED and triggers notifications", async () => {
     const adminCookie = await loginAs("admin@porulottam.test");
     const rawItemId = await makeTestItem(adminCookie, "RAW_MATERIAL", "G");
-    const supplier = await prisma.supplier.findFirstOrThrow({ where: { active: true } });
+    const supplier = await testSupplier();
 
     // Create a batch expiring in 5 days (<= 7 days threshold -> EXPIRING)
     const expiringBatch = await prisma.rawMaterialBatch.create({
