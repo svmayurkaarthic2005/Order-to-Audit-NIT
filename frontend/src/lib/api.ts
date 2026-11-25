@@ -82,7 +82,11 @@ function isNetworkFailure(err: unknown): boolean {
 }
 
 export async function replayOfflineOrders() {
-  for (const entry of readQueue().filter((q) => q.userId === currentUserId)) {
+  const replayingFor = currentUserId;
+  for (const entry of readQueue().filter((q) => q.userId === replayingFor)) {
+    // Re-check on every iteration, not just at the start: a login/logout
+    // during this async loop must stop it from posting under the new user.
+    if (currentUserId !== replayingFor) return;
     try {
       await postOrder(entry.body, entry.idempotencyKey);
     } catch (err) {

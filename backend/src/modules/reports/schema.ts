@@ -14,10 +14,11 @@ export const salesTrendQuerySchema = reportQuerySchema
   .extend({
     granularity: z.enum(["monthly", "yearly"]).default("monthly"),
   })
-  // Monthly zero-fills every month in the range, so an unbounded span (e.g. from=0001-01-01)
-  // would otherwise iterate and allocate one bucket per month with no limit.
+  // Monthly zero-fills every month in the range, so an unbounded span (e.g. from=0001-01-01
+  // with no `to`, which the service defaults to "now") would otherwise iterate and allocate
+  // one bucket per month with no limit. Mirrors the service's own `to ?? new Date()` default.
   .refine(
-    (q) => q.granularity !== "monthly" || !q.from || !q.to || q.to.getTime() - q.from.getTime() <= 1000 * 60 * 60 * 24 * 366 * 50,
+    (q) => q.granularity !== "monthly" || !q.from || (q.to ?? new Date()).getTime() - q.from.getTime() <= 1000 * 60 * 60 * 24 * 366 * 50,
     { message: "Monthly sales trend range cannot exceed 50 years", path: ["to"] },
   );
 
