@@ -4,6 +4,7 @@ import { api, ApiError } from "@/lib/api";
 import {
   Button,
   Card,
+  Drawer,
   EmptyState,
   ErrorText,
   Loading,
@@ -67,54 +68,56 @@ function ReviewRow({ exception }: { exception: ReconciliationException }) {
     },
   });
 
-  if (exception.status === "RESOLVED" && !open) {
-    return (
-      <Button size="sm" variant="ghost" onClick={() => setOpen(true)}>
-        View note
-      </Button>
-    );
-  }
-
-  if (!open) {
-    return (
-      <Button size="sm" variant="secondary" onClick={() => setOpen(true)}>
-        Review
-      </Button>
-    );
-  }
-
   return (
-    <div className="w-72 rounded-lg border border-border bg-secondary/30 p-3">
-      <Textarea
-        placeholder="Explanation (why this happened)…"
-        value={explanation}
-        onChange={(e) => setExplanation(e.target.value)}
-        className="mb-2 min-h-[56px] text-xs"
-        disabled={exception.status === "RESOLVED"}
-      />
-      <Textarea
-        placeholder="Resolution note…"
-        value={resolutionNote}
-        onChange={(e) => setResolutionNote(e.target.value)}
-        className="mb-2 min-h-[56px] text-xs"
-        disabled={exception.status === "RESOLVED"}
-      />
-      <div className="flex items-center justify-end gap-2">
-        <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>
-          Close
-        </Button>
-        {exception.status !== "RESOLVED" && (
-          <>
-            <Button size="sm" variant="secondary" disabled={reviewMutation.isPending} onClick={() => reviewMutation.mutate("REVIEWED")}>
-              Mark reviewed
-            </Button>
-            <Button size="sm" disabled={reviewMutation.isPending} onClick={() => reviewMutation.mutate("RESOLVED")}>
-              Mark resolved
-            </Button>
-          </>
-        )}
-      </div>
-    </div>
+    <>
+      <Button size="sm" variant={exception.status === "RESOLVED" ? "ghost" : "secondary"} onClick={() => setOpen(true)}>
+        {exception.status === "RESOLVED" ? "View note" : "Review"}
+      </Button>
+
+      {/* A Drawer, not an inline expansion: this used to render straight into
+          the table cell, which forced the Review column (and the whole
+          table) to the width of the open form, pushing every other column
+          off-screen the moment any row was reviewed. */}
+      <Drawer open={open} onClose={() => setOpen(false)} title={`${CHECK_LABEL[exception.checkType]} exception`}>
+        <div className="mb-4 rounded-lg border border-border bg-secondary/30 p-3 text-sm">
+          <p className="text-foreground">{exception.sourceType}</p>
+          <p className="font-mono text-xs text-muted-foreground">{exception.sourceId}</p>
+          <div className="mt-2 flex justify-between text-muted-foreground">
+            <span>Expected: {exception.expectedValue}</span>
+            <span>Actual: {exception.actualValue}</span>
+          </div>
+        </div>
+        <Textarea
+          placeholder="Explanation (why this happened)…"
+          value={explanation}
+          onChange={(e) => setExplanation(e.target.value)}
+          className="mb-3 min-h-[80px] w-full text-sm"
+          disabled={exception.status === "RESOLVED"}
+        />
+        <Textarea
+          placeholder="Resolution note…"
+          value={resolutionNote}
+          onChange={(e) => setResolutionNote(e.target.value)}
+          className="mb-3 min-h-[80px] w-full text-sm"
+          disabled={exception.status === "RESOLVED"}
+        />
+        <div className="flex items-center justify-end gap-2">
+          <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>
+            Close
+          </Button>
+          {exception.status !== "RESOLVED" && (
+            <>
+              <Button size="sm" variant="secondary" disabled={reviewMutation.isPending} onClick={() => reviewMutation.mutate("REVIEWED")}>
+                Mark reviewed
+              </Button>
+              <Button size="sm" disabled={reviewMutation.isPending} onClick={() => reviewMutation.mutate("RESOLVED")}>
+                Mark resolved
+              </Button>
+            </>
+          )}
+        </div>
+      </Drawer>
+    </>
   );
 }
 
