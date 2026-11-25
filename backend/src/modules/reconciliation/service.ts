@@ -167,8 +167,8 @@ export async function checkDispatchReconciliation(dispatchId: string): Promise<C
     checkType: "DISPATCH",
     sourceType: "Dispatch",
     sourceId: dispatchId,
-    expectedValue: `qty=${invoicedQty}, order=DISPATCHED`,
-    actualValue: `qty=${dispatch.qtyBase}, order=${orderStatus}`,
+    expectedValue: `${invoicedQty} packets, order Dispatched`,
+    actualValue: `${dispatch.qtyBase} packets, order ${orderStatus}`,
     differenceValue: String(dispatch.qtyBase - invoicedQty),
     severity: "WARNING",
   };
@@ -225,6 +225,44 @@ async function upsertException(result: CheckResult) {
   });
 }
 
+// An exception outlives the record it was raised against if that record is
+// later hard-deleted (normally only test cleanup does this, never a real
+// business flow) — nothing else ever removes it, so without this pass they
+// pile up as permanent ghosts pointing at nothing a reviewer can open.
+async function pruneOrphanedExceptions() {
+  const exceptions = await prisma.reconciliationException.findMany({
+    select: { id: true, checkType: true, sourceId: true },
+  });
+  const staleIds: string[] = [];
+  for (const e of exceptions) {
+    // PRODUCTION_VARIANCE's sourceId is sometimes "<runId>:<itemId>" (one
+    // material line) and sometimes a plain runId (the yield line itself).
+    const runId = e.sourceId.includes(":") ? e.sourceId.split(":")[0]! : e.sourceId;
+    let exists: boolean;
+    switch (e.checkType) {
+      case "STOCK":
+        exists = Boolean(await prisma.item.findUnique({ where: { id: e.sourceId } }));
+        break;
+      case "PRODUCTION_VARIANCE":
+      case "PACKAGING":
+        exists = Boolean(await prisma.productionRun.findUnique({ where: { id: runId } }));
+        break;
+      case "INVOICE":
+        exists = Boolean(await prisma.invoice.findUnique({ where: { id: e.sourceId } }));
+        break;
+      case "DISPATCH":
+        exists = Boolean(await prisma.dispatch.findUnique({ where: { id: e.sourceId } }));
+        break;
+      default:
+        exists = true;
+    }
+    if (!exists) staleIds.push(e.id);
+  }
+  if (staleIds.length > 0) {
+    await prisma.reconciliationException.deleteMany({ where: { id: { in: staleIds } } });
+  }
+}
+
 export async function runAllChecks(range: DateRange = {}) {
   const createdAtFilter = range.dateFrom || range.dateTo ? { gte: range.dateFrom, lte: range.dateTo } : undefined;
 
@@ -259,6 +297,7 @@ export async function runAllChecks(range: DateRange = {}) {
   for (const result of results) {
     await upsertException(result);
   }
+  await pruneOrphanedExceptions();
 
   const totalChecked = items.length + runs.length * 2 + invoices.length + dispatches.length;
   return {

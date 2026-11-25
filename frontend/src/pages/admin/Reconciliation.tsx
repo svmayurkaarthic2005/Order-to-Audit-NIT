@@ -105,15 +105,15 @@ function ReviewRow({ exception }: { exception: ReconciliationException }) {
           <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>
             Close
           </Button>
+          {exception.status === "OPEN" && (
+            <Button size="sm" variant="secondary" disabled={reviewMutation.isPending} onClick={() => reviewMutation.mutate("REVIEWED")}>
+              Mark reviewed
+            </Button>
+          )}
           {exception.status !== "RESOLVED" && (
-            <>
-              <Button size="sm" variant="secondary" disabled={reviewMutation.isPending} onClick={() => reviewMutation.mutate("REVIEWED")}>
-                Mark reviewed
-              </Button>
-              <Button size="sm" disabled={reviewMutation.isPending} onClick={() => reviewMutation.mutate("RESOLVED")}>
-                Mark resolved
-              </Button>
-            </>
+            <Button size="sm" disabled={reviewMutation.isPending} onClick={() => reviewMutation.mutate("RESOLVED")}>
+              Mark resolved
+            </Button>
           )}
         </div>
       </Modal>
