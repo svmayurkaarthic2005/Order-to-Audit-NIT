@@ -160,14 +160,20 @@ export async function createCreditNote(invoiceId: string, reason: string, acting
 export async function getOrGenerateInvoicePdfUrl(invoiceId: string): Promise<string> {
   const invoice = await getInvoice(invoiceId);
 
-  let key = invoice.pdfStoragePath;
-  if (!key) {
-    const pdfBuffer = await renderInvoicePdf(invoice);
-    key = `${invoice.financialYear}-${invoice.invoiceNumber}-${invoice.id}.pdf`;
-    await uploadInvoicePdf(key, pdfBuffer);
-    await prisma.invoice.update({ where: { id: invoiceId }, data: { pdfStoragePath: key } });
+  if (invoice.pdfStoragePath) {
+    try {
+      return await urlForInvoicePdf(invoice.pdfStoragePath);
+    } catch {
+      // The stored object is gone, e.g. the PDF was saved to local disk
+      // before Supabase storage was switched on. Render and upload it again.
+    }
   }
 
+  const key = `${invoice.financialYear}-${invoice.invoiceNumber}-${invoice.id}.pdf`;
+  await uploadInvoicePdf(key, await renderInvoicePdf(invoice));
+  if (invoice.pdfStoragePath !== key) {
+    await prisma.invoice.update({ where: { id: invoiceId }, data: { pdfStoragePath: key } });
+  }
   return urlForInvoicePdf(key);
 }
 

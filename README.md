@@ -176,13 +176,14 @@ can provide.
 
 ### Backend + database — Render
 
-`render.yaml` at the repo root is a Render Blueprint: push this repo to GitHub, then in Render
-choose **New → Blueprint** and point it at the repo. It provisions, both on Render's **free**
-tier:
+The database and invoice-PDF storage live on **Supabase** (free project `porulottam-erp`,
+region ap-south-1, with a private `invoices` bucket that accepts only PDFs). Unlike Render's free
+Postgres, a free Supabase database isn't deleted after 30 days; it only pauses after a week with
+no activity and can be resumed from the dashboard.
 
-- a managed Postgres instance (`porulottam-db`) — free Postgres is deleted 30 days after creation
-  with no renewal; re-seed on a fresh one (or edit `render.yaml` to `plan: starter`) before then
-  if it needs to outlive that
+`render.yaml` at the repo root is a Render Blueprint: push this repo to GitHub, then in Render
+choose **New → Blueprint** and point it at the repo. It provisions, on Render's **free** tier:
+
 - a Node web service (`porulottam-backend`, root directory `backend/`) that on every deploy runs
   `prisma generate` → `prisma migrate deploy` → `tsc` build, then starts with `npm start` — a free
   service spins down after 15 minutes idle, so the first request after a gap takes ~30-60s to wake
@@ -191,10 +192,16 @@ tier:
 After the first deploy, set these environment variables in the Render dashboard (the blueprint
 leaves them blank on purpose — they're either secrets or point at the other service):
 
+- `DATABASE_URL` — Supabase → Connect → **Session pooler** connection string (port 5432, with
+  your database password filled in), plus `?connection_limit=5&pool_timeout=20` on the end.
+  Not the direct `db.*` host: that's IPv6-only and Render's free tier can't reach it. The limit
+  matters: the free pooler allows only a few sessions, and without it Prisma opens one per CPU
+  and requests start failing with "can't reach database server"
 - `FRONTEND_ORIGIN` — the deployed Vercel URL, exact, no trailing slash
-- `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` — optional; omit to use local disk storage for
-  invoice PDFs (fine for a demo, but PDFs are lost on every redeploy since Render's local disk
-  isn't persistent)
+- `SUPABASE_URL` — `https://rlqdmqlepivsktzmzmiu.supabase.co`
+- `SUPABASE_SERVICE_ROLE_KEY` — Supabase → Project Settings → API keys → `service_role` (server
+  only; never put it in the frontend). Without these two, PDFs fall back to local disk, which
+  Render wipes on every redeploy
 - `MANUFACTURER_GSTIN` — the real manufacturer GSTIN used on every generated invoice
 - `PUBLIC_API_URL` — this backend's own public URL, no trailing slash. Invoice links shared over
   WhatsApp point here; they open the PDF without a login, are signed so they can't be altered
@@ -204,8 +211,11 @@ leaves them blank on purpose — they're either secrets or point at the other se
   [App Password](https://myaccount.google.com/apppasswords) is required, not the account password —
   Gmail SMTP rejects ordinary passwords for third-party apps
 
-Then seed the fresh database once: `npm run db:seed` via a Render one-off job (or `psql` the
-managed Postgres connection string from `backend/prisma/seed.ts` locally).
+Every deploy runs `prisma migrate deploy`, so the tables are created automatically, including
+one migration that turns on row-level security for every table. That closes Supabase's
+public REST API (reachable with the publishable key) to all app data; the app itself connects
+as the table owner and isn't affected. Seed once,
+from your machine: `cd backend && DATABASE_URL="<session pooler string>" npm run db:seed`.
 
 ### Frontend — Vercel
 

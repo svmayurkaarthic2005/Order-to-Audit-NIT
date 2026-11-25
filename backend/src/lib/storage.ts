@@ -2,9 +2,6 @@ import { createClient } from "@supabase/supabase-js";
 import fs from "node:fs/promises";
 import path from "node:path";
 
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const SUPABASE_BUCKET = process.env.SUPABASE_STORAGE_BUCKET ?? "invoices";
 const SIGNED_URL_TTL_SECONDS = 3600;
 
 // Served statically from index.ts at /storage/invoices, behind requireAuth
@@ -14,24 +11,28 @@ export const LOCAL_STORAGE_DIR = path.resolve(process.cwd(), "storage", "invoice
 const LOCAL_STORAGE_BASE_URL =
   process.env.LOCAL_STORAGE_BASE_URL ?? `http://localhost:${process.env.PORT ?? 4000}/storage/invoices`;
 
+// Read when called, not at import: nothing guarantees .env has been loaded
+// by the time this module is first imported (same as lib/mailer.ts).
+const bucket = () => process.env.SUPABASE_STORAGE_BUCKET ?? "invoices";
+
 function supabaseClient() {
-  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) {
     return null;
   }
-  return createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  return createClient(url, key, { auth: { persistSession: false } });
 }
 
 // Writes the PDF under a stable key. Uses real Supabase Storage when
 // SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY are set; otherwise falls back to
-// local disk. This project has no real Supabase project configured, so
-// local disk is what's actually exercised; swapping in real credentials
-// needs no code change. Only the key is meant to be persisted — call
+// local disk. Only the key is meant to be persisted — call
 // urlForInvoicePdf to get a URL, never cache one, since the Supabase path
 // is a short-lived signed URL, not a permanent public one.
 export async function uploadInvoicePdf(key: string, pdfBuffer: Buffer): Promise<void> {
   const client = supabaseClient();
   if (client) {
-    const { error } = await client.storage.from(SUPABASE_BUCKET).upload(key, pdfBuffer, {
+    const { error } = await client.storage.from(bucket()).upload(key, pdfBuffer, {
       contentType: "application/pdf",
       upsert: true,
     });
@@ -52,7 +53,7 @@ export async function uploadInvoicePdf(key: string, pdfBuffer: Buffer): Promise<
 export async function urlForInvoicePdf(key: string): Promise<string> {
   const client = supabaseClient();
   if (client) {
-    const { data, error } = await client.storage.from(SUPABASE_BUCKET).createSignedUrl(key, SIGNED_URL_TTL_SECONDS);
+    const { data, error } = await client.storage.from(bucket()).createSignedUrl(key, SIGNED_URL_TTL_SECONDS);
     if (error || !data) {
       throw new Error(`Supabase signed URL failed: ${error?.message}`);
     }

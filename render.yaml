@@ -15,10 +15,14 @@ services:
         value: production
       - key: PORT
         value: "4000"
+      # Supabase Postgres (project porulottam-erp, ap-south-1). Use the
+      # "Session pooler" connection string from Supabase's Connect panel:
+      # Render's free instances have no IPv6, and the direct db.* host is
+      # IPv6-only. Session mode (port 5432) also supports prisma migrate.
+      # Append ?connection_limit=5&pool_timeout=20: the free pooler allows
+      # only a few sessions, and Prisma would otherwise open one per CPU.
       - key: DATABASE_URL
-        fromDatabase:
-          name: porulottam-db
-          property: connectionString
+        sync: false
       - key: JWT_SECRET
         generateValue: true
       # Set to the deployed Vercel frontend URL (e.g. https://porulottam.vercel.app) —
@@ -47,14 +51,3 @@ services:
       - key: GMAIL_APP_PASSWORD
         sync: false
 
-databases:
-  - name: porulottam-db
-    # Free tier: Render deletes a free Postgres instance 30 days after
-    # creation, with no renewal — re-seed on a fresh one (or upgrade to
-    # "starter") before then if the deployment needs to outlive that.
-    plan: free
-    databaseName: porulottam
-    user: porulottam
-    # No public internet access — only Render's own private network (the
-    # backend service above) can reach this database.
-    ipAllowList: []
