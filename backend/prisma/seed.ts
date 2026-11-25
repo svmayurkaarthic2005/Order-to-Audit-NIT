@@ -1,5 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import { syncAlertsForItems } from "../src/modules/alerts/service.js";
 
 const prisma = new PrismaClient();
 
@@ -20,10 +21,15 @@ async function upsertItem(data: {
   baseUnit: "G" | "ML" | "PIECE";
   hsnCode?: string;
   taxRatePct?: number;
+  reorderLevel?: number;
 }) {
   return prisma.item.upsert({
     where: { sku: data.sku },
-    update: {},
+    // Re-seeding an existing DB should still pick up a newly-added
+    // reorderLevel (this is how the brief's own benchmark figures reached
+    // an already-seeded dev database), without clobbering anything else a
+    // user may have edited via the UI since.
+    update: data.reorderLevel !== undefined ? { reorderLevel: data.reorderLevel } : {},
     create: data,
   });
 }
@@ -75,8 +81,12 @@ async function main() {
   });
 
   // --- items: base unit is the smallest unit so quantities stay integers ---
-  const flour = await upsertItem({ sku: "RM-FLOUR", name: "Flour", type: "RAW_MATERIAL", baseUnit: "G" });
-  const oil = await upsertItem({ sku: "RM-OIL", name: "Cooking oil", type: "RAW_MATERIAL", baseUnit: "ML" });
+  // Reorder thresholds match the brief's own low-stock benchmark exactly:
+  // 120kg flour against a 100kg threshold is Normal; 19.5L oil against a
+  // 25L threshold is Low — so a fresh seed demonstrates the alert working
+  // immediately, not just once someone sets a threshold by hand.
+  const flour = await upsertItem({ sku: "RM-FLOUR", name: "Flour", type: "RAW_MATERIAL", baseUnit: "G", reorderLevel: 100_000 });
+  const oil = await upsertItem({ sku: "RM-OIL", name: "Cooking oil", type: "RAW_MATERIAL", baseUnit: "ML", reorderLevel: 25_000 });
   const spiceMix = await upsertItem({ sku: "RM-SPICE", name: "Spice mix", type: "RAW_MATERIAL", baseUnit: "G" });
   const pouches = await upsertItem({ sku: "PKG-POUCH-200G", name: "200 g pouch", type: "PACKAGING", baseUnit: "PIECE" });
   const cartons = await upsertItem({ sku: "PKG-CARTON-20", name: "Carton (holds 20 packets)", type: "PACKAGING", baseUnit: "PIECE" });
@@ -114,6 +124,11 @@ async function main() {
   await postOpeningStock(pouches.id, 500, 500 * 2_50); // Rs 2.50 each
   await postOpeningStock(cartons.id, 30, 30 * 15_00); // Rs 15 each
   await postOpeningStock(murukku200g.id, 50, 0); // opening finished-goods stock
+
+  // Create the LowStockAlert row (and LOW_STOCK notification) for any item
+  // whose reorder level the opening stock above already crosses — e.g.
+  // Cooking oil's 19.5L lifetime balance against its 25L threshold.
+  await syncAlertsForItems([flour.id, oil.id, spiceMix.id, pouches.id, cartons.id, murukku200g.id]);
 
   // --- BOM: Murukku 200 g, one batch = 200 packets expected ---
   const bom = await prisma.bomHeader.upsert({
