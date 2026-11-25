@@ -2,11 +2,19 @@
   "framework": null,
   "buildCommand": "npm run vercel-build",
   "outputDirectory": "public",
-  "rewrites": [{ "source": "/(.*)", "destination": "/api" }],
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/api"
+    }
+  ],
   "functions": {
     "api/index.js": {
       "includeFiles": "{dist/**,node_modules/pdfkit/js/data/**}",
       "maxDuration": 30
     }
-  }
+  },
+  "regions": [
+    "bom1"
+  ]
 }

@@ -5,7 +5,7 @@ production, raw-material and finished-goods stock, GST billing, dispatch, paymen
 audit reporting, in one role-based application. Built for the NIT Tiruchirappalli internship
 shortlisting task.
 
-- **Live demo:** see [Deployment](#deployment) for the current link and status
+- **Live demo:** https://porulottam-erp.vercel.app (test logins [below](#test-logins-password-password123-for-all))
 - **Run it locally:** five commands, below
 - **Re-run the benchmark yourself:** `cd backend && npm run benchmark` (builds a brand-new database
   and replays section 5 end to end; details [below](#the-benchmark-section-5))
@@ -233,23 +233,29 @@ CI runs all of it, plus the benchmark, on a fresh database on every push.
 
 ## Deployment
 
-Hosted on **Vercel** (frontend and API) with **Supabase** (Postgres and private PDF storage).
+**Live at https://porulottam-erp.vercel.app**, on **Vercel** (frontend and API, Mumbai region)
+with **Supabase** (Postgres and private PDF storage, Mumbai). The hosted database holds only the
+seed, so you can run the section 5 scenario on it from the start.
 
 - **Frontend:** the `frontend/` folder as its own Vercel project. `frontend/vercel.json`
   forwards `/api/*` to the API project, so the app and the API share one address and the login
   cookie stays first-party. Set `VITE_API_BASE_URL=/api`.
 - **API:** the `backend/` folder as its own Vercel project. `backend/vercel.json` builds with
   `npm run vercel-build` (generate client, apply migrations, compile) and serves the Express
-  app as one function (`backend/api/index.js`).
-- **Database:** Supabase project `porulottam-erp` (Mumbai). Use the **Session pooler**
-  connection string with `?connection_limit=1&pool_timeout=20` on the end: serverless functions
-  open one connection each, and the free pooler allows only a few.
+  app as one function (`backend/api/index.js`) in `bom1` (Mumbai), next to the database. In the
+  US default region each query crossed the world and a stock screen took 5 seconds; in Mumbai
+  it takes under one.
+- **Database:** Supabase project `porulottam-erp` (Mumbai). The app connects through the
+  **transaction pooler** (port 6543): every request can start a new function instance, and the
+  session pooler's 15-connection limit ran out as soon as the dashboard loaded its widgets in
+  parallel. Migrations need a real session, so the build uses the session pooler instead.
 
 API environment variables:
 
 | Variable | Value |
 |---|---|
-| `DATABASE_URL` | Supabase session pooler string, plus `?connection_limit=1&pool_timeout=20` |
+| `DATABASE_URL` | Supabase transaction pooler string (port 6543), plus `?pgbouncer=true&connection_limit=1` |
+| `MIGRATE_DATABASE_URL` | Supabase session pooler string (port 5432), used only by the build's `prisma migrate deploy` |
 | `JWT_SECRET` | a long random string |
 | `FRONTEND_ORIGIN` | the frontend's Vercel URL, exact, no trailing slash |
 | `PUBLIC_API_URL` | the frontend URL followed by `/api` (used in WhatsApp invoice links) |
@@ -258,7 +264,8 @@ API environment variables:
 | `GMAIL_USER` / `GMAIL_APP_PASSWORD` | optional; a Gmail App Password enables "Email invoice" |
 
 Load the master data into a fresh hosted database once, from your machine:
-`DATABASE_URL="<session pooler string>" npm run db:seed`.
+`DATABASE_URL="<session pooler string>" npm run db:seed`. `.vercelignore` keeps local `.env`
+files out of every upload.
 
 Supabase publishes every table through a REST API that the public key can reach; a migration
 turns on row-level security for all of them with no policies, which shuts that API off. The app

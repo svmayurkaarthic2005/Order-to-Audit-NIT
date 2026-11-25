@@ -15,7 +15,7 @@ type GstSummary = {
   invoiceCount: number;
 };
 type PurchaseRow = { purchaseId: string; supplierName: string; purchaseDate: string; cancelled: boolean; totalPaise: number; lineCount: number };
-type StockRow = { itemId: string; sku: string; name: string; type: string; baseUnit: string; qtyBase: number; movingAverageCostPaise: number | null };
+type StockRow = { itemId: string; sku: string; name: string; type: string; baseUnit: string; qtyBase: number; valuePaise: number; movingAverageCostPaise: number | null };
 
 const STOCK_TYPE_LABEL: Record<string, string> = { RAW_MATERIAL: "Raw material", PACKAGING: "Packaging", FINISHED_GOOD: "Product" };
 type ProductionRow = {
@@ -364,7 +364,7 @@ export default function Reports() {
                       </Td>
                       <Td numeric>
                         {s.movingAverageCostPaise !== null ? (
-                          `${money(s.movingAverageCostPaise * unitOf(s.baseUnit).factor)} per ${unitOf(s.baseUnit).label === "pcs" ? "piece" : unitOf(s.baseUnit).label}`
+                          `${money(Math.round((s.valuePaise / s.qtyBase) * unitOf(s.baseUnit).factor))} per ${unitOf(s.baseUnit).label === "pcs" ? "piece" : unitOf(s.baseUnit).label}`
                         ) : (
                           <span className="text-muted-foreground">Not bought yet</span>
                         )}

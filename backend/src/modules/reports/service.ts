@@ -190,6 +190,9 @@ export async function stockSummary(type?: string) {
         type: item.type,
         baseUnit: item.baseUnit,
         qtyBase,
+        // Exact value of what's on hand; the per-unit average below is
+        // rounded for display, so anything that sums value must use this.
+        valuePaise: totalCostPaise,
         movingAverageCostPaise: qtyBase > 0 ? Math.round(totalCostPaise / qtyBase) : null,
       };
     }),

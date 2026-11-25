@@ -15,7 +15,7 @@ type StockStatus = {
   reorderLevel: number | null;
   status: "LOW" | "NORMAL";
 };
-type StockValueRow = { qtyBase: number; movingAverageCostPaise: number | null };
+type StockValueRow = { valuePaise: number };
 type Order = {
   id: string;
   status: "SUBMITTED" | "APPROVED" | "REJECTED" | "DISPATCHABLE" | "DISPATCHED";
@@ -64,7 +64,7 @@ export default function Dashboard() {
 
   const owing = (collections ?? []).filter((c) => c.outstandingPaise > 0);
   const outstandingPaise = owing.reduce((sum, c) => sum + c.outstandingPaise, 0);
-  const stockValuePaise = (stockValue ?? []).reduce((sum, s) => sum + s.qtyBase * (s.movingAverageCostPaise ?? 0), 0);
+  const stockValuePaise = (stockValue ?? []).reduce((sum, s) => sum + s.valuePaise, 0);
   const lowItems = (stock ?? []).filter((s) => s.status === "LOW");
   const packets = (stock ?? []).filter((s) => s.type === "FINISHED_GOOD").reduce((sum, s) => sum + s.availableQtyBase, 0);
 

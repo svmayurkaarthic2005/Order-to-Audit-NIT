@@ -11,7 +11,7 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:studio": "prisma studio",
     "benchmark": "tsx --env-file-if-exists=.env scripts/benchmark.ts",
-    "vercel-build": "prisma generate && prisma migrate deploy && tsc -p tsconfig.json"
+    "vercel-build": "prisma generate && DATABASE_URL=\"${MIGRATE_DATABASE_URL:-$DATABASE_URL}\" prisma migrate deploy && tsc -p tsconfig.json"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",
