@@ -6,6 +6,7 @@ import { Button, Card, EmptyState, ErrorText, Field, Input, Loading, PageHeader,
 
 type Item = { id: string; sku: string; name: string; type: string; baseUnit: string };
 type BomLineInput = { rawItemId: string; qtyPerBatch: string };
+type PackLineInput = { itemId: string; qtyPerBatch: string };
 type Bom = {
   id: string;
   finishedItemId: string;
@@ -14,10 +15,17 @@ type Bom = {
   createdAt: string;
   finishedItem: { name: string; sku: string };
   lines: { rawItemId: string; rawItem: { sku: string; name: string; baseUnit: string }; qtyPerBatch: number }[];
-  packSizes: { id: string; label: string; multiplier: number; finishedItem: { name: string } }[];
+  packSizes: {
+    id: string;
+    label: string;
+    expectedOutputQty: number;
+    finishedItem: { name: string };
+    packagingLines: { itemId: string; qtyPerBatch: number; item: { name: string; baseUnit: string } }[];
+  }[];
 };
 
 const emptyLine: BomLineInput = { rawItemId: "", qtyPerBatch: "" };
+const emptyPackLine: PackLineInput = { itemId: "", qtyPerBatch: "" };
 
 export default function BOM() {
   const { user } = useAuth();
@@ -42,7 +50,8 @@ export default function BOM() {
   const [packBomId, setPackBomId] = useState("");
   const [packLabel, setPackLabel] = useState("");
   const [packItemId, setPackItemId] = useState("");
-  const [packMultiplier, setPackMultiplier] = useState("1");
+  const [packExpectedOutputQty, setPackExpectedOutputQty] = useState("");
+  const [packagingLines, setPackagingLines] = useState<PackLineInput[]>([{ ...emptyPackLine }]);
   const [packError, setPackError] = useState<string | null>(null);
 
   const { data: items } = useQuery({
@@ -56,6 +65,7 @@ export default function BOM() {
 
   const finishedGoods = items?.items.filter((i) => i.type === "FINISHED_GOOD") ?? [];
   const rawAndPackagingItems = items?.items.filter((i) => i.type !== "FINISHED_GOOD") ?? [];
+  const packagingItems = items?.items.filter((i) => i.type === "PACKAGING") ?? [];
   const baseUnitOf = (itemId: string) => items?.items.find((i) => i.id === itemId)?.baseUnit ?? "PIECE";
 
   const { data: versions } = useQuery({
@@ -94,7 +104,13 @@ export default function BOM() {
         // means the recipe's own product (same item, just a named pack).
         finishedItemId: packItemId || bom?.finishedItemId,
         baseBomId: packBomId,
-        multiplier: Number(packMultiplier),
+        expectedOutputQty: Number(packExpectedOutputQty),
+        packagingLines: packagingLines
+          .filter((line) => line.itemId && Number(line.qtyPerBatch) > 0)
+          .map((line) => ({
+            itemId: line.itemId,
+            qtyPerBatch: Math.round(Number(line.qtyPerBatch) * unitOf(baseUnitOf(line.itemId)).factor),
+          })),
         label: packLabel,
       });
     },
@@ -103,7 +119,8 @@ export default function BOM() {
       setPackBomId("");
       setPackLabel("");
       setPackItemId("");
-      setPackMultiplier("1");
+      setPackExpectedOutputQty("");
+      setPackagingLines([{ ...emptyPackLine }]);
       setShowPackForm(false);
       queryClient.invalidateQueries({ queryKey: ["boms"] });
     },
@@ -129,6 +146,10 @@ export default function BOM() {
 
   function updateLine(index: number, patch: Partial<BomLineInput>) {
     setLines((prev) => prev.map((l, i) => (i === index ? { ...l, ...patch } : l)));
+  }
+
+  function updatePackLine(index: number, patch: Partial<PackLineInput>) {
+    setPackagingLines((prev) => prev.map((line, i) => (i === index ? { ...line, ...patch } : line)));
   }
 
   return (
@@ -288,16 +309,51 @@ export default function BOM() {
                 </Field>
               </div>
               <div className="sm:col-span-1 lg:col-span-2">
-                <Field label="Packets in one pack" required>
-                  <Input type="number" required value={packMultiplier} onChange={(e) => setPackMultiplier(e.target.value)} className="w-full" />
+                <Field label="Good packets per batch" required>
+                  <Input type="number" min="1" step="1" required value={packExpectedOutputQty} onChange={(e) => setPackExpectedOutputQty(e.target.value)} className="w-full" />
                 </Field>
               </div>
             </div>
 
+            <div className="mt-4 border-t border-border/50 pt-3.5">
+              <p className="mb-2 text-sm font-medium text-foreground">Packaging for this pack size (per batch)</p>
+              <div className="flex flex-col gap-2">
+                {packagingLines.map((line, i) => {
+                  const item = packagingItems.find((candidate) => candidate.id === line.itemId);
+                  return (
+                    <div key={i} className="flex flex-col gap-2 sm:flex-row">
+                      <Select value={line.itemId} onChange={(e) => updatePackLine(i, { itemId: e.target.value })} className="min-w-0 flex-1">
+                        <option value="">Choose packaging item</option>
+                        {packagingItems.map((it) => (
+                          <option key={it.id} value={it.id}>{it.name}</option>
+                        ))}
+                      </Select>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="any"
+                        placeholder={item ? "Quantity (" + unitOf(item.baseUnit).label + ")" : "Quantity per batch"}
+                        value={line.qtyPerBatch}
+                        onChange={(e) => updatePackLine(i, { qtyPerBatch: e.target.value })}
+                        className="w-full sm:w-48"
+                      />
+                      {packagingLines.length > 1 && (
+                        <Button type="button" variant="secondary" size="sm" onClick={() => setPackagingLines((prev) => prev.filter((_, idx) => idx !== i))}>
+                          Remove
+                        </Button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              <Button type="button" variant="secondary" size="sm" className="mt-2" onClick={() => setPackagingLines((prev) => [...prev, { ...emptyPackLine }])}>
+                Add packaging item
+              </Button>
+            </div>
+
             <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-t border-border/50 pt-3.5">
               <p className="text-xs text-muted-foreground">
-                Pack the same recipe as another product, such as a 500 g pouch. Add that product under Items first;
-                when you finish a run you choose which one you packed.
+                The shared recipe supplies the raw materials. Set the actual good packets produced per batch and only the pouch/carton items used for this pack size. Add the finished product under Items first.
               </p>
               <Button type="submit" disabled={createPackSizeMutation.isPending} className="self-end sm:self-auto px-6">
                 {createPackSizeMutation.isPending ? "Saving…" : "Save pack size"}
@@ -367,7 +423,7 @@ export default function BOM() {
                 )}
                 {b.packSizes.length > 0 && (
                   <p className="mt-2 border-t border-border pt-2 text-sm text-muted-foreground">
-                    Also packed as: {b.packSizes.map((p) => `${p.finishedItem.name} (${p.label}, ${p.multiplier} ${p.multiplier === 1 ? "packet" : "packets"})`).join(", ")}
+                    Also packed as: {b.packSizes.map((p) => p.finishedItem.name + " (" + p.label + ", " + p.expectedOutputQty + " good packets/batch; " + (p.packagingLines.map((line) => line.item.name).join(" + ") || "no packaging configured") + ")").join(", ")}
                   </p>
                 )}
               </Card>
