@@ -7,10 +7,16 @@ import {
   createProductionRun,
   getProductionRun,
   listProductionRuns,
+  recordProductionRun,
   startProductionRun,
   useLatestRecipe,
 } from "./service.js";
-import { productionRunCompleteSchema, productionRunCreateSchema, productionRunStartSchema } from "./schema.js";
+import {
+  productionRunCompleteSchema,
+  productionRunCreateSchema,
+  productionRunRecordSchema,
+  productionRunStartSchema,
+} from "./schema.js";
 import { getProductionRunVariance } from "./variance.js";
 import { getProductionRunCostBreakdown } from "./costing.js";
 import { AppError } from "../../lib/AppError.js";
@@ -76,6 +82,20 @@ productionRouter.post(
       throw new AppError(400, "missing_idempotency_key", "An Idempotency-Key header is required");
     }
     const run = await completeProductionRun(req.params.id as string, idempotencyKey, req.body, req.user!.id);
+    res.json({ data: run });
+  },
+);
+
+productionRouter.post(
+  "/:id/record",
+  canManageRuns,
+  validate("body", productionRunRecordSchema),
+  async (req, res) => {
+    const idempotencyKey = req.get("Idempotency-Key");
+    if (!idempotencyKey) {
+      throw new AppError(400, "missing_idempotency_key", "An Idempotency-Key header is required");
+    }
+    const run = await recordProductionRun(req.params.id as string, idempotencyKey, req.body, req.user!.id);
     res.json({ data: run });
   },
 );

@@ -116,7 +116,7 @@ export default function BatchGenealogy() {
         <div className="space-y-6">
           {/* Stage 1: Origin Batch */}
           <Card className="border-l-4 border-l-primary p-4">
-            <span className="text-xs font-medium text-primary">Stage 1: Origin Lot</span>
+            <span className="text-xs font-medium text-primary">Step 1: Where it came from</span>
             <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h3 className="text-lg font-bold text-foreground font-mono">
@@ -141,7 +141,7 @@ export default function BatchGenealogy() {
           {/* Stage 2 & 3: Production Runs & Downstream Dispatches */}
           <div>
             <h4 className="mb-3 text-sm font-bold text-foreground">
-              Stage 2: Production Usage ({forwardData.productionRuns.length} Runs)
+              Step 2: Used in production ({forwardData.productionRuns.length} Runs)
             </h4>
 
             {forwardData.productionRuns.length === 0 ? (
@@ -175,10 +175,10 @@ export default function BatchGenealogy() {
                           </span>
                         </div>
 
-                        {/* Stage 3: Dispatches */}
+                        {/* Step 3: Dispatches */}
                         <div className="mt-3 border-t border-border/60 pt-2">
                           <span className="text-xs font-medium text-muted-foreground">
-                            Stage 3: Customer Dispatches ({run.finishedGoodsBatch.dispatchBatches.length})
+                            Step 3: Sent to customers ({run.finishedGoodsBatch.dispatchBatches.length})
                           </span>
                           {run.finishedGoodsBatch.dispatchBatches.length === 0 ? (
                             <p className="mt-1 text-xs text-muted-foreground italic">No dispatches yet from this batch.</p>

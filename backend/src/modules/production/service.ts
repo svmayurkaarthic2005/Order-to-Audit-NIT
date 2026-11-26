@@ -181,95 +181,7 @@ export async function startProductionRun(
   actualConsumption: { itemId: string; qtyBase: number; overrideReason?: string }[],
   actingUserId: string,
 ) {
-  return prisma.$transaction(async (tx) => {
-    const run = await tx.productionRun.findUnique({
-      where: { id },
-      include: {
-        bomHeader: { include: { lines: { include: { rawItem: true } } } },
-        packSize: { include: { lines: true } },
-      },
-    });
-    if (!run) {
-      throw new AppError(404, "not_found", "Production run not found");
-    }
-
-    // Claim the DRAFT -> STARTED transition atomically before posting any
-    // movement: two concurrent /start calls (or a /start racing a /cancel)
-    // could otherwise both read status "DRAFT" before either writes, and
-    // both post a PRODUCTION_ISSUE row — double-issuing raw material, or a
-    // /start overwriting a /cancel that landed in between. Only the request
-    // whose UPDATE actually flips the row may proceed.
-    const { count } = await tx.productionRun.updateMany({
-      where: { id, status: "DRAFT" },
-      data: { status: "STARTED", startedAt: new Date() },
-    });
-    if (count === 0) {
-      throw new AppError(409, "invalid_status", "Only a DRAFT run can be started");
-    }
-    await logAudit(tx, {
-      userId: actingUserId,
-      action: "PRODUCTION_RUN_STARTED",
-      entityType: "ProductionRun",
-      entityId: id,
-      before: { status: "DRAFT" },
-      after: { status: "STARTED", actualConsumption },
-    });
-
-    // Freeze the material plan for the selected pack format. Raw materials
-    // remain shared with the recipe; packaging comes from only the selected
-    // PackSize. Legacy runs without a PackSize still use the BOM lines.
-    const plannedLines = run.packSize
-      ? [
-          ...run.bomHeader.lines
-            .filter((line) => line.rawItem.type === "RAW_MATERIAL")
-            .map((line) => ({ itemId: line.rawItemId, qtyPerBatch: line.qtyPerBatch })),
-          ...run.packSize.lines.map((line) => ({ itemId: line.itemId, qtyPerBatch: line.qtyPerBatch })),
-        ]
-      : run.bomHeader.lines.map((line) => ({ itemId: line.rawItemId, qtyPerBatch: line.qtyPerBatch }));
-
-    for (const line of plannedLines) {
-      await tx.productionRunMaterial.create({
-        data: {
-          productionRunId: id,
-          itemId: line.itemId,
-          plannedQtyBase: line.qtyPerBatch * run.batchSize,
-        },
-      });
-    }
-
-    const rawMaterialLineIds = new Set(
-      run.bomHeader.lines.filter((l) => l.rawItem.type === "RAW_MATERIAL").map((l) => l.rawItemId),
-    );
-
-    requireEachLineOnce(rawMaterialLineIds, actualConsumption.map((c) => c.itemId), "raw material");
-
-    for (const itemId of [...new Set(actualConsumption.map((c) => c.itemId))].sort()) {
-      await lockItem(tx, itemId);
-    }
-    for (const consumed of actualConsumption) {
-      const valuePaise = issueValuePaise(consumed.qtyBase, await ledgerPosition(tx, consumed.itemId));
-
-      // FEFO selection — select eligible batches in expiry order
-      const selections = await selectRawBatchesFEFO(consumed.itemId, consumed.qtyBase, tx);
-      await issueFromRawBatches(
-        tx,
-        selections,
-        consumed.itemId,
-        id,
-        consumed.qtyBase,
-        valuePaise,
-        null,
-        consumed.overrideReason,
-      );
-
-      await tx.productionRunMaterial.updateMany({
-        where: { productionRunId: id, itemId: consumed.itemId },
-        data: { actualQtyBase: consumed.qtyBase },
-      });
-    }
-
-    return tx.productionRun.findUniqueOrThrow({ where: { id }, include: includeClause() });
-  }).then(async (result) => {
+  return prisma.$transaction((tx) => startInTx(tx, id, actualConsumption, actingUserId)).then(async (result) => {
     await syncAlertsForItems(actualConsumption.map((c) => c.itemId));
     return result;
   });
@@ -320,176 +232,9 @@ async function completeProductionRunInTransaction(
   },
   actingUserId: string,
 ) {
-  // The pack format is fixed at planning time, not chosen after production.
-  let outputItemId = "";
-  return prisma.$transaction(async (tx) => {
-    const run = await tx.productionRun.findUnique({
-      where: { id },
-      include: {
-        bomHeader: { include: { lines: { include: { rawItem: true } } } },
-        packSize: { include: { finishedItem: true, lines: { include: { item: true } } } },
-      },
-    });
-    if (!run) {
-      throw new AppError(404, "not_found", "Production run not found");
-    }
-
-    outputItemId = run.packSize?.finishedItemId ?? run.bomHeader.finishedItemId;
-
-    // Same atomic-claim pattern as start: compute totalDamaged from the
-    // request body (no DB read needed) so the transition can be claimed
-    // before any movement is posted, closing the same double-posting race.
-    const totalDamagedQty = data.packagingConsumed.reduce((sum, l) => sum + l.damagedQty, 0);
-    const { count } = await tx.productionRun.updateMany({
-      where: { id, status: "STARTED" },
-      data: {
-        status: "COMPLETED",
-        completedAt: new Date(),
-        actualOutputQty: data.actualOutputQty,
-        damagedQty: totalDamagedQty,
-        laborCostPaise: data.laborCostPaise ?? null,
-        overheadCostPaise: data.overheadCostPaise ?? null,
-      },
-    });
-    if (count === 0) {
-      throw new AppError(409, "invalid_status", "Only a STARTED run can be completed");
-    }
-    await logAudit(tx, {
-      userId: actingUserId,
-      action: "PRODUCTION_RUN_COMPLETED",
-      entityType: "ProductionRun",
-      entityId: id,
-      before: { status: "STARTED" },
-      after: { status: "COMPLETED", actualOutputQty: data.actualOutputQty, damagedQty: totalDamagedQty, outputItemId },
-    });
-
-    const requiredPackagingLines = run.packSize
-      ? run.packSize.lines.map((line) => ({ itemId: line.itemId }))
-      : run.bomHeader.lines
-          .filter((line) => line.rawItem.type === "PACKAGING")
-          .map((line) => ({ itemId: line.rawItemId }));
-    const packagingLineIds = new Set(requiredPackagingLines.map((line) => line.itemId));
-    // Exactly this run's packaging, each once: a skipped pouch would never
-    // leave stock (and the cost would be too low), a repeated one would be
-    // taken twice, and anything else isn't packaging for this pack format.
-    requireEachLineOnce(packagingLineIds, data.packagingConsumed.map((l) => l.itemId), "packaging item");
-
-    // Lock every packaging SKU before reading stock or WAC; sorted order
-    // keeps concurrent multi-packaging completions from deadlocking.
-    for (const itemId of [...new Set(data.packagingConsumed.map((line) => line.itemId))].sort()) {
-      await lockItem(tx, itemId);
-    }
-
-    // Check and consume the used and damaged quantities against usable FEFO
-    // batches. Both categories are separate ledger rows but together consume
-    // the actual number of pouches/cartons taken from stock. Used + damaged is
-    // checked first against on-hand, so the message names the full amount.
-    for (const line of data.packagingConsumed) {
-      const position = await ledgerPosition(tx, line.itemId);
-      const taking = line.qtyBase + line.damagedQty;
-      if (taking > position.qtyBase) {
-        const item = await tx.item.findUniqueOrThrow({ where: { id: line.itemId } });
-        throw new AppError(
-          409,
-          "insufficient_batch_stock",
-          `Not enough ${item.name}: ${formatQty(Math.max(position.qtyBase, 0), item.baseUnit)} in stock, ${formatQty(taking, item.baseUnit)} used and damaged. Record the purchase first, or correct the amounts.`,
-          { itemId: line.itemId, available: position.qtyBase, needed: taking },
-        );
-      }
-      const usedValue = issueValuePaise(line.qtyBase, position);
-      const damagedValue = issueValuePaise(line.qtyBase + line.damagedQty, position) - usedValue;
-
-      if (line.qtyBase > 0) {
-        const usedSelections = await selectRawBatchesFEFO(line.itemId, line.qtyBase, tx);
-        await issueFromRawBatches(
-          tx,
-          usedSelections,
-          line.itemId,
-          id,
-          line.qtyBase,
-          usedValue,
-          null,
-          undefined,
-          "PRODUCTION_PACKAGING",
-        );
-      }
-      if (line.damagedQty > 0) {
-        const damagedSelections = await selectRawBatchesFEFO(line.itemId, line.damagedQty, tx);
-        await issueFromRawBatches(
-          tx,
-          damagedSelections,
-          line.itemId,
-          id,
-          line.damagedQty,
-          damagedValue,
-          null,
-          undefined,
-          "PRODUCTION_DAMAGE",
-        );
-      }
-      await tx.productionRunMaterial.updateMany({
-        where: { productionRunId: id, itemId: line.itemId },
-        data: { actualQtyBase: line.qtyBase + line.damagedQty },
-      });
-    }
-
-    // Moving-weighted-average costing: the exact total (material cost this
-    // run actually incurred + fixed overhead) is what the ledger's SUM()
-    // needs to stay correct; unitCostPaise is that total spread over actual
-    // output, rounded only for display.
-    const totalCostPaise = await computeOutputCostPaise(
-      tx,
-      id,
-      run.batchSize,
-      data.overheadCostPaise,
-      data.laborCostPaise,
-    );
-    const unitCostPaise = displayUnitCostPaise(totalCostPaise, data.actualOutputQty);
-
-    // Create the finished-goods batch row for FEFO dispatch tracking
-    const fgBatch = await recordProductionOutput(tx, id, outputItemId, data.actualOutputQty, data.expiryDate);
-
-    // The idempotency guard: the finished-goods output row carries the
-    // caller's key, so a replay is caught before any row is posted twice.
-    await tx.stockMovement.create({
-      data: {
-        itemId: outputItemId,
-        qtyBase: data.actualOutputQty,
-        unitCostPaise,
-        totalCostPaise,
-        source: "PRODUCTION_OUTPUT",
-        sourceId: id,
-        idempotencyKey,
-        finishedGoodsBatchId: fgBatch.id,
-      },
-    });
-
-    return tx.productionRun.findUniqueOrThrow({ where: { id }, include: includeClause() });
-  }).then(async (result) => {
-    await syncAlertsForItems([...data.packagingConsumed.map((l) => l.itemId), outputItemId]);
-    await refreshBatchStatuses();
-
-    // Notify on significant yield variance (>3% tolerance)
-    const expected = (result.packSize?.expectedYieldQty ?? result.bomHeader.expectedYieldQty) * result.batchSize;
-    const actual = data.actualOutputQty;
-    if (expected > 0) {
-      const pctDiff = (actual - expected) / expected; // signed fraction
-      if (Math.abs(pctDiff) > 0.03) {
-        const pctDisplay = (pctDiff * 100).toFixed(1);
-        await notify({
-          recipientRoles: ["OWNER", "PRODUCTION"],
-          type: "PRODUCTION_VARIANCE",
-          title: `${result.packSize?.finishedItem.name ?? result.bomHeader.finishedItem.name}: ${actual < expected ? "fewer" : "more"} packets than planned`,
-          message: `Expected ${expected} packets, got ${actual} (${pctDiff > 0 ? "+" : ""}${pctDisplay}%). More than 3% off, so it's worth checking what happened.`,
-          severity: Math.abs(pctDiff) > 0.1 ? "CRITICAL" : "WARNING",
-          sourceType: "ProductionRun",
-          sourceId: result.id,
-        });
-      }
-    }
-
-    return result;
-  });
+  return prisma.$transaction((tx) => completeInTx(tx, id, idempotencyKey, data, actingUserId)).then(({ run, outputItemId }) =>
+    afterComplete(run, data, outputItemId),
+  );
 }
 
 // Reverses whatever raw material was actually issued at STARTED — there is
@@ -550,4 +295,302 @@ export async function cancelProductionRun(id: string, actingUserId: string) {
     await syncAlertsForItems(reversedItemIds);
     return result;
   });
+}
+
+type Consumption = { itemId: string; qtyBase: number; overrideReason?: string }[];
+
+async function startInTx(tx: TxClient, id: string, actualConsumption: Consumption, actingUserId: string) {
+    const run = await tx.productionRun.findUnique({
+    where: { id },
+    include: {
+      bomHeader: { include: { lines: { include: { rawItem: true } } } },
+      packSize: { include: { lines: true } },
+    },
+  });
+  if (!run) {
+    throw new AppError(404, "not_found", "Production run not found");
+  }
+
+  // Claim the DRAFT -> STARTED transition atomically before posting any
+  // movement: two concurrent /start calls (or a /start racing a /cancel)
+  // could otherwise both read status "DRAFT" before either writes, and
+  // both post a PRODUCTION_ISSUE row — double-issuing raw material, or a
+  // /start overwriting a /cancel that landed in between. Only the request
+  // whose UPDATE actually flips the row may proceed.
+  const { count } = await tx.productionRun.updateMany({
+    where: { id, status: "DRAFT" },
+    data: { status: "STARTED", startedAt: new Date() },
+  });
+  if (count === 0) {
+    throw new AppError(409, "invalid_status", "Only a DRAFT run can be started");
+  }
+  await logAudit(tx, {
+    userId: actingUserId,
+    action: "PRODUCTION_RUN_STARTED",
+    entityType: "ProductionRun",
+    entityId: id,
+    before: { status: "DRAFT" },
+    after: { status: "STARTED", actualConsumption },
+  });
+
+  // Freeze the material plan for the selected pack format. Raw materials
+  // remain shared with the recipe; packaging comes from only the selected
+  // PackSize. Legacy runs without a PackSize still use the BOM lines.
+  const plannedLines = run.packSize
+    ? [
+        ...run.bomHeader.lines
+          .filter((line) => line.rawItem.type === "RAW_MATERIAL")
+          .map((line) => ({ itemId: line.rawItemId, qtyPerBatch: line.qtyPerBatch })),
+        ...run.packSize.lines.map((line) => ({ itemId: line.itemId, qtyPerBatch: line.qtyPerBatch })),
+      ]
+    : run.bomHeader.lines.map((line) => ({ itemId: line.rawItemId, qtyPerBatch: line.qtyPerBatch }));
+
+  for (const line of plannedLines) {
+    await tx.productionRunMaterial.create({
+      data: {
+        productionRunId: id,
+        itemId: line.itemId,
+        plannedQtyBase: line.qtyPerBatch * run.batchSize,
+      },
+    });
+  }
+
+  const rawMaterialLineIds = new Set(
+    run.bomHeader.lines.filter((l) => l.rawItem.type === "RAW_MATERIAL").map((l) => l.rawItemId),
+  );
+
+  requireEachLineOnce(rawMaterialLineIds, actualConsumption.map((c) => c.itemId), "raw material");
+
+  for (const itemId of [...new Set(actualConsumption.map((c) => c.itemId))].sort()) {
+    await lockItem(tx, itemId);
+  }
+  for (const consumed of actualConsumption) {
+    const valuePaise = issueValuePaise(consumed.qtyBase, await ledgerPosition(tx, consumed.itemId));
+
+    // FEFO selection — select eligible batches in expiry order
+    const selections = await selectRawBatchesFEFO(consumed.itemId, consumed.qtyBase, tx);
+    await issueFromRawBatches(
+      tx,
+      selections,
+      consumed.itemId,
+      id,
+      consumed.qtyBase,
+      valuePaise,
+      null,
+      consumed.overrideReason,
+    );
+
+    await tx.productionRunMaterial.updateMany({
+      where: { productionRunId: id, itemId: consumed.itemId },
+      data: { actualQtyBase: consumed.qtyBase },
+    });
+  }
+
+  return tx.productionRun.findUniqueOrThrow({ where: { id }, include: includeClause() });
+}
+
+type CompleteData = {
+  actualOutputQty: number;
+  packagingConsumed: { itemId: string; qtyBase: number; damagedQty: number }[];
+  expiryDate?: Date;
+  laborCostPaise?: number;
+  overheadCostPaise?: number;
+};
+
+// The pack format is fixed at planning time, not chosen after production.
+async function completeInTx(tx: TxClient, id: string, idempotencyKey: string, data: CompleteData, actingUserId: string) {
+    const run = await tx.productionRun.findUnique({
+    where: { id },
+    include: {
+      bomHeader: { include: { lines: { include: { rawItem: true } } } },
+      packSize: { include: { finishedItem: true, lines: { include: { item: true } } } },
+    },
+  });
+  if (!run) {
+    throw new AppError(404, "not_found", "Production run not found");
+  }
+
+  const outputItemId = run.packSize?.finishedItemId ?? run.bomHeader.finishedItemId;
+
+  // Same atomic-claim pattern as start: compute totalDamaged from the
+  // request body (no DB read needed) so the transition can be claimed
+  // before any movement is posted, closing the same double-posting race.
+  const totalDamagedQty = data.packagingConsumed.reduce((sum, l) => sum + l.damagedQty, 0);
+  const { count } = await tx.productionRun.updateMany({
+    where: { id, status: "STARTED" },
+    data: {
+      status: "COMPLETED",
+      completedAt: new Date(),
+      actualOutputQty: data.actualOutputQty,
+      damagedQty: totalDamagedQty,
+      laborCostPaise: data.laborCostPaise ?? null,
+      overheadCostPaise: data.overheadCostPaise ?? null,
+    },
+  });
+  if (count === 0) {
+    throw new AppError(409, "invalid_status", "Only a STARTED run can be completed");
+  }
+  await logAudit(tx, {
+    userId: actingUserId,
+    action: "PRODUCTION_RUN_COMPLETED",
+    entityType: "ProductionRun",
+    entityId: id,
+    before: { status: "STARTED" },
+    after: { status: "COMPLETED", actualOutputQty: data.actualOutputQty, damagedQty: totalDamagedQty, outputItemId },
+  });
+
+  const requiredPackagingLines = run.packSize
+    ? run.packSize.lines.map((line) => ({ itemId: line.itemId }))
+    : run.bomHeader.lines
+        .filter((line) => line.rawItem.type === "PACKAGING")
+        .map((line) => ({ itemId: line.rawItemId }));
+  const packagingLineIds = new Set(requiredPackagingLines.map((line) => line.itemId));
+  // Exactly this run's packaging, each once: a skipped pouch would never
+  // leave stock (and the cost would be too low), a repeated one would be
+  // taken twice, and anything else isn't packaging for this pack format.
+  requireEachLineOnce(packagingLineIds, data.packagingConsumed.map((l) => l.itemId), "packaging item");
+
+  // Lock every packaging SKU before reading stock or WAC; sorted order
+  // keeps concurrent multi-packaging completions from deadlocking.
+  for (const itemId of [...new Set(data.packagingConsumed.map((line) => line.itemId))].sort()) {
+    await lockItem(tx, itemId);
+  }
+
+  // Check and consume the used and damaged quantities against usable FEFO
+  // batches. Both categories are separate ledger rows but together consume
+  // the actual number of pouches/cartons taken from stock. Used + damaged is
+  // checked first against on-hand, so the message names the full amount.
+  for (const line of data.packagingConsumed) {
+    const position = await ledgerPosition(tx, line.itemId);
+    const taking = line.qtyBase + line.damagedQty;
+    if (taking > position.qtyBase) {
+      const item = await tx.item.findUniqueOrThrow({ where: { id: line.itemId } });
+      throw new AppError(
+        409,
+        "insufficient_batch_stock",
+        `Not enough ${item.name}: ${formatQty(Math.max(position.qtyBase, 0), item.baseUnit)} in stock, ${formatQty(taking, item.baseUnit)} used and damaged. Record the purchase first, or correct the amounts.`,
+        { itemId: line.itemId, available: position.qtyBase, needed: taking },
+      );
+    }
+    const usedValue = issueValuePaise(line.qtyBase, position);
+    const damagedValue = issueValuePaise(line.qtyBase + line.damagedQty, position) - usedValue;
+
+    if (line.qtyBase > 0) {
+      const usedSelections = await selectRawBatchesFEFO(line.itemId, line.qtyBase, tx);
+      await issueFromRawBatches(
+        tx,
+        usedSelections,
+        line.itemId,
+        id,
+        line.qtyBase,
+        usedValue,
+        null,
+        undefined,
+        "PRODUCTION_PACKAGING",
+      );
+    }
+    if (line.damagedQty > 0) {
+      const damagedSelections = await selectRawBatchesFEFO(line.itemId, line.damagedQty, tx);
+      await issueFromRawBatches(
+        tx,
+        damagedSelections,
+        line.itemId,
+        id,
+        line.damagedQty,
+        damagedValue,
+        null,
+        undefined,
+        "PRODUCTION_DAMAGE",
+      );
+    }
+    await tx.productionRunMaterial.updateMany({
+      where: { productionRunId: id, itemId: line.itemId },
+      data: { actualQtyBase: line.qtyBase + line.damagedQty },
+    });
+  }
+
+  // Moving-weighted-average costing: the exact total (material cost this
+  // run actually incurred + fixed overhead) is what the ledger's SUM()
+  // needs to stay correct; unitCostPaise is that total spread over actual
+  // output, rounded only for display.
+  const totalCostPaise = await computeOutputCostPaise(
+    tx,
+    id,
+    run.batchSize,
+    data.overheadCostPaise,
+    data.laborCostPaise,
+  );
+  const unitCostPaise = displayUnitCostPaise(totalCostPaise, data.actualOutputQty);
+
+  // Create the finished-goods batch row for FEFO dispatch tracking
+  const fgBatch = await recordProductionOutput(tx, id, outputItemId, data.actualOutputQty, data.expiryDate);
+
+  // The idempotency guard: the finished-goods output row carries the
+  // caller's key, so a replay is caught before any row is posted twice.
+  await tx.stockMovement.create({
+    data: {
+      itemId: outputItemId,
+      qtyBase: data.actualOutputQty,
+      unitCostPaise,
+      totalCostPaise,
+      source: "PRODUCTION_OUTPUT",
+      sourceId: id,
+      idempotencyKey,
+      finishedGoodsBatchId: fgBatch.id,
+    },
+  });
+
+  return { run: await tx.productionRun.findUniqueOrThrow({ where: { id }, include: includeClause() }), outputItemId };
+}
+
+async function afterComplete(result: Awaited<ReturnType<typeof completeInTx>>["run"], data: CompleteData, outputItemId: string) {
+  await syncAlertsForItems([...data.packagingConsumed.map((l) => l.itemId), outputItemId]);
+  await refreshBatchStatuses();
+
+  // Notify on significant yield variance (>3% tolerance)
+  const expected = (result.packSize?.expectedYieldQty ?? result.bomHeader.expectedYieldQty) * result.batchSize;
+  const actual = data.actualOutputQty;
+  if (expected > 0) {
+    const pctDiff = (actual - expected) / expected; // signed fraction
+    if (Math.abs(pctDiff) > 0.03) {
+      const pctDisplay = (pctDiff * 100).toFixed(1);
+      await notify({
+        recipientRoles: ["OWNER", "PRODUCTION"],
+        type: "PRODUCTION_VARIANCE",
+        title: `${result.packSize?.finishedItem.name ?? result.bomHeader.finishedItem.name}: ${actual < expected ? "fewer" : "more"} packets than planned`,
+        message: `Expected ${expected} packets, got ${actual} (${pctDiff > 0 ? "+" : ""}${pctDisplay}%). More than 3% off, so it's worth checking what happened.`,
+        severity: Math.abs(pctDiff) > 0.1 ? "CRITICAL" : "WARNING",
+        sourceType: "ProductionRun",
+        sourceId: result.id,
+      });
+    }
+  }
+
+  return result;
+}
+
+// One step for the floor: issue the raw materials and post the output in a
+// single transaction, so a failure part-way (say, short of pouches) leaves
+// the run planned with nothing taken out of stock. Same rules as start +
+// complete, which stay for runs that span a shift.
+export async function recordProductionRun(
+  id: string,
+  idempotencyKey: string,
+  data: CompleteData & { actualConsumption: Consumption },
+  actingUserId: string,
+) {
+  const alreadyApplied = await prisma.stockMovement.findUnique({ where: { idempotencyKey } });
+  if (alreadyApplied) return getProductionRun(id);
+  const { actualConsumption, ...complete } = data;
+  try {
+    const { run, outputItemId } = await prisma.$transaction(async (tx) => {
+      await startInTx(tx, id, actualConsumption, actingUserId);
+      return completeInTx(tx, id, idempotencyKey, complete, actingUserId);
+    });
+    await syncAlertsForItems(actualConsumption.map((c) => c.itemId));
+    return afterComplete(run, complete, outputItemId);
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") return getProductionRun(id);
+    throw err;
+  }
 }

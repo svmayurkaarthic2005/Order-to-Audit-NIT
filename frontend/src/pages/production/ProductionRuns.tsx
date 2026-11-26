@@ -41,7 +41,7 @@ type Run = {
 };
 // Form quantities are in kg / L / pcs; converted to base units on submit.
 type ConsumptionLine = { itemId: string; name: string; baseUnit: string; planned: string; quantity: string };
-type PackagingLine = { itemId: string; name: string; baseUnit: string; quantity: string; damagedQty: string };
+type PackagingLine = { itemId: string; name: string; baseUnit: string; planned: string; quantity: string; damagedQty: string };
 type VarianceLine = { itemId: string; planned: number; actual: number; variancePct: number; flagged: boolean };
 type Variance = { materials: VarianceLine[]; yield: VarianceLine | null };
 type CostLine = { itemId: string; sku: string; name: string; qtyBase: number; unitCostPaise: number; totalCostPaise: number };
@@ -141,6 +141,11 @@ export default function ProductionRuns() {
   const rawShort = shortLines.some((line) => line.rawItem.type === "RAW_MATERIAL");
   const packShort = shortLines.some((line) => line.rawItem.type === "PACKAGING");
   const expectedPacketsPerBatch = selectedPackSize?.expectedYieldQty ?? selectedBom?.expectedYieldQty;
+  // Only ask about pack size when the product really comes in another size.
+  const hasOtherPacks = !!selectedBom?.packSizes.some((p) => p.lines.length > 0 && p.finishedItem.name !== selectedBom.finishedItem.name);
+  const [showCancelled, setShowCancelled] = useState(false);
+  const cancelledCount = runs?.filter((r) => r.status === "CANCELLED").length ?? 0;
+  const visibleRuns = runs?.filter((r) => showCancelled || r.status !== "CANCELLED");
   const startingRun = runs?.find((r) => r.id === startingRunId);
   const completingRun = runs?.find((r) => r.id === completingRunId);
 
@@ -160,18 +165,34 @@ export default function ProductionRuns() {
     onError: (err) => setError(err instanceof ApiError ? err.message : "Couldn't plan the run."),
   });
 
-  const startMutation = useMutation({
+  const recordMutation = useMutation({
     mutationFn: (runId: string) =>
-      api.post(`/production-runs/${runId}/start`, {
-        actualConsumption: consumption.map((c) => ({ itemId: c.itemId, qtyBase: toBase(c.quantity, c.baseUnit) })),
-      }),
+      api.post(
+        `/production-runs/${runId}/record`,
+        {
+          actualConsumption: consumption.map((c) => ({ itemId: c.itemId, qtyBase: toBase(c.quantity, c.baseUnit) })),
+          actualOutputQty: Number(actualOutputQty),
+          packagingConsumed: packaging.map((p) => ({
+            itemId: p.itemId,
+            qtyBase: toBase(p.quantity, p.baseUnit) - Number(p.damagedQty || 0), // "used" includes the damaged ones
+            damagedQty: Number(p.damagedQty || 0),
+          })),
+          ...(laborCostPaise ? { laborCostPaise: Math.round(Number(laborCostPaise) * 100) } : {}),
+          ...(overheadCostPaise ? { overheadCostPaise: Math.round(Number(overheadCostPaise) * 100) } : {}),
+        },
+        { "Idempotency-Key": `${runId}-${Date.now()}` },
+      ),
     onSuccess: () => {
       setRunError(null);
       setStartingRunId(null);
       setConsumption([]);
+      setPackaging([]);
+      setActualOutputQty("");
+      setLaborCostPaise("");
+      setOverheadCostPaise("");
       queryClient.invalidateQueries({ queryKey: ["production-runs"] });
     },
-    onError: (err, runId) => setRunError({ runId, message: err instanceof ApiError ? err.message : "Couldn't start the run. There may not be enough of a material in stock." }),
+    onError: (err, runId) => setRunError({ runId, message: err instanceof ApiError ? err.message : "Couldn't record the run. There may not be enough of a material in stock." }),
   });
 
   const completeMutation = useMutation({
@@ -182,7 +203,7 @@ export default function ProductionRuns() {
           actualOutputQty: Number(actualOutputQty),
           packagingConsumed: packaging.map((p) => ({
             itemId: p.itemId,
-            qtyBase: toBase(p.quantity, p.baseUnit),
+            qtyBase: toBase(p.quantity, p.baseUnit) - Number(p.damagedQty || 0), // "used" includes the damaged ones
             damagedQty: Number(p.damagedQty || 0),
           })),
           ...(laborCostPaise ? { laborCostPaise: Math.round(Number(laborCostPaise) * 100) } : {}),
@@ -221,49 +242,48 @@ export default function ProductionRuns() {
     onError: (err, runId) => setRunError({ runId, message: err instanceof ApiError ? err.message : "Couldn't cancel the run." }),
   });
 
-  function openStartForm(run: Run) {
+  // The run's own recipe version and pack format, not whatever is latest.
+  function packagingFor(run: Run): PackagingLine[] {
+    const lines = run.packSize
+      ? run.packSize.lines.map((line) => ({ itemId: line.itemId, name: line.item.name, baseUnit: line.item.baseUnit, qtyPerBatch: line.qtyPerBatch }))
+      : run.bomHeader.lines
+          .filter((line) => line.rawItem.type === "PACKAGING")
+          .map((line) => ({ itemId: line.rawItemId, name: line.rawItem.name, baseUnit: line.rawItem.baseUnit, qtyPerBatch: line.qtyPerBatch }));
+    return lines.map((line) => ({
+      itemId: line.itemId,
+      name: line.name,
+      baseUnit: line.baseUnit,
+      planned: fromBase(line.qtyPerBatch * run.batchSize, line.baseUnit),
+      quantity: "",
+      damagedQty: "",
+    }));
+  }
+
+  // One form for the whole run: what went in, and what came out.
+  function openRecordForm(run: Run) {
     setStartingRunId(run.id);
     setCompletingRunId(null);
-    // The run's own recipe version, not whatever is latest.
     const rawLines = run.bomHeader.lines.filter((l) => l.rawItem.type === "RAW_MATERIAL");
     setConsumption(
       rawLines.map((l) => ({ itemId: l.rawItemId, name: l.rawItem.name, baseUnit: l.rawItem.baseUnit, planned: fromBase(l.qtyPerBatch * run.batchSize, l.rawItem.baseUnit), quantity: "" })),
     );
+    setPackaging(packagingFor(run));
+    setActualOutputQty("");
+    setLaborCostPaise("");
+    setOverheadCostPaise("");
   }
 
+  // Runs started before the one-step form still finish here.
   function openCompleteForm(run: Run) {
     setCompletingRunId(run.id);
     setStartingRunId(null);
-    const packagingLines = run.packSize
-      ? run.packSize.lines.map((line) => ({
-          itemId: line.itemId,
-          name: line.item.name,
-          baseUnit: line.item.baseUnit,
-          qtyPerBatch: line.qtyPerBatch,
-        }))
-      : run.bomHeader.lines
-          .filter((line) => line.rawItem.type === "PACKAGING")
-          .map((line) => ({
-            itemId: line.rawItemId,
-            name: line.rawItem.name,
-            baseUnit: line.rawItem.baseUnit,
-            qtyPerBatch: line.qtyPerBatch,
-          }));
-    setActualOutputQty(String((run.packSize?.expectedYieldQty ?? run.bomHeader.expectedYieldQty) * run.batchSize));
-    setPackaging(
-      packagingLines.map((line) => ({
-        itemId: line.itemId,
-        name: line.name,
-        baseUnit: line.baseUnit,
-        quantity: fromBase(line.qtyPerBatch * run.batchSize, line.baseUnit),
-        damagedQty: "0",
-      })),
-    );
+    setActualOutputQty("");
+    setPackaging(packagingFor(run));
   }
 
   return (
     <div className="w-full min-w-0">
-      <PageHeader title="Production runs" description="Plan a batch, start it to take the materials out of stock, then finish it with how many packets came out." />
+      <PageHeader title="Production runs" description="Plan a batch, then record it: what you used and how many packets came out." />
 
       {canMutate && (
         <Card className="mb-6 overflow-hidden">
@@ -290,6 +310,7 @@ export default function ProductionRuns() {
                   </Select>
                 </Field>
               </div>
+              {hasOtherPacks && (
               <div className="sm:col-span-5">
                 <Field label="Pack size">
                   <Select
@@ -298,16 +319,17 @@ export default function ProductionRuns() {
                     onChange={(e) => setPackSizeId(e.target.value)}
                     className="w-full"
                   >
-                    <option value="">Recipe default: {selectedBom?.finishedItem.name ?? "base product"}</option>
+                    <option value="">{selectedBom?.finishedItem.name ?? "Standard pack"}</option>
                     {selectedBom?.packSizes.map((pack) => (
                       <option key={pack.id} value={pack.id} disabled={pack.lines.length === 0}>
                         {pack.finishedItem.name} — {pack.label} ({pack.expectedYieldQty} packets per batch)
-                        {pack.lines.length === 0 ? " · setup required in Recipes" : ""}
+                        {pack.lines.length === 0 ? " · set it up in Recipes first" : ""}
                       </option>
                     ))}
                   </Select>
                 </Field>
               </div>
+              )}
               <div className="sm:col-span-3">
                 <Field label="Number of batches" required>
                   <Input type="number" required min="1" value={batchSize} onChange={(e) => setBatchSize(e.target.value)} className="w-full" />
@@ -381,7 +403,7 @@ export default function ProductionRuns() {
         <EmptyState>No runs yet. Plan one above to get started.</EmptyState>
       ) : (
         <ul className="flex flex-col gap-2">
-          {runs.map((run) => (
+          {visibleRuns?.map((run) => (
             <li key={run.id}>
               <Card className="px-4 py-2.5">
                 <div className="flex items-start justify-between gap-2">
@@ -390,7 +412,7 @@ export default function ProductionRuns() {
                       {run.packSize?.finishedItem.name ?? run.bomHeader.finishedItem.name}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      {run.batchSize} {run.batchSize === 1 ? "batch" : "batches"}{run.packSize ? `, ${run.packSize.label} pack` : ""}, recipe version {run.bomHeader.version}
+                      {run.batchSize} {run.batchSize === 1 ? "batch" : "batches"}{run.packSize ? `, ${run.packSize.label} pack` : ""}
                     </p>
                   </div>
                   <StatusBadge variant={RUN_STATUS_VARIANT[run.status]}>{RUN_STATUS_LABEL[run.status]}</StatusBadge>
@@ -438,8 +460,8 @@ export default function ProductionRuns() {
                 )}
                 <div className="mt-3 flex gap-2">
                   {canMutate && run.status === "DRAFT" && (
-                    <Button size="sm" onClick={() => openStartForm(run)}>
-                      Start run
+                    <Button size="sm" onClick={() => openRecordForm(run)}>
+                      Record run
                     </Button>
                   )}
                   {canMutate && run.status === "STARTED" && (
@@ -571,30 +593,98 @@ export default function ProductionRuns() {
                   <form
                     onSubmit={(e) => {
                       e.preventDefault();
-                      startMutation.mutate(run.id);
+                      recordMutation.mutate(run.id);
                     }}
-                    className="mt-3 flex flex-col gap-2 rounded-md border border-border p-3"
+                    className="mt-3 flex flex-col gap-3 rounded-md border border-border p-3"
                   >
-                    <p className="text-sm font-medium text-foreground">How much of each material did you actually use? Weigh it and enter it; the recipe amount is shown for comparison.</p>
-                    <div className="grid gap-2 sm:grid-cols-2">
-                      {consumption.map((line, i) => (
-                        <Field key={line.itemId} label={`${line.name} (${unitOf(line.baseUnit).label})`} required>
-                          <Input
-                            type="number"
-                            step="any"
-                            min="0"
-                            required
-                            value={line.quantity}
-                            onChange={(e) =>
-                              setConsumption((prev) => prev.map((l, idx) => (idx === i ? { ...l, quantity: e.target.value } : l)))
-                            }
-                          />
-                          <span className="mt-1 text-xs text-muted-foreground">Recipe: {line.planned} {unitOf(line.baseUnit).label}</span>
-                        </Field>
-                      ))}
+                    <p className="text-sm text-muted-foreground">Type what was really used.</p>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-border text-xs text-muted-foreground">
+                            <th className="py-1.5 text-left font-medium">Material</th>
+                            <th className="py-1.5 text-right font-medium">Planned</th>
+                            <th className="py-1.5 pl-3 text-left font-medium">Actually used</th>
+                            <th className="py-1.5 pl-3 text-left font-medium">Of which damaged</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {consumption.map((line, i) => (
+                            <tr key={line.itemId} className="border-b border-border/60">
+                              <td className="py-1.5 text-foreground">{line.name}</td>
+                              <td className="tabular py-1.5 text-right text-muted-foreground">
+                                {line.planned} {unitOf(line.baseUnit).label}
+                              </td>
+                              <td className="py-1.5 pl-3">
+                                <Input
+                                  type="number"
+                                  step="any"
+                                  min="0"
+                                  required
+                                  aria-label={`${line.name} actually used (${unitOf(line.baseUnit).label})`}
+                                  className="w-32"
+                                  value={line.quantity}
+                                  onChange={(e) => setConsumption((prev) => prev.map((l, idx) => (idx === i ? { ...l, quantity: e.target.value } : l)))}
+                                />
+                              </td>
+                              <td />
+                            </tr>
+                          ))}
+                          {packaging.map((line, i) => (
+                            <tr key={line.itemId} className="border-b border-border/60">
+                              <td className="py-1.5 text-foreground">{line.name}</td>
+                              <td className="tabular py-1.5 text-right text-muted-foreground">
+                                {line.planned} {unitOf(line.baseUnit).label}
+                              </td>
+                              <td className="py-1.5 pl-3">
+                                <Input
+                                  type="number"
+                                  step="any"
+                                  min="0"
+                                  required
+                                  aria-label={`${line.name} actually used (${unitOf(line.baseUnit).label})`}
+                                  className="w-32"
+                                  value={line.quantity}
+                                  onChange={(e) => setPackaging((prev) => prev.map((l, idx) => (idx === i ? { ...l, quantity: e.target.value } : l)))}
+                                />
+                              </td>
+                              <td className="py-1.5 pl-3">
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  max={line.quantity || undefined}
+                                  placeholder="0"
+                                  aria-label={`${line.name} damaged, out of those used`}
+                                  className="w-24"
+                                  value={line.damagedQty}
+                                  onChange={(e) => setPackaging((prev) => prev.map((l, idx) => (idx === i ? { ...l, damagedQty: e.target.value } : l)))}
+                                />
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
-                    <Button type="submit" disabled={startMutation.isPending} className="mt-1 self-start">
-                      Start, and take these out of stock
+                    <div className="grid gap-2 sm:grid-cols-3">
+                      <Field label={`Good packets (expected ${(run.packSize?.expectedYieldQty ?? run.bomHeader.expectedYieldQty) * run.batchSize})`} required>
+                        <Input type="number" min="0" required value={actualOutputQty} onChange={(e) => setActualOutputQty(e.target.value)} />
+                      </Field>
+                      <Field label="Labour (₹)">
+                        <Input type="number" step="0.01" min="0" placeholder="Optional" value={laborCostPaise} onChange={(e) => setLaborCostPaise(e.target.value)} />
+                      </Field>
+                      <Field label="Gas, power, other (₹)">
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          placeholder={`Blank uses ₹${500 * run.batchSize}`}
+                          value={overheadCostPaise}
+                          onChange={(e) => setOverheadCostPaise(e.target.value)}
+                        />
+                      </Field>
+                    </div>
+                    <Button type="submit" disabled={recordMutation.isPending} className="self-start">
+                      Record run
                     </Button>
                   </form>
                 )}
@@ -615,7 +705,7 @@ export default function ProductionRuns() {
                       {packaging.map((line, i) => (
                         <div key={line.itemId} className="flex items-end gap-2">
                           <div className="flex-1">
-                            <Field label={`${line.name} good units used`}>
+                            <Field label={`${line.name} used (damaged included)`}>
                               <Input
                                 type="number"
                                 min="0"
@@ -627,9 +717,11 @@ export default function ProductionRuns() {
                             </Field>
                           </div>
                           <div className="flex-1">
-                            <Field label="Additional damaged">
+                            <Field label="Of which damaged">
                               <Input
                                 type="number"
+                                min="0"
+                                max={line.quantity || undefined}
                                 value={line.damagedQty}
                                 onChange={(e) =>
                                   setPackaging((prev) => prev.map((l, idx) => (idx === i ? { ...l, damagedQty: e.target.value } : l)))
@@ -671,6 +763,13 @@ export default function ProductionRuns() {
               </Card>
             </li>
           ))}
+          {cancelledCount > 0 && (
+            <li>
+              <button type="button" onClick={() => setShowCancelled((v) => !v)} className="text-xs font-medium text-primary hover:underline">
+                {showCancelled ? "Hide cancelled runs" : `Show ${cancelledCount} cancelled ${cancelledCount === 1 ? "run" : "runs"}`}
+              </button>
+            </li>
+          )}
         </ul>
       )}
     </div>

@@ -460,7 +460,7 @@ export default function Reports() {
             ) : (
               <Table>
                 <THead>
-                  <tr><Th>Finished good</Th><Th>Status</Th><Th numeric>Planned</Th><Th numeric>Actual</Th><Th numeric>Yield variance</Th></tr>
+                  <tr><Th>Product</Th><Th>Status</Th><Th numeric>Planned</Th><Th numeric>Actual</Th><Th numeric>Yield variance</Th></tr>
                 </THead>
                 <tbody>
                   {production.data?.map((r) => (
@@ -488,11 +488,11 @@ export default function Reports() {
           {/* ── Payments & Collections ── */}
           {tab === "Payments & Collections" && (
             collections.data?.length === 0 ? (
-              <EmptyState>Nothing outstanding.</EmptyState>
+              <EmptyState>Nobody owes you anything.</EmptyState>
             ) : (
               <Table>
                 <THead>
-                  <tr><Th>Customer</Th><Th numeric>Outstanding</Th><Th numeric>0–30d</Th><Th numeric>31–60d</Th><Th numeric>61–90d</Th><Th numeric>90+d</Th></tr>
+                  <tr><Th>Customer</Th><Th numeric>Still owed</Th><Th numeric>Up to 30 days</Th><Th numeric>31–60 days</Th><Th numeric>61–90 days</Th><Th numeric>Over 90 days</Th></tr>
                 </THead>
                 <tbody>
                   {collections.data?.map((c) => (
@@ -622,7 +622,7 @@ function CustomerSalesDrill({ rows }: { rows: CustomerSalesEntry[] }) {
 }
 
 function CustomerOutstandingDrill({ invoices }: { invoices: InvoiceDetail[] }) {
-  if (invoices.length === 0) return <EmptyState>Nothing outstanding.</EmptyState>;
+  if (invoices.length === 0) return <EmptyState>Nobody owes you anything.</EmptyState>;
   return (
     <div className="flex flex-col gap-4">
       {invoices.map((inv) => (

@@ -91,7 +91,7 @@ function ReviewRow({ exception }: { exception: ReconciliationException }) {
           straight into the table cell, which forced the Review column (and
           the whole table) to the width of the open form, pushing every
           other column off-screen the moment any row was reviewed. */}
-      <Modal open={open} onClose={() => setOpen(false)} title={`${CHECK_LABEL[exception.checkType]} exception`}>
+      <Modal open={open} onClose={() => setOpen(false)} title={`${CHECK_LABEL[exception.checkType]}: something doesn't add up`}>
         <div className="mb-4 rounded-lg border border-border bg-secondary/30 p-3 text-sm">
           <p className="text-foreground">{SOURCE_LABEL[exception.sourceType] ?? exception.sourceType}</p>
           <p className="font-mono text-xs text-muted-foreground">{shortId(exception.sourceId)}</p>

@@ -35,3 +35,8 @@ export const productionRunCompleteSchema = z.object({
   laborCostPaise: z.coerce.number().int().nonnegative().optional(),
   overheadCostPaise: z.coerce.number().int().nonnegative().optional(),
 });
+
+// Start and finish in one go: the raw materials used plus everything finishing asks for.
+export const productionRunRecordSchema = productionRunCompleteSchema.extend({
+  actualConsumption: productionRunStartSchema.shape.actualConsumption,
+});

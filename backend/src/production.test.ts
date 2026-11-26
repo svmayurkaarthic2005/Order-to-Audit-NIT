@@ -124,6 +124,39 @@ describe("production lifecycle", () => {
     expect(packagingOnHand.body.data.qtyBase).toBe(1_000 - 94 - 3);
   });
 
+  it("records a whole run in one step; a failure part-way takes nothing out of stock", async () => {
+    const cookie = await loginAs("admin@porulottam.test");
+    const { bomId, finishedId, rawId, packagingId } = await makeTestBom(cookie);
+    const plan = async () =>
+      (await request(app).post("/production-runs").set("Cookie", cookie).send({ bomHeaderId: bomId, batchSize: 1 })).body.data.id;
+    const record = (runId: string, pouches: number) =>
+      request(app)
+        .post(`/production-runs/${runId}/record`)
+        .set("Cookie", cookie)
+        .set("Idempotency-Key", `record-${runId}-${pouches}`)
+        .send({
+          actualConsumption: [{ itemId: rawId, qtyBase: 1_050 }],
+          actualOutputQty: 94,
+          packagingConsumed: [{ itemId: packagingId, qtyBase: pouches, damagedQty: 3 }],
+        });
+    const onHand = async (id: string) => (await request(app).get(`/inventory/${id}/on-hand`).set("Cookie", cookie)).body.data.qtyBase;
+
+    // More pouches than exist: the packaging check fails after the flour was
+    // issued, so the flour must come back out of the same transaction.
+    const failed = await plan();
+    const bad = await record(failed, 5_000);
+    expect(bad.status).toBe(409);
+    expect((await prisma.productionRun.findUniqueOrThrow({ where: { id: failed } })).status).toBe("DRAFT");
+    expect(await onHand(rawId)).toBe(10_000);
+
+    const ok = await record(await plan(), 94);
+    expect(ok.status).toBe(200);
+    expect(ok.body.data.status).toBe("COMPLETED");
+    expect(await onHand(rawId)).toBe(10_000 - 1_050);
+    expect(await onHand(packagingId)).toBe(1_000 - 94 - 3);
+    expect(await onHand(finishedId)).toBe(94);
+  });
+
   it("replaying the same Idempotency-Key on complete is a no-op — stock is posted only once", async () => {
     const cookie = await loginAs("admin@porulottam.test");
     const { bomId, finishedId, rawId, packagingId } = await makeTestBom(cookie);

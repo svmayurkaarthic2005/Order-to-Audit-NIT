@@ -32,6 +32,8 @@ export default function Invoices() {
   const [paymentErrorByInvoice, setPaymentErrorByInvoice] = useState<Record<string, string>>({});
   const [emailOverrideByInvoice, setEmailOverrideByInvoice] = useState<Record<string, string>>({});
   const [emailStatusByInvoice, setEmailStatusByInvoice] = useState<Record<string, string>>({});
+  // WhatsApp and email sit behind one "Send to customer" button.
+  const [sendOpenId, setSendOpenId] = useState<string | null>(null);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["invoices"],
@@ -127,7 +129,7 @@ export default function Invoices() {
                     <div>
                       <p className="text-base font-semibold text-foreground">
                         Invoice #{inv.invoiceNumber}
-                        <span className="ml-2 text-sm font-normal text-muted-foreground">FY {inv.financialYear}</span>
+                        <span className="ml-2 text-sm font-normal text-muted-foreground">{inv.financialYear}</span>
                       </p>
                       <p className="mt-0.5 text-sm text-muted-foreground">
                         {inv.customer.name}, {inv.customer.state}. Issued{" "}
@@ -151,14 +153,11 @@ export default function Invoices() {
                         </p>
                       ))}
                       <p className="tabular mt-1 flex flex-wrap gap-x-4 text-xs text-muted-foreground">
-                        <span>Taxable {money(inv.taxableValuePaise)}</span>
+                        <span>Before tax {money(inv.taxableValuePaise)}</span>
                         {inv.igstPaise > 0 ? (
-                          <span>IGST {money(inv.igstPaise)}</span>
+                          <span>GST {money(inv.igstPaise)}</span>
                         ) : (
-                          <>
-                            <span>CGST {money(inv.cgstPaise)}</span>
-                            <span>SGST {money(inv.sgstPaise)}</span>
-                          </>
+                          <span>GST {money(inv.cgstPaise + inv.sgstPaise)} (half central, half state)</span>
                         )}
                       </p>
                       {inv.creditNotes.map((c, i) => (
@@ -185,54 +184,9 @@ export default function Invoices() {
                     </Button>
 
                     {canMutate && (
-                    <div className="flex items-center gap-1.5">
-                      <Input
-                        placeholder="WhatsApp no. (optional)"
-                        inputMode="tel"
-                        aria-label="WhatsApp number to share with"
-                        value={whatsappNumberByInvoice[inv.id] ?? ""}
-                        onChange={(e) => setWhatsappNumberByInvoice((prev) => ({ ...prev, [inv.id]: e.target.value }))}
-                        className="h-8 w-40 text-sm"
-                      />
-                      <Button size="sm" variant="secondary" onClick={() => shareOnWhatsApp(inv)}>
-                        Share on WhatsApp
+                      <Button size="sm" variant="secondary" onClick={() => setSendOpenId(sendOpenId === inv.id ? null : inv.id)}>
+                        {sendOpenId === inv.id ? "Close" : "Send to customer"}
                       </Button>
-                    </div>
-                    )}
-
-                    {canMutate && (
-                      <div className="flex items-center gap-1.5">
-                        <Input
-                          type="email"
-                          aria-label="Email address to send the invoice to"
-                          placeholder={inv.customer.email ? "Another email (optional)" : "Customer's email"}
-                          value={emailOverrideByInvoice[inv.id] ?? ""}
-                          onChange={(e) => setEmailOverrideByInvoice((prev) => ({ ...prev, [inv.id]: e.target.value }))}
-                          className="h-8 w-52 text-sm"
-                        />
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          title={
-                            emailOverrideByInvoice[inv.id]
-                              ? `Send to ${emailOverrideByInvoice[inv.id]}`
-                              : inv.customer.email
-                                ? `Send to ${inv.customer.name}'s saved email, ${inv.customer.email}`
-                                : "Type an email address first"
-                          }
-                          disabled={emailMutation.isPending || (!inv.customer.email && !emailOverrideByInvoice[inv.id])}
-                          onClick={() => {
-                            setEmailStatusByInvoice((prev) => ({ ...prev, [inv.id]: "" }));
-                            emailMutation.mutate({ invoiceId: inv.id, email: emailOverrideByInvoice[inv.id] || undefined });
-                          }}
-                        >
-                          {emailMutation.isPending && emailMutation.variables?.invoiceId === inv.id
-                            ? "Sending…"
-                            : inv.customer.email && !emailOverrideByInvoice[inv.id]
-                              ? `Email ${inv.customer.name}`
-                              : "Email invoice"}
-                        </Button>
-                      </div>
                     )}
 
                     {canMutate && !cancelled && outstandingPaise > 0 && (
@@ -270,6 +224,61 @@ export default function Invoices() {
                     )}
 
                   </div>
+
+                  {canMutate && sendOpenId === inv.id && (
+                    <div className="flex flex-wrap items-center gap-2 border-t border-border px-4 py-2.5">
+                    {(
+                    <div className="flex items-center gap-1.5">
+                      <Input
+                        placeholder="WhatsApp no. (optional)"
+                        inputMode="tel"
+                        aria-label="WhatsApp number to share with"
+                        value={whatsappNumberByInvoice[inv.id] ?? ""}
+                        onChange={(e) => setWhatsappNumberByInvoice((prev) => ({ ...prev, [inv.id]: e.target.value }))}
+                        className="h-8 w-40 text-sm"
+                      />
+                      <Button size="sm" variant="secondary" onClick={() => shareOnWhatsApp(inv)}>
+                        Share on WhatsApp
+                      </Button>
+                    </div>
+                    )}
+
+                    {(
+                      <div className="flex items-center gap-1.5">
+                        <Input
+                          type="email"
+                          aria-label="Email address to send the invoice to"
+                          placeholder={inv.customer.email ? "Another email (optional)" : "Customer's email"}
+                          value={emailOverrideByInvoice[inv.id] ?? ""}
+                          onChange={(e) => setEmailOverrideByInvoice((prev) => ({ ...prev, [inv.id]: e.target.value }))}
+                          className="h-8 w-52 text-sm"
+                        />
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          title={
+                            emailOverrideByInvoice[inv.id]
+                              ? `Send to ${emailOverrideByInvoice[inv.id]}`
+                              : inv.customer.email
+                                ? `Send to ${inv.customer.name}'s saved email, ${inv.customer.email}`
+                                : "Type an email address first"
+                          }
+                          disabled={emailMutation.isPending || (!inv.customer.email && !emailOverrideByInvoice[inv.id])}
+                          onClick={() => {
+                            setEmailStatusByInvoice((prev) => ({ ...prev, [inv.id]: "" }));
+                            emailMutation.mutate({ invoiceId: inv.id, email: emailOverrideByInvoice[inv.id] || undefined });
+                          }}
+                        >
+                          {emailMutation.isPending && emailMutation.variables?.invoiceId === inv.id
+                            ? "Sending…"
+                            : inv.customer.email && !emailOverrideByInvoice[inv.id]
+                              ? `Email ${inv.customer.name}`
+                              : "Email invoice"}
+                        </Button>
+                      </div>
+                    )}
+                    </div>
+                  )}
 
                   {(emailStatusByInvoice[inv.id] || paymentErrorByInvoice[inv.id] || (canMutate && creditNoteInvoiceId === inv.id)) && (
                     <div className="flex flex-col gap-2 border-t border-border px-4 py-2.5">

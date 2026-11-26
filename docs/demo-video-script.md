@@ -22,11 +22,11 @@ Murukku 200 g recipe: Flour, Oil, Spice mix per batch, expected yield 200 packet
 here, never duplicated into the ledger."*
 
 **1:15–2:45 — Production run.** Open **Production runs**. Create a new DRAFT run against the
-Murukku recipe. Start it: show the consumption form: empty boxes, each with its recipe amount beside it.
-Enter 40 kg flour, 10.5 L oil (10 L planned) and 1.2 kg spice mix, confirm — point out the stock ledger just
-posted a negative movement at the *current* moving-average cost. Complete the run: actual output
-188, pouches 188 used / 6 damaged, cartons 9 used, labour ₹1,200 and gas/power ₹600. Open
-**How did it go?**: Oil +5% flagged, yield −6% flagged, cartons −10% flagged, cost per packet
+Murukku recipe. Click **Record run**: one table, Material | Planned | Actually used | Of which
+damaged, with every "used" box empty. Enter flour 40 kg, oil 10.5 L (10 L planned), spice mix 1.2 kg,
+pouches 194 used / 6 damaged, cartons 9, good packets 188, labour ₹1,200 and gas/power ₹600, then
+**Record run**. Point out it is all-or-nothing: if any material is short, nothing leaves stock and
+the run stays planned. Open **How did it go?**: Oil +5% flagged, yield −6% flagged, cartons −10% flagged, cost per packet
 ₹31.14 (₹5,855 ÷ 188) with its stated method
 visible right there. *"Anything outside ±3% tolerance is flagged immediately — not buried in a
 report someone has to go look for."*
