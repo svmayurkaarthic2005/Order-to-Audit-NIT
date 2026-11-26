@@ -88,7 +88,7 @@ describe("pack-size costing — shared recipe, per-pack packaging and output", (
     // ── Run 1: packed as the 200g pack size ──
     const run200 = await request(app).post("/production-runs").set("Cookie", adminCookie).send({ bomHeaderId: bomId, packSizeId: packSize200.body.data.id });
     const start200 = await request(app).post(`/production-runs/${run200.body.data.id}/start`).set("Cookie", adminCookie)
-      .send({ actualConsumption: [{ itemId: flourId, qtyBase: 10_000 }] });
+      .send({ actualConsumption: [{ itemId: flourId, qtyBase: 40_000 }] });
     expect(start200.status).toBe(200);
     expect(start200.body.data.expectedOutputQty).toBe(200);
     expect(start200.body.data.materials.map((m: { itemId: string }) => m.itemId).sort()).toEqual([flourId, pouch200Id].sort());
@@ -138,7 +138,7 @@ describe("pack-size costing — shared recipe, per-pack packaging and output", (
     const movement500 = await prisma.stockMovement.findFirst({ where: { sourceId: run500.body.data.id, source: "PRODUCTION_OUTPUT" } });
     expect(movement200?.itemId).toBe(finished200Id);
     expect(movement500?.itemId).toBe(finished500Id);
-    expect(run500.body.data.expectedOutputQty).toBe(40);
+    expect(run500.body.data.expectedOutputQty).toBe(80);
 
     // Each produced its own FinishedGoodsBatch, under its own item.
     const batch200 = await prisma.finishedGoodsBatch.findFirst({ where: { productionRunId: run200.body.data.id } });
