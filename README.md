@@ -143,7 +143,8 @@ prices never change an earlier run's cost.
   until someone presses "Use latest recipe", and started or finished runs never change. Pack
   sizes share the raw-material recipe, but each has its own expected good packets per batch and
   packaging list; select the pack size when planning, and the run freezes its yield and packaging
-  requirements. Pack-size edits are audited too.
+  requirements. Pack-size edits are audited too. Older variants created before per-pack packaging
+  existed must be configured once (real output yield + pouch/carton) before they can be planned.
 - Phone-friendly order entry; admin approve, edit or reject, with a stock check before approval
 - GST invoice PDF: GSTIN, HSN, taxable value, CGST+SGST or IGST by place of supply, numbering per
   financial year
