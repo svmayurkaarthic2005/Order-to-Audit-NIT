@@ -620,21 +620,21 @@ function SalesTrendBars({ buckets }: { buckets: SalesTrendBucket[] }) {
 
 function StockLedgerDrill({ rows }: { rows: StockLedgerEntry[] }) {
   if (rows.length === 0) return <EmptyState>No stock movements yet.</EmptyState>;
-  let running = 0;
+  // Balance after each movement, worked out before rendering.
+  const balances = rows.reduce<number[]>((acc, m) => [...acc, (acc.at(-1) ?? 0) + m.qtyBase], []);
   return (
     <Table>
       <THead>
         <tr><Th>Date</Th><Th>Source</Th><Th numeric>Qty</Th><Th numeric>Running balance</Th><Th numeric>Value</Th></tr>
       </THead>
       <tbody>
-        {rows.map((m) => {
-          running += m.qtyBase;
+        {rows.map((m, i) => {
           return (
             <tr key={m.id}>
               <Td className="text-xs text-muted-foreground">{new Date(m.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</Td>
               <Td className="text-xs">{m.source.replace(/_/g, " ")}</Td>
               <Td numeric className={m.qtyBase < 0 ? "text-destructive" : "text-success"}>{m.qtyBase > 0 ? "+" : ""}{m.qtyBase.toLocaleString("en-IN")}</Td>
-              <Td numeric className="font-semibold text-foreground">{running.toLocaleString("en-IN")}</Td>
+              <Td numeric className="font-semibold text-foreground">{balances[i]!.toLocaleString("en-IN")}</Td>
               <Td numeric>{money(m.totalCostPaise)}</Td>
             </tr>
           );

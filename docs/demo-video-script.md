@@ -3,7 +3,7 @@
 Scene-by-scene script for the submission demo. Timings are cumulative; each scene is a single
 continuous screen recording with narration, no edits needed beyond trimming between scenes. This
 script doubles as the post-deployment benchmark re-verification: following it step-by-step against
-the live Vercel/Render URLs should reproduce the same 10 exact numbers in `README.md`.
+the live Vercel URLs should reproduce the same 10 exact numbers in `README.md`.
 
 Record with the Playwright CLI skill (installed in this repo) if a scripted, repeatable capture is
 wanted instead of a manual screen recording.

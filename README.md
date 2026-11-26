@@ -19,7 +19,7 @@ shortlisting task.
 | Database | PostgreSQL (Docker locally; Supabase when hosted) |
 | Auth | JWT in an httpOnly cookie, bcrypt, role checks on every route |
 | Invoices | PDFKit; stored in Supabase Storage (private bucket) or local disk |
-| Tests | Vitest + Supertest against a real Postgres: 171 tests, plus the benchmark replay |
+| Tests | Vitest + Supertest against a real Postgres: 182 tests, plus the 15-check benchmark replay |
 | CI | GitHub Actions: migrate, seed, typecheck, tests, benchmark, frontend build |
 
 One web app serves every role: the salesman gets a phone-sized order screen that keeps working
@@ -234,7 +234,7 @@ e-Invoice/e-Way Bill format, and a Tamil interface for floor staff.
 
 ```bash
 cd backend
-npm test            # 171 tests, real Postgres, about 20 seconds
+npm test            # 182 tests, real Postgres, about a minute
 npm run benchmark   # section 5 on a brand-new database, 15 checks
 ```
 
@@ -250,7 +250,11 @@ CI runs all of it, plus the benchmark, on a fresh database on every push.
 
 **Live at https://porulottam-erp-bay.vercel.app**, on **Vercel** (frontend and API, Mumbai region)
 with **Supabase** (Postgres and private PDF storage, Mumbai). The hosted database holds only the
-seed, so you can run the section 5 scenario on it from the start.
+six role logins: the brief's master data (items, recipe, customers, opening stock) is entered
+through the app, as the demo walkthrough shows. `npm run db:seed` loads it in one go instead.
+Deploys are made from this machine with the Vercel CLI (`vercel deploy --prod` in `backend/`,
+then `frontend/`); after each, `/health` on the API and the site's `/api/health` should both
+answer `{"data":{"status":"ok"}}`.
 
 - **Frontend:** the `frontend/` folder as its own Vercel project. `frontend/vercel.json`
   forwards `/api/*` to the API project, so the app and the API share one address and the login
@@ -275,7 +279,7 @@ API environment variables:
 | `FRONTEND_ORIGIN` | the frontend's Vercel URL, exact, no trailing slash |
 | `PUBLIC_API_URL` | the frontend URL followed by `/api` (used in WhatsApp invoice links) |
 | `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` | project URL and secret key, for PDF storage |
-| `MANUFACTURER_GSTIN` | the factory's GSTIN, printed on invoices |
+| `MANUFACTURER_GSTIN` | the factory's real GSTIN, printed on invoices. Without it the PDF is headed "TAX INVOICE (DEMO)" and says the GSTIN is not set |
 | `GMAIL_USER` / `GMAIL_APP_PASSWORD` | optional; a Gmail App Password enables "Email invoice" |
 
 Load the master data into a fresh hosted database once, from your machine:
