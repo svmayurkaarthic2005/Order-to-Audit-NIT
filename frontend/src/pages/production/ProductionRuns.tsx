@@ -17,7 +17,7 @@ type Bom = {
     expectedYieldQty: number;
     finishedItemId: string;
     finishedItem: { name: string; sku: string };
-    lines: { id: string; itemId: string; qtyPerBatch: number; item: { sku: string; name: string; baseUnit: string } }[];
+    lines: { id: string; itemId: string; qtyPerBatch: number; item: { sku: string; name: string; type: string; baseUnit: string } }[];
   }[];
 };
 type RunMaterial = { itemId: string; plannedQtyBase: number; actualQtyBase: number | null; item: { sku: string; name: string; baseUnit: string } };
@@ -278,7 +278,7 @@ export default function ProductionRuns() {
             className="p-5"
           >
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-12">
-              <div className="sm:col-span-8">
+              <div className="sm:col-span-4">
                 <Field label="What are you making?" required>
                   <Select value={bomId} required onChange={(e) => { setBomId(e.target.value); setPackSizeId(""); }} className="w-full">
                     <option value="">Choose a product</option>
