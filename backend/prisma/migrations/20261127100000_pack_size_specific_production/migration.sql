@@ -24,6 +24,23 @@ CREATE TABLE "PackSizeLine" (
 CREATE UNIQUE INDEX "PackSizeLine_packSizeId_itemId_key"
 ON "PackSizeLine"("packSizeId", "itemId");
 
+-- Preserve the historical default pack format: when a PackSize targets the
+-- same finished SKU as its BOM, its old packaging lines were that format's
+-- packaging. Alternate SKUs cannot be inferred safely and must be configured
+-- once in Recipes before they can be planned.
+INSERT INTO "PackSizeLine" ("id", "packSizeId", "itemId", "qtyPerBatch")
+SELECT
+    gen_random_uuid()::text,
+    pack."id",
+    line."rawItemId",
+    line."qtyPerBatch"
+FROM "PackSize" AS pack
+JOIN "BomHeader" AS bom ON bom."id" = pack."baseBomId"
+JOIN "BomLine" AS line ON line."bomHeaderId" = bom."id"
+JOIN "Item" AS item ON item."id" = line."rawItemId"
+WHERE pack."finishedItemId" = bom."finishedItemId"
+  AND item."type" = 'PACKAGING';
+
 ALTER TABLE "PackSizeLine"
 ADD CONSTRAINT "PackSizeLine_packSizeId_fkey"
 FOREIGN KEY ("packSizeId") REFERENCES "PackSize"("id")
