@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { AppError } from "../../lib/AppError.js";
 import { logAudit } from "../../lib/audit.js";
 import { prisma } from "../../lib/prisma.js";
+import { formatQty } from "../../lib/units.js";
 import { displayUnitCostPaise, issueValuePaise, ledgerPosition } from "../../lib/valuation.js";
 import { computeOutputCostPaise } from "./costing.js";
 import { syncAlertsForItems } from "../alerts/service.js";
@@ -42,6 +43,7 @@ function requireEachLineOnce(lineItemIds: Set<string>, reportedItemIds: string[]
 function includeClause() {
   return {
     bomHeader: { include: { finishedItem: true, lines: { include: { rawItem: true } } } },
+    packSize: { include: { finishedItem: true, lines: { include: { item: true } } } },
     materials: { include: { item: true } },
   } as const;
 }
@@ -62,18 +64,47 @@ export async function listProductionRuns() {
   return prisma.productionRun.findMany({ include: includeClause(), orderBy: { createdAt: "desc" } });
 }
 
-export async function createProductionRun(data: { bomHeaderId: string; batchSize: number }) {
-  const bom = await prisma.bomHeader.findUnique({ where: { id: data.bomHeaderId } });
-  if (!bom) {
-    throw new AppError(404, "not_found", "BOM not found");
-  }
-  // New plans always use the latest version.
-  if (!bom.active) {
-    throw new AppError(409, "recipe_retired", "This recipe has been changed since. Reload and plan with the latest version.");
-  }
-  return prisma.productionRun.create({
-    data: { bomHeaderId: data.bomHeaderId, batchSize: data.batchSize },
-    include: includeClause(),
+export async function createProductionRun(data: { bomHeaderId: string; batchSize: number; packSizeId?: string }) {
+  return prisma.$transaction(async (tx) => {
+    // Serialize planning against pack-size edits. Either the edit commits
+    // first and this run uses the new configuration, or the run commits
+    // first and the edit sees that the pack is now in use.
+    if (data.packSizeId) {
+      await tx.$queryRaw<Array<{ id: string }>>`SELECT "id" FROM "PackSize" WHERE "id" = ${data.packSizeId} FOR UPDATE`;
+    }
+
+    const bom = await tx.bomHeader.findUnique({ where: { id: data.bomHeaderId } });
+    if (!bom) {
+      throw new AppError(404, "not_found", "BOM not found");
+    }
+    // New plans always use the latest version.
+    if (!bom.active) {
+      throw new AppError(409, "recipe_retired", "This recipe has been changed since. Reload and plan with the latest version.");
+    }
+
+    if (data.packSizeId) {
+      const packSize = await tx.packSize.findUnique({
+        where: { id: data.packSizeId },
+        include: { baseBom: true, lines: true },
+      });
+      if (!packSize || packSize.baseBom.familyId !== bom.familyId) {
+        throw new AppError(400, "invalid_pack_size", "packSizeId does not belong to this recipe");
+      }
+      // Legacy pack sizes are backfilled with a safe placeholder yield but
+      // have no trustworthy pack-specific packaging. They must be configured
+      // once in Recipes before a production run can select them.
+      if (packSize.lines.length === 0) {
+        throw new AppError(409, "pack_size_not_configured", "Configure this pack size's expected output and packaging before planning a run");
+      }
+      if (packSize.baseBomId !== bom.id) {
+        throw new AppError(409, "stale_pack_size", "This pack size is attached to a newer recipe version. Reload and plan again.");
+      }
+    }
+
+    return tx.productionRun.create({
+      data: { bomHeaderId: data.bomHeaderId, batchSize: data.batchSize, packSizeId: data.packSizeId ?? null },
+      include: includeClause(),
+    });
   });
 }
 
@@ -82,7 +113,10 @@ export async function createProductionRun(data: { bomHeaderId: string; batchSize
 // once started, its materials have left stock at that version's amounts.
 export async function useLatestRecipe(id: string, actingUserId: string) {
   return prisma.$transaction(async (tx) => {
-    const run = await tx.productionRun.findUnique({ where: { id }, include: { bomHeader: true } });
+    const run = await tx.productionRun.findUnique({
+      where: { id },
+      include: { bomHeader: true, packSize: true },
+    });
     if (!run) {
       throw new AppError(404, "not_found", "Production run not found");
     }
@@ -93,9 +127,37 @@ export async function useLatestRecipe(id: string, actingUserId: string) {
     if (latest.id === run.bomHeaderId) {
       throw new AppError(409, "already_latest", "This run already uses the latest recipe");
     }
+
+    // Pack formats are cloned when a recipe version is created. Move a
+    // planned run to the matching pack on that version as well as its BOM;
+    // otherwise it would keep pointing at the retired version's format.
+    let latestPackSizeId: string | null = null;
+    if (run.packSizeId) {
+      if (!run.packSize) {
+        throw new AppError(409, "pack_size_not_found", "The pack format for this run no longer exists");
+      }
+      const latestPackSize = await tx.packSize.findUnique({
+        where: {
+          baseBomId_finishedItemId_label: {
+            baseBomId: latest.id,
+            finishedItemId: run.packSize.finishedItemId,
+            label: run.packSize.label,
+          },
+        },
+        include: { lines: true },
+      });
+      if (!latestPackSize) {
+        throw new AppError(409, "pack_size_version_missing", "The latest recipe has no matching version of this pack format");
+      }
+      if (latestPackSize.lines.length === 0) {
+        throw new AppError(409, "pack_size_not_configured", "Configure the latest recipe's pack yield and packaging before moving this planned run");
+      }
+      latestPackSizeId = latestPackSize.id;
+    }
+
     const { count } = await tx.productionRun.updateMany({
       where: { id, status: "DRAFT", bomHeaderId: run.bomHeaderId },
-      data: { bomHeaderId: latest.id },
+      data: { bomHeaderId: latest.id, packSizeId: latestPackSizeId },
     });
     if (count === 0) {
       throw new AppError(409, "invalid_status", "Only a planned run can move to the latest recipe");
@@ -105,8 +167,8 @@ export async function useLatestRecipe(id: string, actingUserId: string) {
       action: "PRODUCTION_RUN_RECIPE_UPDATED",
       entityType: "ProductionRun",
       entityId: id,
-      before: { recipeVersion: run.bomHeader.version },
-      after: { recipeVersion: latest.version },
+      before: { recipeVersion: run.bomHeader.version, packSizeId: run.packSizeId },
+      after: { recipeVersion: latest.version, packSizeId: latestPackSizeId },
     });
     return tx.productionRun.findUniqueOrThrow({ where: { id }, include: includeClause() });
   });
@@ -120,7 +182,13 @@ export async function startProductionRun(
   actingUserId: string,
 ) {
   return prisma.$transaction(async (tx) => {
-    const run = await tx.productionRun.findUnique({ where: { id }, include: { bomHeader: { include: { lines: { include: { rawItem: true } } } } } });
+    const run = await tx.productionRun.findUnique({
+      where: { id },
+      include: {
+        bomHeader: { include: { lines: { include: { rawItem: true } } } },
+        packSize: { include: { lines: true } },
+      },
+    });
     if (!run) {
       throw new AppError(404, "not_found", "Production run not found");
     }
@@ -147,13 +215,23 @@ export async function startProductionRun(
       after: { status: "STARTED", actualConsumption },
     });
 
-    // Snapshot every BOM line's planned quantity now — the only place
-    // planned/expected quantities are ever recorded (never in stock_movements).
-    for (const line of run.bomHeader.lines) {
+    // Freeze the material plan for the selected pack format. Raw materials
+    // remain shared with the recipe; packaging comes from only the selected
+    // PackSize. Legacy runs without a PackSize still use the BOM lines.
+    const plannedLines = run.packSize
+      ? [
+          ...run.bomHeader.lines
+            .filter((line) => line.rawItem.type === "RAW_MATERIAL")
+            .map((line) => ({ itemId: line.rawItemId, qtyPerBatch: line.qtyPerBatch })),
+          ...run.packSize.lines.map((line) => ({ itemId: line.itemId, qtyPerBatch: line.qtyPerBatch })),
+        ]
+      : run.bomHeader.lines.map((line) => ({ itemId: line.rawItemId, qtyPerBatch: line.qtyPerBatch }));
+
+    for (const line of plannedLines) {
       await tx.productionRunMaterial.create({
         data: {
           productionRunId: id,
-          itemId: line.rawItemId,
+          itemId: line.itemId,
           plannedQtyBase: line.qtyPerBatch * run.batchSize,
         },
       });
@@ -209,7 +287,6 @@ export async function completeProductionRun(
     expiryDate?: Date;
     laborCostPaise?: number;
     overheadCostPaise?: number;
-    packSizeId?: string;
   },
   actingUserId: string,
 ) {
@@ -240,31 +317,24 @@ async function completeProductionRunInTransaction(
     expiryDate?: Date;
     laborCostPaise?: number;
     overheadCostPaise?: number;
-    packSizeId?: string;
   },
   actingUserId: string,
 ) {
-  // Which item actually receives the output/stock movement — the BOM's own
-  // finished item, unless this run packed one of its registered PackSize
-  // variants instead (same shared raw-material recipe, a different
-  // product-specific packaging configuration and output SKU).
+  // The pack format is fixed at planning time, not chosen after production.
   let outputItemId = "";
   return prisma.$transaction(async (tx) => {
-    const run = await tx.productionRun.findUnique({ where: { id }, include: { bomHeader: { include: { lines: { include: { rawItem: true } } } } } });
+    const run = await tx.productionRun.findUnique({
+      where: { id },
+      include: {
+        bomHeader: { include: { lines: { include: { rawItem: true } } } },
+        packSize: { include: { finishedItem: true, lines: { include: { item: true } } } },
+      },
+    });
     if (!run) {
       throw new AppError(404, "not_found", "Production run not found");
     }
 
-    outputItemId = run.bomHeader.finishedItemId;
-    if (data.packSizeId) {
-      // Pack sizes follow the recipe's latest version, and a run may be on
-      // an older one, so they match by recipe rather than by version.
-      const packSize = await tx.packSize.findUnique({ where: { id: data.packSizeId }, include: { baseBom: true } });
-      if (!packSize || packSize.baseBom.familyId !== run.bomHeader.familyId) {
-        throw new AppError(400, "invalid_pack_size", "packSizeId does not belong to this run's BOM");
-      }
-      outputItemId = packSize.finishedItemId;
-    }
+    outputItemId = run.packSize?.finishedItemId ?? run.bomHeader.finishedItemId;
 
     // Same atomic-claim pattern as start: compute totalDamaged from the
     // request body (no DB read needed) so the transition can be claimed
@@ -293,45 +363,69 @@ async function completeProductionRunInTransaction(
       after: { status: "COMPLETED", actualOutputQty: data.actualOutputQty, damagedQty: totalDamagedQty, outputItemId },
     });
 
-    const packagingLineIds = new Set(
-      run.bomHeader.lines.filter((l) => l.rawItem.type === "PACKAGING").map((l) => l.rawItemId),
-    );
+    const requiredPackagingLines = run.packSize
+      ? run.packSize.lines.map((line) => ({ itemId: line.itemId }))
+      : run.bomHeader.lines
+          .filter((line) => line.rawItem.type === "PACKAGING")
+          .map((line) => ({ itemId: line.rawItemId }));
+    const packagingLineIds = new Set(requiredPackagingLines.map((line) => line.itemId));
+    // Exactly this run's packaging, each once: a skipped pouch would never
+    // leave stock (and the cost would be too low), a repeated one would be
+    // taken twice, and anything else isn't packaging for this pack format.
+    requireEachLineOnce(packagingLineIds, data.packagingConsumed.map((l) => l.itemId), "packaging item");
 
-    // A recipe with several pack sizes lists every pack's packaging, and one
-    // run uses only its own; so with a pack size, each reported line must be
-    // valid and listed once, but unused packs needn't be listed.
-    requireEachLineOnce(packagingLineIds, data.packagingConsumed.map((l) => l.itemId), "packaging item", !data.packSizeId);
+    // Lock every packaging SKU before reading stock or WAC; sorted order
+    // keeps concurrent multi-packaging completions from deadlocking.
+    for (const itemId of [...new Set(data.packagingConsumed.map((line) => line.itemId))].sort()) {
+      await lockItem(tx, itemId);
+    }
 
+    // Check and consume the used and damaged quantities against usable FEFO
+    // batches. Both categories are separate ledger rows but together consume
+    // the actual number of pouches/cartons taken from stock. Used + damaged is
+    // checked first against on-hand, so the message names the full amount.
     for (const line of data.packagingConsumed) {
-      // Value used + damaged together, then split, so the two rows add up
-      // to exactly what the combined quantity is worth.
       const position = await ledgerPosition(tx, line.itemId);
+      const taking = line.qtyBase + line.damagedQty;
+      if (taking > position.qtyBase) {
+        const item = await tx.item.findUniqueOrThrow({ where: { id: line.itemId } });
+        throw new AppError(
+          409,
+          "insufficient_batch_stock",
+          `Not enough ${item.name}: ${formatQty(Math.max(position.qtyBase, 0), item.baseUnit)} in stock, ${formatQty(taking, item.baseUnit)} used and damaged. Record the purchase first, or correct the amounts.`,
+          { itemId: line.itemId, available: position.qtyBase, needed: taking },
+        );
+      }
       const usedValue = issueValuePaise(line.qtyBase, position);
       const damagedValue = issueValuePaise(line.qtyBase + line.damagedQty, position) - usedValue;
 
       if (line.qtyBase > 0) {
-        await tx.stockMovement.create({
-          data: {
-            itemId: line.itemId,
-            qtyBase: -line.qtyBase,
-            unitCostPaise: displayUnitCostPaise(usedValue, line.qtyBase),
-            totalCostPaise: -usedValue,
-            source: "PRODUCTION_PACKAGING",
-            sourceId: id,
-          },
-        });
+        const usedSelections = await selectRawBatchesFEFO(line.itemId, line.qtyBase, tx);
+        await issueFromRawBatches(
+          tx,
+          usedSelections,
+          line.itemId,
+          id,
+          line.qtyBase,
+          usedValue,
+          null,
+          undefined,
+          "PRODUCTION_PACKAGING",
+        );
       }
       if (line.damagedQty > 0) {
-        await tx.stockMovement.create({
-          data: {
-            itemId: line.itemId,
-            qtyBase: -line.damagedQty,
-            unitCostPaise: displayUnitCostPaise(damagedValue, line.damagedQty),
-            totalCostPaise: -damagedValue,
-            source: "PRODUCTION_DAMAGE",
-            sourceId: id,
-          },
-        });
+        const damagedSelections = await selectRawBatchesFEFO(line.itemId, line.damagedQty, tx);
+        await issueFromRawBatches(
+          tx,
+          damagedSelections,
+          line.itemId,
+          id,
+          line.damagedQty,
+          damagedValue,
+          null,
+          undefined,
+          "PRODUCTION_DAMAGE",
+        );
       }
       await tx.productionRunMaterial.updateMany({
         where: { productionRunId: id, itemId: line.itemId },
@@ -376,7 +470,7 @@ async function completeProductionRunInTransaction(
     await refreshBatchStatuses();
 
     // Notify on significant yield variance (>3% tolerance)
-    const expected = result.bomHeader.expectedYieldQty * result.batchSize;
+    const expected = (result.packSize?.expectedYieldQty ?? result.bomHeader.expectedYieldQty) * result.batchSize;
     const actual = data.actualOutputQty;
     if (expected > 0) {
       const pctDiff = (actual - expected) / expected; // signed fraction
@@ -385,7 +479,7 @@ async function completeProductionRunInTransaction(
         await notify({
           recipientRoles: ["OWNER", "PRODUCTION"],
           type: "PRODUCTION_VARIANCE",
-          title: `${result.bomHeader.finishedItem.name}: ${actual < expected ? "fewer" : "more"} packets than planned`,
+          title: `${result.packSize?.finishedItem.name ?? result.bomHeader.finishedItem.name}: ${actual < expected ? "fewer" : "more"} packets than planned`,
           message: `Expected ${expected} packets, got ${actual} (${pctDiff > 0 ? "+" : ""}${pctDisplay}%). More than 3% off, so it's worth checking what happened.`,
           severity: Math.abs(pctDiff) > 0.1 ? "CRITICAL" : "WARNING",
           sourceType: "ProductionRun",

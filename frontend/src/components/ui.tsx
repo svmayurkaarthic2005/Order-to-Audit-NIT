@@ -402,6 +402,10 @@ export function unitOf(baseUnit: string) {
 }
 
 export function qty(qtyBase: number, baseUnit: string): string {
+  // Under 1 kg / 1 L reads better as grams / ml: "200 g", not "0.2 kg".
+  if ((baseUnit === "G" || baseUnit === "ML") && Math.abs(qtyBase) < 1000 && qtyBase !== 0) {
+    return `${qtyBase.toLocaleString("en-IN")} ${baseUnit === "G" ? "g" : "ml"}`;
+  }
   const { label, factor } = unitOf(baseUnit);
   const n = (qtyBase / factor).toLocaleString("en-IN", { maximumFractionDigits: 3 });
   return `${n} ${label === "pcs" && qtyBase === 1 ? "pc" : label}`;

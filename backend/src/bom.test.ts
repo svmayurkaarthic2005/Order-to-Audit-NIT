@@ -112,6 +112,7 @@ describe("BOM management", () => {
     const cookie = await loginAs("admin@porulottam.test");
     const finishedId = await makeTestItem(cookie, "FINISHED_GOOD");
     const rawId = await makeTestItem(cookie, "RAW_MATERIAL");
+    const packagingId = await makeTestItem(cookie, "PACKAGING");
     const bomRes = await request(app)
       .post("/boms")
       .set("Cookie", cookie)
@@ -120,19 +121,36 @@ describe("BOM management", () => {
     const res = await request(app)
       .post("/pack-sizes")
       .set("Cookie", cookie)
-      .send({ finishedItemId: finishedId, baseBomId: bomRes.body.data.id, multiplier: 2, label: "test-500g" });
+      .send({
+        finishedItemId: finishedId,
+        baseBomId: bomRes.body.data.id,
+        multiplier: 2,
+        label: "test-500g",
+        expectedYieldQty: 50,
+        lines: [{ itemId: packagingId, qtyPerBatch: 50 }],
+      });
     expect(res.status).toBe(201);
     expect(res.body.data.multiplier).toBe(2);
+    expect(res.body.data.expectedYieldQty).toBe(50);
+    expect(res.body.data.lines).toHaveLength(1);
   });
 
   it("rejects a pack size with no base BOM, with a clear error", async () => {
     const cookie = await loginAs("admin@porulottam.test");
     const finishedId = await makeTestItem(cookie, "FINISHED_GOOD");
+    const packagingId = await makeTestItem(cookie, "PACKAGING");
 
     const res = await request(app)
       .post("/pack-sizes")
       .set("Cookie", cookie)
-      .send({ finishedItemId: finishedId, baseBomId: "00000000-0000-0000-0000-000000000000", multiplier: 1, label: "test-nope" });
+      .send({
+        finishedItemId: finishedId,
+        baseBomId: "00000000-0000-0000-0000-000000000000",
+        multiplier: 1,
+        label: "test-nope",
+        expectedYieldQty: 50,
+        lines: [{ itemId: packagingId, qtyPerBatch: 50 }],
+      });
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe("invalid_base_bom");
   });
@@ -169,10 +187,20 @@ describe("BOM management", () => {
     const finishedId = await makeTestItem(admin, "FINISHED_GOOD");
     const flour = await makeTestItem(admin, "RAW_MATERIAL", "Test flour");
     const oil = await makeTestItem(admin, "RAW_MATERIAL", "Test oil");
+    const pouch = await makeTestItem(admin, "PACKAGING", "Test 200g pouch");
     const v1 = (
       await request(app).post("/boms").set("Cookie", admin).send({ finishedItemId: finishedId, expectedYieldQty: 200, lines: [{ rawItemId: flour, qtyPerBatch: 40_000 }] })
     ).body.data;
-    const plannedOnV1 = (await request(app).post("/production-runs").set("Cookie", admin).send({ bomHeaderId: v1.id, batchSize: 1 })).body.data;
+    const packV1 = (await request(app).post("/pack-sizes").set("Cookie", admin).send({
+      finishedItemId: finishedId,
+      baseBomId: v1.id,
+      multiplier: 1,
+      label: "200g",
+      expectedYieldQty: 200,
+      lines: [{ itemId: pouch, qtyPerBatch: 200 }],
+    })).body.data;
+    const plannedOnV1 = (await request(app).post("/production-runs").set("Cookie", admin)
+      .send({ bomHeaderId: v1.id, batchSize: 1, packSizeId: packV1.id })).body.data;
 
     // Edit: flour 40 kg -> 38 kg, oil added, 190 packets.
     const editRes = await request(app)
@@ -182,6 +210,23 @@ describe("BOM management", () => {
     expect(editRes.status).toBe(201);
     const v2 = editRes.body.data;
     expect(v2).toMatchObject({ version: 2, familyId: v1.id, active: true, expectedYieldQty: 190 });
+    expect(v2.packSizes).toHaveLength(1);
+    const packV2 = v2.packSizes[0];
+    expect(packV2.id).not.toBe(packV1.id);
+    expect(packV2.baseBomId).toBe(v2.id);
+    expect(packV2.label).toBe("200g");
+    expect(packV2.expectedYieldQty).toBe(200);
+    expect(packV2.lines).toHaveLength(1);
+
+    // The new recipe version has an independent copy that can be adjusted,
+    // while the original pack definition remains attached to v1/history.
+    const editPackV2 = await request(app).put(`/pack-sizes/${packV2.id}`).set("Cookie", admin)
+      .send({ expectedYieldQty: 190, lines: [{ itemId: pouch, qtyPerBatch: 190 }] });
+    expect(editPackV2.status).toBe(200);
+    expect(editPackV2.body.data.expectedYieldQty).toBe(190);
+    const stillOldPack = await prisma.packSize.findUniqueOrThrow({ where: { id: packV1.id } });
+    expect(stillOldPack.baseBomId).toBe(v1.id);
+    expect(stillOldPack.expectedYieldQty).toBe(200);
 
     // v1 is retired but kept exactly as it was.
     const v1Now = await prisma.bomHeader.findUniqueOrThrow({ where: { id: v1.id }, include: { lines: true } });
@@ -216,6 +261,8 @@ describe("BOM management", () => {
     const moved = await request(app).post(`/production-runs/${plannedOnV1.id}/use-latest-recipe`).set("Cookie", admin);
     expect(moved.status).toBe(200);
     expect(moved.body.data.bomHeaderId).toBe(v2.id);
+    expect(moved.body.data.packSizeId).toBe(packV2.id);
+    expect(moved.body.data.packSize.expectedYieldQty).toBe(190);
     const again = await request(app).post(`/production-runs/${plannedOnV1.id}/use-latest-recipe`).set("Cookie", admin);
     expect(again.body.error.code).toBe("already_latest");
 

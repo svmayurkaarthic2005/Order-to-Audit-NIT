@@ -13,7 +13,7 @@ function variancePct(planned: number, actual: number): number {
 export async function getProductionRunVariance(id: string) {
   const run = await prisma.productionRun.findUnique({
     where: { id },
-    include: { bomHeader: true, materials: { include: { item: true } } },
+    include: { bomHeader: true, packSize: true, materials: { include: { item: true } } },
   });
   if (!run) {
     throw new AppError(404, "not_found", "Production run not found");
@@ -30,7 +30,7 @@ export async function getProductionRunVariance(id: string) {
 
   let yieldVariance = null;
   if (run.actualOutputQty !== null) {
-    const planned = run.bomHeader.expectedYieldQty * run.batchSize;
+    const planned = (run.packSize?.expectedYieldQty ?? run.bomHeader.expectedYieldQty) * run.batchSize;
     const actual = run.actualOutputQty;
     const pct = variancePct(planned, actual);
     yieldVariance = { planned, actual, variancePct: pct, flagged: Math.abs(pct) > TOLERANCE_PCT };

@@ -124,6 +124,43 @@ describe("stock and cost integrity", () => {
     expect(issued).toBe(0);
   });
 
+  it("refuses a run finish that leaves out, repeats or adds a packaging item", async () => {
+    const admin = await loginAs("admin@porulottam.test");
+    const flour = await makeItem(admin, "RAW_MATERIAL");
+    const pouch = await makeItem(admin, "PACKAGING", "PIECE");
+    const finished = await makeItem(admin, "FINISHED_GOOD", "PIECE");
+    await request(app).post("/inventory/opening-stock").set("Cookie", admin).send({ itemId: flour, qtyBase: 100_000, totalCostPaise: 0 });
+    await request(app).post("/inventory/opening-stock").set("Cookie", admin).send({ itemId: pouch, qtyBase: 1_000, totalCostPaise: 2_500 });
+    const bom = await request(app).post("/boms").set("Cookie", admin).send({
+      finishedItemId: finished,
+      expectedYieldQty: 10,
+      lines: [{ rawItemId: flour, qtyPerBatch: 1_000 }, { rawItemId: pouch, qtyPerBatch: 10 }],
+    });
+    bomIds.push(bom.body.data.id);
+    const run = (await request(app).post("/production-runs").set("Cookie", admin).send({ bomHeaderId: bom.body.data.id })).body.data;
+    await request(app).post(`/production-runs/${run.id}/start`).set("Cookie", admin).send({ actualConsumption: [{ itemId: flour, qtyBase: 1_000 }] });
+
+    const finish = (packagingConsumed: { itemId: string; qtyBase: number; damagedQty: number }[]) =>
+      request(app)
+        .post(`/production-runs/${run.id}/complete`)
+        .set("Cookie", admin)
+        .set("Idempotency-Key", crypto.randomUUID())
+        .send({ actualOutputQty: 10, packagingConsumed });
+
+    // Pouches left out: they would never leave stock.
+    expect((await finish([])).body.error.code).toBe("missing_line");
+    // Pouches twice: they would be taken twice.
+    expect((await finish([{ itemId: pouch, qtyBase: 5, damagedQty: 0 }, { itemId: pouch, qtyBase: 5, damagedQty: 0 }])).body.error.code).toBe("duplicate_line");
+    // Flour reported as packaging.
+    expect(
+      (await finish([{ itemId: pouch, qtyBase: 10, damagedQty: 0 }, { itemId: flour, qtyBase: 1_000, damagedQty: 0 }])).body.error.code,
+    ).toBe("invalid_item");
+
+    // None of those took anything, and the run is still open to finish properly.
+    expect(await prisma.stockMovement.count({ where: { sourceId: run.id, source: { in: ["PRODUCTION_PACKAGING", "PRODUCTION_DAMAGE"] } } })).toBe(0);
+    expect((await finish([{ itemId: pouch, qtyBase: 10, damagedQty: 0 }])).status).toBe(200);
+  });
+
   it("cancelling a run puts the material back on its batch, so the next run can use it", async () => {
     const admin = await loginAs("admin@porulottam.test");
     const flour = await makeItem(admin, "RAW_MATERIAL");
@@ -228,6 +265,35 @@ describe("stock and cost integrity", () => {
     expect(res.body.error.code).toBe("insufficient_batch_stock");
     const onHand = await prisma.stockMovement.aggregate({ where: { itemId: flour }, _sum: { qtyBase: true } });
     expect(onHand._sum.qtyBase).toBe(100_000); // nothing was taken
+  });
+
+  it("won't finish a run that uses more packaging than is in stock", async () => {
+    const admin = await loginAs("admin@porulottam.test");
+    const flour = await makeItem(admin, "RAW_MATERIAL");
+    const pouch = await makeItem(admin, "PACKAGING", "PIECE");
+    const finished = await makeItem(admin, "FINISHED_GOOD", "PIECE");
+    await request(app).post("/inventory/opening-stock").set("Cookie", admin).send({ itemId: flour, qtyBase: 40_000, totalCostPaise: 0 });
+    await request(app).post("/inventory/opening-stock").set("Cookie", admin).send({ itemId: pouch, qtyBase: 100, totalCostPaise: 25_000 });
+    const bom = await request(app).post("/boms").set("Cookie", admin).send({
+      finishedItemId: finished,
+      expectedYieldQty: 200,
+      lines: [{ rawItemId: flour, qtyPerBatch: 40_000 }, { rawItemId: pouch, qtyPerBatch: 200 }],
+    });
+    bomIds.push(bom.body.data.id);
+    const run = (await request(app).post("/production-runs").set("Cookie", admin).send({ bomHeaderId: bom.body.data.id, batchSize: 1 })).body.data;
+    await request(app).post(`/production-runs/${run.id}/start`).set("Cookie", admin).send({ actualConsumption: [{ itemId: flour, qtyBase: 40_000 }] });
+
+    // 188 used + 6 damaged = 194 pouches, but only 100 are in stock.
+    const res = await request(app)
+      .post(`/production-runs/${run.id}/complete`)
+      .set("Cookie", admin)
+      .set("Idempotency-Key", crypto.randomUUID())
+      .send({ actualOutputQty: 188, packagingConsumed: [{ itemId: pouch, qtyBase: 188, damagedQty: 6 }] });
+    expect(res.status).toBe(409);
+    expect(res.body.error.message).toBe("Not enough Ledger Test Item: 100 pieces in stock, 194 pieces used and damaged. Record the purchase first, or correct the amounts.");
+    const pouches = await prisma.stockMovement.aggregate({ where: { itemId: pouch }, _sum: { qtyBase: true } });
+    expect(pouches._sum.qtyBase).toBe(100); // nothing was taken
+    expect((await prisma.productionRun.findUniqueOrThrow({ where: { id: run.id } })).status).toBe("STARTED"); // still open to finish
   });
 
   it("uses unbatched stock (like opening stock) together with batches, never more than both", async () => {
