@@ -38,3 +38,6 @@ ALTER TABLE "ProductionRun"
 ADD CONSTRAINT "ProductionRun_packSizeId_fkey"
 FOREIGN KEY ("packSizeId") REFERENCES "PackSize"("id")
 ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- The RLS migration predates this new table; keep the table private from the Supabase REST API.
+ALTER TABLE "PackSizeLine" ENABLE ROW LEVEL SECURITY;
