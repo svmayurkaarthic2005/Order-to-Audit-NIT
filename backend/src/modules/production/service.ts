@@ -112,7 +112,10 @@ export async function createProductionRun(data: { bomHeaderId: string; batchSize
 // once started, its materials have left stock at that version's amounts.
 export async function useLatestRecipe(id: string, actingUserId: string) {
   return prisma.$transaction(async (tx) => {
-    const run = await tx.productionRun.findUnique({ where: { id }, include: { bomHeader: true } });
+    const run = await tx.productionRun.findUnique({
+      where: { id },
+      include: { bomHeader: true, packSize: true },
+    });
     if (!run) {
       throw new AppError(404, "not_found", "Production run not found");
     }
@@ -123,9 +126,37 @@ export async function useLatestRecipe(id: string, actingUserId: string) {
     if (latest.id === run.bomHeaderId) {
       throw new AppError(409, "already_latest", "This run already uses the latest recipe");
     }
+
+    // Pack formats are cloned when a recipe version is created. Move a
+    // planned run to the matching pack on that version as well as its BOM;
+    // otherwise it would keep pointing at the retired version's format.
+    let latestPackSizeId: string | null = null;
+    if (run.packSizeId) {
+      if (!run.packSize) {
+        throw new AppError(409, "pack_size_not_found", "The pack format for this run no longer exists");
+      }
+      const latestPackSize = await tx.packSize.findUnique({
+        where: {
+          baseBomId_finishedItemId_label: {
+            baseBomId: latest.id,
+            finishedItemId: run.packSize.finishedItemId,
+            label: run.packSize.label,
+          },
+        },
+        include: { lines: true },
+      });
+      if (!latestPackSize) {
+        throw new AppError(409, "pack_size_version_missing", "The latest recipe has no matching version of this pack format");
+      }
+      if (latestPackSize.lines.length === 0) {
+        throw new AppError(409, "pack_size_not_configured", "Configure the latest recipe's pack yield and packaging before moving this planned run");
+      }
+      latestPackSizeId = latestPackSize.id;
+    }
+
     const { count } = await tx.productionRun.updateMany({
       where: { id, status: "DRAFT", bomHeaderId: run.bomHeaderId },
-      data: { bomHeaderId: latest.id },
+      data: { bomHeaderId: latest.id, packSizeId: latestPackSizeId },
     });
     if (count === 0) {
       throw new AppError(409, "invalid_status", "Only a planned run can move to the latest recipe");
@@ -135,8 +166,8 @@ export async function useLatestRecipe(id: string, actingUserId: string) {
       action: "PRODUCTION_RUN_RECIPE_UPDATED",
       entityType: "ProductionRun",
       entityId: id,
-      before: { recipeVersion: run.bomHeader.version },
-      after: { recipeVersion: latest.version },
+      before: { recipeVersion: run.bomHeader.version, packSizeId: run.packSizeId },
+      after: { recipeVersion: latest.version, packSizeId: latestPackSizeId },
     });
     return tx.productionRun.findUniqueOrThrow({ where: { id }, include: includeClause() });
   });
