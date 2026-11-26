@@ -152,7 +152,7 @@ export async function issueFromRawBatches(
   issueValuePaise: number,
   actingUserId: string | null = null,
   overrideReason?: string,
-  movementSource: string = "PRODUCTION_ISSUE",
+  movementSource: "PRODUCTION_ISSUE" | "PRODUCTION_PACKAGING" | "PRODUCTION_DAMAGE" = "PRODUCTION_ISSUE",
 ) {
   const unitCostPaise = displayUnitCostPaise(issueValuePaise, qtyNeeded);
   if (selections.length === 0) {
