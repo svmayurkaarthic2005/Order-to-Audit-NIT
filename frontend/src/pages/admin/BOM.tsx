@@ -291,9 +291,9 @@ export default function BOM() {
                 </Field>
               </div>
               <div className="sm:col-span-1 lg:col-span-4">
-                <Field label="Stock goes into" required>
-                  <Select value={packItemId} required onChange={(e) => setPackItemId(e.target.value)} className="w-full">
-                    <option value="">Choose finished product</option>
+                <Field label="Stock goes into">
+                  <Select value={packItemId} onChange={(e) => setPackItemId(e.target.value)} className="w-full">
+                    <option value="">Same product as the recipe</option>
                     {finishedGoods.map((it) => (
                       <option key={it.id} value={it.id}>
                         {it.name}
