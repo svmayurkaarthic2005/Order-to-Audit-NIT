@@ -126,6 +126,7 @@ model Item {
   bomsAsFinished       BomHeader[]             @relation("BomFinishedItem")
   bomLinesAsRaw        BomLine[]
   packSizesFinished    PackSize[]
+  packSizePackagingLines PackSizeLine[]
   runMaterials         ProductionRunMaterial[]
   orderItems           OrderItem[]
   invoiceItems         InvoiceItem[]
@@ -211,10 +212,25 @@ model PackSize {
   finishedItem    Item      @relation(fields: [finishedItemId], references: [id])
   baseBomId       String
   baseBom         BomHeader @relation(fields: [baseBomId], references: [id])
-  multiplier      Int       @default(1)
+  multiplier      Int       @default(1) // legacy metadata; production planning uses expectedYieldQty
   label           String
+  expectedYieldQty Int // good finished packs expected from one recipe batch
+
+  lines           PackSizeLine[]
+  productionRuns  ProductionRun[]
 
   @@unique([finishedItemId, label])
+}
+
+model PackSizeLine {
+  id          String   @id @default(uuid())
+  packSizeId  String
+  packSize    PackSize @relation(fields: [packSizeId], references: [id], onDelete: Cascade)
+  itemId      String
+  item        Item     @relation(fields: [itemId], references: [id])
+  qtyPerBatch Int // packaging quantity required for one recipe batch
+
+  @@unique([packSizeId, itemId])
 }
 
 // ---------- purchases ----------
@@ -277,6 +293,8 @@ model ProductionRun {
   id            String              @id @default(uuid())
   bomHeaderId   String
   bomHeader     BomHeader           @relation(fields: [bomHeaderId], references: [id])
+  packSizeId    String?
+  packSize      PackSize?           @relation(fields: [packSizeId], references: [id])
   batchSize     Int                 @default(1)
   status        ProductionRunStatus @default(DRAFT)
   actualOutputQty Int?
