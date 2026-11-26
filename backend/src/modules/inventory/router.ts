@@ -1,8 +1,8 @@
 import { Router } from "express";
 import { requireAuth, requireRole } from "../../middleware/auth.js";
 import { validate } from "../../lib/validate.js";
-import { getOnHand, postOpeningStock } from "./service.js";
-import { openingStockSchema } from "./schema.js";
+import { getOnHand, postOpeningStock, recordAdjustment } from "./service.js";
+import { openingStockSchema, adjustmentSchema } from "./schema.js";
 import { syncAlertsForItems } from "../alerts/service.js";
 
 export const inventoryRouter = Router();
@@ -30,6 +30,17 @@ inventoryRouter.post(
   validate("body", openingStockSchema),
   async (req, res) => {
     const movement = await postOpeningStock(req.body);
+    await syncAlertsForItems([movement.itemId]);
+    res.status(201).json({ data: movement });
+  },
+);
+
+inventoryRouter.post(
+  "/adjustments",
+  requireRole("ADMIN", "OWNER"),
+  validate("body", adjustmentSchema),
+  async (req, res) => {
+    const movement = await recordAdjustment(req.body, req.user!.id);
     await syncAlertsForItems([movement.itemId]);
     res.status(201).json({ data: movement });
   },

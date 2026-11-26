@@ -1,6 +1,8 @@
 import { Prisma } from "@prisma/client";
 import { AppError } from "../../lib/AppError.js";
 import { prisma } from "../../lib/prisma.js";
+import { logAudit } from "../../lib/audit.js";
+import { displayUnitCostPaise, issueValuePaise, ledgerPosition } from "../../lib/valuation.js";
 
 type DbClient = typeof prisma | Prisma.TransactionClient;
 
@@ -112,4 +114,45 @@ export async function postOpeningStock(data: { itemId: string; qtyBase: number; 
     }
     throw err;
   }
+}
+
+// Count correction, found surplus or write-off — the brief's "± adjustments"
+// in opening + receipts − issues ± adjustments = closing. Valued at the
+// ledger's current moving-average rate either way, so a correction never
+// shifts the average cost it's supposed to just true up the quantity for.
+export async function recordAdjustment(data: { itemId: string; qtyBase: number; reason: string }, actingUserId: string) {
+  await getItemOrThrow(data.itemId);
+
+  return prisma.$transaction(async (tx) => {
+    const position = await ledgerPosition(tx, data.itemId);
+    const newQty = position.qtyBase + data.qtyBase;
+    if (newQty < 0) {
+      throw new AppError(409, "insufficient_stock", `Only ${position.qtyBase} in stock; can't write off ${-data.qtyBase}`);
+    }
+
+    const totalCostPaise = Math.sign(data.qtyBase) * issueValuePaise(Math.abs(data.qtyBase), position);
+    const adjustment = await tx.stockAdjustment.create({
+      data: { itemId: data.itemId, qtyBase: data.qtyBase, reason: data.reason, createdByUserId: actingUserId },
+    });
+    const movement = await tx.stockMovement.create({
+      data: {
+        itemId: data.itemId,
+        qtyBase: data.qtyBase,
+        unitCostPaise: displayUnitCostPaise(totalCostPaise, data.qtyBase),
+        totalCostPaise,
+        source: "ADJUSTMENT",
+        sourceId: adjustment.id,
+        createdByUserId: actingUserId,
+      },
+    });
+    await logAudit(tx, {
+      userId: actingUserId,
+      action: "STOCK_ADJUSTMENT",
+      entityType: "Item",
+      entityId: data.itemId,
+      before: { qtyBase: position.qtyBase },
+      after: { qtyBase: newQty, change: data.qtyBase, reason: data.reason },
+    });
+    return movement;
+  });
 }

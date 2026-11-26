@@ -86,7 +86,14 @@ packets and packaging.
 lock and refuses a shortage without setting anything aside; the salesman, owner and admin are
 notified. Each later hand-off (approved, invoiced, dispatched, cancelled) notifies the salesman.
 
-**Checked three ways.** 182 backend tests against a real Postgres, the section 5 benchmark
+**A count correction is a ledger row, not an edit.** The brief's closing-balance formula is
+opening + receipts − issues ± *adjustments*; `StockMovement` being append-only means a correction
+can never be a silent edit to an earlier row. Admin/Owner records a found surplus or a write-off
+with a reason, and it posts as its own `ADJUSTMENT` movement — backed by a `StockAdjustment` row
+that carries the reason, who and when — valued at the item's current moving-average rate so the
+correction true-ups the quantity without distorting the cost history around it.
+
+**Checked three ways.** 188 backend tests against a real Postgres, the section 5 benchmark
 replayed on a brand-new database (15 checks), and browser tests that click through the whole
 story as each role. CI runs all three on every push.
 

@@ -76,6 +76,7 @@ model User {
 
   salesOrders     SalesOrder[]
   stockMovements  StockMovement[]
+  stockAdjustments StockAdjustment[]
   auditLogs       AuditLog[]
 }
 
@@ -134,6 +135,7 @@ model Item {
   lowStockAlerts       LowStockAlert[]
   rawMaterialBatches   RawMaterialBatch[]
   finishedGoodsBatches FinishedGoodsBatch[]
+  stockAdjustments     StockAdjustment[]
 }
 
 enum AlertStatus {
@@ -286,6 +288,21 @@ model StockMovement {
   createdAt      DateTime            @default(now())
 
   @@index([itemId])
+}
+
+// A count correction, found surplus, or write-off — the "± adjustments"
+// term in the brief's closing-balance formula. The source document
+// StockMovement.sourceId points at, for an ADJUSTMENT movement, carrying the
+// reason that a bare ledger row can't.
+model StockAdjustment {
+  id              String   @id @default(uuid())
+  itemId          String
+  item            Item     @relation(fields: [itemId], references: [id])
+  qtyBase         Int // signed: + found extra on a count, - shrinkage/write-off
+  reason          String
+  createdByUserId String?
+  createdByUser   User?    @relation(fields: [createdByUserId], references: [id])
+  createdAt       DateTime @default(now())
 }
 
 // ---------- production ----------

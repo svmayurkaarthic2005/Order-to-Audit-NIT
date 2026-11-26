@@ -159,12 +159,119 @@ function OpeningStockForm({ onDone }: { onDone: () => void }) {
   );
 }
 
+function AdjustmentForm({ onDone }: { onDone: () => void }) {
+  const queryClient = useQueryClient();
+  const [itemId, setItemId] = useState("");
+  const [direction, setDirection] = useState<"add" | "remove">("remove");
+  const [quantity, setQuantity] = useState("");
+  const [reason, setReason] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  const { data: items, isLoading: itemsLoading } = useQuery({
+    queryKey: ["items", "opening-stock-picker"],
+    queryFn: () => api.get<{ items: { id: string; sku: string; name: string; baseUnit: string }[] }>("/items"),
+  });
+
+  const { data: onHand } = useQuery({
+    queryKey: ["on-hand", itemId],
+    queryFn: () => api.get<OnHand>(`/inventory/${itemId}/on-hand`),
+    enabled: !!itemId,
+  });
+
+  const selectedItem = items?.items.find((i) => i.id === itemId);
+  const unit = unitOf(selectedItem?.baseUnit ?? "PIECE");
+
+  const submitMutation = useMutation({
+    mutationFn: () =>
+      api.post("/inventory/adjustments", {
+        itemId,
+        qtyBase: Math.round(Number(quantity) * unit.factor) * (direction === "remove" ? -1 : 1),
+        reason,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["on-hand", itemId] });
+      queryClient.invalidateQueries({ queryKey: ["alerts", "stock-status"] });
+      onDone();
+    },
+    onError: (err) => setError(err instanceof ApiError ? err.message : "Couldn't save the adjustment. Check the numbers and try again."),
+  });
+
+  return (
+    <Card className="mb-4 overflow-hidden">
+      <div className="border-b border-border/60 bg-secondary/30 px-5 py-3.5">
+        <h2 className="text-sm font-semibold text-foreground">Record adjustment</h2>
+      </div>
+      <div className="p-5">
+        <Field label="Item" required>
+          {itemsLoading ? (
+            <p className="text-sm text-muted-foreground">Loading items…</p>
+          ) : (
+            <Select value={itemId} onChange={(e) => setItemId(e.target.value)} className="w-full">
+              <option value="">Choose an item</option>
+              {items?.items.map((i) => (
+                <option key={i.id} value={i.id}>
+                  {i.name}
+                </option>
+              ))}
+            </Select>
+          )}
+        </Field>
+
+        {itemId && onHand && (
+          <p className="mt-2 text-sm text-muted-foreground">
+            In stock now: <span className="tabular font-medium text-foreground">{qty(onHand.qtyBase, selectedItem?.baseUnit ?? onHand.unit)}</span>
+          </p>
+        )}
+
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            submitMutation.mutate();
+          }}
+          className="mt-4"
+        >
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <div>
+              <Field label="What happened" required>
+                <Select value={direction} onChange={(e) => setDirection(e.target.value as "add" | "remove")} className="w-full">
+                  <option value="remove">Less than the books say (shrinkage, damage, write-off)</option>
+                  <option value="add">More than the books say (found on a physical count)</option>
+                </Select>
+              </Field>
+            </div>
+            <div>
+              <Field label={`Quantity (${unit.label})`} required>
+                <Input type="number" step="any" min="0" required value={quantity} onChange={(e) => setQuantity(e.target.value)} className="w-full" />
+              </Field>
+            </div>
+            <div>
+              <Field label="Reason" required>
+                <Input type="text" required minLength={3} maxLength={200} value={reason} onChange={(e) => setReason(e.target.value)} className="w-full" placeholder="e.g. Monthly stock count" />
+              </Field>
+            </div>
+          </div>
+          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-t border-border/50 pt-3.5">
+            <p className="text-xs text-muted-foreground">
+              This adds a new, permanent entry to the stock ledger — it never edits or removes an earlier one.
+            </p>
+            <Button type="submit" disabled={!itemId || !reason.trim() || submitMutation.isPending} className="self-end sm:self-auto px-6">
+              {submitMutation.isPending ? "Saving…" : "Save adjustment"}
+            </Button>
+          </div>
+        </form>
+        {error && <div className="mt-3"><ErrorText>{error}</ErrorText></div>}
+      </div>
+    </Card>
+  );
+}
+
 export default function LowStockAlerts() {
   const { user } = useAuth();
   // Warning levels are an Admin/Owner setting on the server too.
   const canMutate = user?.role === "ADMIN" || user?.role === "OWNER";
   const canRecordOpeningStock = user?.role === "ADMIN" || user?.role === "OWNER";
   const [showOpeningStockForm, setShowOpeningStockForm] = useState(false);
+  const [showAdjustmentForm, setShowAdjustmentForm] = useState(false);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["alerts", "stock-status"],
@@ -180,25 +287,44 @@ export default function LowStockAlerts() {
         description="How much of each item you have. Set a warning level and you'll be told when it runs low."
         actions={
           canRecordOpeningStock ? (
-            <Button
-              variant={showOpeningStockForm ? "secondary" : "primary"}
-              size="sm"
-              onClick={() => setShowOpeningStockForm((v) => !v)}
-            >
-              {showOpeningStockForm ? (
-                "Close"
-              ) : (
-                <>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M12 4v16m8-8H4" />
-                  </svg>
-                  Record opening stock
-                </>
-              )}
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  setShowAdjustmentForm((v) => !v);
+                  setShowOpeningStockForm(false);
+                }}
+              >
+                {showAdjustmentForm ? "Close" : "Record adjustment"}
+              </Button>
+              <Button
+                variant={showOpeningStockForm ? "secondary" : "primary"}
+                size="sm"
+                onClick={() => {
+                  setShowOpeningStockForm((v) => !v);
+                  setShowAdjustmentForm(false);
+                }}
+              >
+                {showOpeningStockForm ? (
+                  "Close"
+                ) : (
+                  <>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M12 4v16m8-8H4" />
+                    </svg>
+                    Record opening stock
+                  </>
+                )}
+              </Button>
+            </div>
           ) : undefined
         }
       />
+
+      {canRecordOpeningStock && showAdjustmentForm && (
+        <AdjustmentForm onDone={() => setShowAdjustmentForm(false)} />
+      )}
 
       {canRecordOpeningStock && showOpeningStockForm && (
         <OpeningStockForm onDone={() => setShowOpeningStockForm(false)} />

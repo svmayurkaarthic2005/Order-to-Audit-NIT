@@ -19,7 +19,7 @@ shortlisting task.
 | Database | PostgreSQL (Docker locally; Supabase when hosted) |
 | Auth | JWT in an httpOnly cookie, bcrypt, role checks on every route |
 | Invoices | PDFKit; stored in Supabase Storage (private bucket) or local disk |
-| Tests | Vitest + Supertest against a real Postgres: 182 tests, plus the 15-check benchmark replay |
+| Tests | Vitest + Supertest against a real Postgres: 188 tests, plus the 15-check benchmark replay |
 | CI | GitHub Actions: migrate, seed, typecheck, tests, benchmark, frontend build |
 
 One web app serves every role: the salesman gets a phone-sized order screen that keeps working
@@ -157,7 +157,9 @@ prices never change an earlier run's cost.
   checked against usable stock and FEFO batches
 - Planned against actual consumption and pack-specific expected yield, with variance shown and
   flagged beyond ±3%
-- Stock summary and per-item stock ledger
+- Stock summary and per-item stock ledger, plus a reasoned adjustment (Admin/Owner) for a count
+  correction, found surplus or write-off — the brief's "± adjustments" in the closing-balance
+  formula — posted as its own ledger row, valued at the item's current moving-average cost
 - All six section 4.6 reports (sales register by customer and by product, GST summary,
   purchase register, stock summary and ledger, production, payments with ageing), each
   filterable by date and exported to CSV (opens in Excel) and PDF, amounts in rupees. The GST
@@ -192,8 +194,8 @@ e-Invoice/e-Way Bill format, and a Tamil interface for floor staff.
 ## Audit and integrity
 
 - **Stock is never a stored number.** Every balance is the sum of the stock movement ledger,
-  and every movement links back to its source: a purchase, production run, invoice (dispatch) or
-  opening stock.
+  and every movement links back to its source: a purchase, production run, invoice (dispatch),
+  opening stock, or a reasoned adjustment.
 - **The ledger and the activity log are append-only, enforced by the database.** Triggers
   refuse any UPDATE or DELETE on `StockMovement` and `AuditLog`. Corrections are new rows:
   a cancelled run posts reversals, a cancelled purchase reverses its receipts, and a posted
@@ -246,7 +248,7 @@ e-Invoice/e-Way Bill format, and a Tamil interface for floor staff.
 
 ```bash
 cd backend
-npm test            # 182 tests, real Postgres, about a minute
+npm test            # 188 tests, real Postgres, about a minute
 npm run benchmark   # section 5 on a brand-new database, 15 checks
 ```
 

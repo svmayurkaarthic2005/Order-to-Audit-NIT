@@ -32,6 +32,7 @@ erDiagram
     ITEM ||--o{ PRODUCTION_RUN_MATERIAL : "item"
     ITEM ||--o{ PURCHASE_ITEM : "item"
     ITEM ||--o{ RAW_MATERIAL_BATCH : "item"
+    ITEM ||--o{ STOCK_ADJUSTMENT : "item"
     ITEM ||--o{ STOCK_MOVEMENT : "item"
     PACK_SIZE |o--o{ PRODUCTION_RUN : "packSize"
     PACK_SIZE ||--o{ PACK_SIZE_LINE : "packSize"
@@ -45,6 +46,7 @@ erDiagram
     SUPPLIER ||--o{ PURCHASE : "supplier"
     SUPPLIER ||--o{ RAW_MATERIAL_BATCH : "supplier"
     USER |o--o{ AUDIT_LOG : "user"
+    USER |o--o{ STOCK_ADJUSTMENT : "createdByUser"
     USER |o--o{ STOCK_MOVEMENT : "createdByUser"
     USER ||--o{ SALES_ORDER : "salesmanUser"
 
@@ -171,6 +173,15 @@ erDiagram
         string openingStockItemId UK
         string rawMaterialBatchId FK
         string finishedGoodsBatchId FK
+        string createdByUserId FK
+        datetime createdAt
+    }
+
+    STOCK_ADJUSTMENT {
+        string id PK
+        string itemId FK
+        int qtyBase
+        string reason
         string createdByUserId FK
         datetime createdAt
     }

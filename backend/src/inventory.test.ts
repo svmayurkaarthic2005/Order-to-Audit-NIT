@@ -132,3 +132,88 @@ describe("inventory ledger", () => {
     expect(adminRes.body.data.movingAverageCostPaise).toEqual(expect.any(Number));
   });
 });
+
+describe("stock adjustments", () => {
+  async function newItem(cookie: string | string[]) {
+    const sku = `RM-ADJ-TEST-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const itemRes = await request(app)
+      .post("/items")
+      .set("Cookie", cookie as string)
+      .send({ sku, name: "Adjustment Test Item", type: "RAW_MATERIAL", baseUnit: "G" });
+    return itemRes.body.data.id as string;
+  }
+
+  it("a write-off reduces on-hand and values it at the current moving-average cost, not a made-up rate", async () => {
+    const cookie = await loginAs("admin@porulottam.test");
+    const itemId = await newItem(cookie);
+    await request(app).post("/inventory/opening-stock").set("Cookie", cookie).send({ itemId, qtyBase: 10_000, totalCostPaise: 50_000 });
+
+    const res = await request(app)
+      .post("/inventory/adjustments")
+      .set("Cookie", cookie)
+      .send({ itemId, qtyBase: -1_000, reason: "Spoiled in storage" });
+    expect(res.status).toBe(201);
+    expect(res.body.data.totalCostPaise).toBe(-5_000); // 1/10th of the ₹500 lot, same rate as every other unit
+
+    const onHandRes = await request(app).get(`/inventory/${itemId}/on-hand`).set("Cookie", cookie);
+    expect(onHandRes.body.data.qtyBase).toBe(9_000);
+
+    await request(app).delete(`/items/${itemId}`).set("Cookie", cookie);
+  });
+
+  it("found surplus increases on-hand without changing the moving-average rate", async () => {
+    const cookie = await loginAs("admin@porulottam.test");
+    const itemId = await newItem(cookie);
+    await request(app).post("/inventory/opening-stock").set("Cookie", cookie).send({ itemId, qtyBase: 10_000, totalCostPaise: 50_000 });
+
+    await request(app).post("/inventory/adjustments").set("Cookie", cookie).send({ itemId, qtyBase: 500, reason: "Physical count found extra" });
+
+    const onHandRes = await request(app).get(`/inventory/${itemId}/on-hand`).set("Cookie", cookie);
+    expect(onHandRes.body.data.qtyBase).toBe(10_500);
+    expect(onHandRes.body.data.movingAverageCostPaise).toBe(5); // the surplus was valued at the same 5-paise/g rate, so the average is untouched
+  });
+
+  it("rejects a write-off bigger than what's on hand", async () => {
+    const cookie = await loginAs("admin@porulottam.test");
+    const itemId = await newItem(cookie);
+    await request(app).post("/inventory/opening-stock").set("Cookie", cookie).send({ itemId, qtyBase: 100, totalCostPaise: 1_000 });
+
+    const res = await request(app)
+      .post("/inventory/adjustments")
+      .set("Cookie", cookie)
+      .send({ itemId, qtyBase: -500, reason: "Too much" });
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe("insufficient_stock");
+  });
+
+  it("requires a reason, and rejects a zero quantity", async () => {
+    const cookie = await loginAs("admin@porulottam.test");
+    const flour = await prisma.item.findUniqueOrThrow({ where: { sku: "RM-FLOUR" } });
+
+    const noReason = await request(app).post("/inventory/adjustments").set("Cookie", cookie).send({ itemId: flour.id, qtyBase: 10, reason: "" });
+    expect(noReason.status).toBe(400);
+
+    const zeroQty = await request(app).post("/inventory/adjustments").set("Cookie", cookie).send({ itemId: flour.id, qtyBase: 0, reason: "Oops" });
+    expect(zeroQty.status).toBe(400);
+  });
+
+  it("production and salesman roles cannot record an adjustment", async () => {
+    const flour = await prisma.item.findUniqueOrThrow({ where: { sku: "RM-FLOUR" } });
+    for (const email of ["production@porulottam.test", "salesman@porulottam.test"]) {
+      const cookie = await loginAs(email);
+      const res = await request(app).post("/inventory/adjustments").set("Cookie", cookie).send({ itemId: flour.id, qtyBase: 10, reason: "Test" });
+      expect(res.status).toBe(403);
+    }
+  });
+
+  it("logs the adjustment to the audit trail with who, the reason and the before/after quantity", async () => {
+    const cookie = await loginAs("admin@porulottam.test");
+    const itemId = await newItem(cookie);
+    await request(app).post("/inventory/opening-stock").set("Cookie", cookie).send({ itemId, qtyBase: 200, totalCostPaise: 2_000 });
+    await request(app).post("/inventory/adjustments").set("Cookie", cookie).send({ itemId, qtyBase: -50, reason: "Damaged pouch" });
+
+    const entry = await prisma.auditLog.findFirst({ where: { entityType: "Item", entityId: itemId, action: "STOCK_ADJUSTMENT" } });
+    expect(entry).not.toBeNull();
+    expect(JSON.parse(entry!.afterJson!)).toMatchObject({ qtyBase: 150, change: -50, reason: "Damaged pouch" });
+  });
+});
