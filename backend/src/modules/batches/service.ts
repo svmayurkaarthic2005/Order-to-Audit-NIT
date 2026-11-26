@@ -152,6 +152,7 @@ export async function issueFromRawBatches(
   issueValuePaise: number,
   actingUserId: string | null = null,
   overrideReason?: string,
+  movementSource: string = "PRODUCTION_ISSUE",
 ) {
   const unitCostPaise = displayUnitCostPaise(issueValuePaise, qtyNeeded);
   if (selections.length === 0) {
@@ -161,7 +162,7 @@ export async function issueFromRawBatches(
         qtyBase: -qtyNeeded,
         unitCostPaise,
         totalCostPaise: -issueValuePaise,
-        source: "PRODUCTION_ISSUE",
+        source: movementSource,
         sourceId: productionRunId,
       },
     });
@@ -177,7 +178,7 @@ export async function issueFromRawBatches(
           qtyBase: -sel.qty,
           unitCostPaise,
           totalCostPaise: -values[i]!,
-          source: "PRODUCTION_ISSUE",
+          source: movementSource,
           sourceId: productionRunId,
         },
       });
@@ -198,7 +199,7 @@ export async function issueFromRawBatches(
         qtyBase: -sel.qty,
         unitCostPaise,
         totalCostPaise: -values[i]!,
-        source: "PRODUCTION_ISSUE",
+        source: movementSource,
         sourceId: productionRunId,
         rawMaterialBatchId: sel.batchId,
       },
