@@ -164,10 +164,10 @@ export default function BOM() {
     setPackLabel(pack.label);
     setPackItemId(pack.finishedItemId);
     setPackExpectedYieldQty(String(pack.expectedYieldQty));
-    setPackLines(pack.lines.map((line) => ({
+    setPackLines(pack.lines.length > 0 ? pack.lines.map((line) => ({
       itemId: line.itemId,
       qtyPerBatch: String(line.qtyPerBatch / unitOf(line.item.baseUnit).factor),
-    })));
+    })) : [{ itemId: "", qtyPerBatch: "" }]);
     setPackError(null);
     setShowPackForm(true);
   }
@@ -479,7 +479,9 @@ export default function BOM() {
                           <div className="min-w-0 text-sm">
                             <p className="font-medium text-foreground">{pack.finishedItem.name} · {pack.label}</p>
                             <p className="text-xs text-muted-foreground">
-                              {pack.expectedYieldQty} packets per batch · {pack.lines.map((line) => `${line.item.name} ${qty(line.qtyPerBatch, line.item.baseUnit)}`).join(", ")}
+                              {pack.expectedYieldQty} packets per batch · {pack.lines.length > 0
+                                ? pack.lines.map((line) => `${line.item.name} ${qty(line.qtyPerBatch, line.item.baseUnit)}`).join(", ")
+                                : "Packaging not configured yet"}
                             </p>
                           </div>
                           {canMutate && (
