@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { AppError } from "../../lib/AppError.js";
 import { logAudit } from "../../lib/audit.js";
 import { prisma } from "../../lib/prisma.js";
+import { formatQty } from "../../lib/units.js";
 import { displayUnitCostPaise, issueValuePaise, ledgerPosition } from "../../lib/valuation.js";
 import { computeOutputCostPaise } from "./costing.js";
 import { syncAlertsForItems } from "../alerts/service.js";
@@ -302,10 +303,25 @@ async function completeProductionRunInTransaction(
     // valid and listed once, but unused packs needn't be listed.
     requireEachLineOnce(packagingLineIds, data.packagingConsumed.map((l) => l.itemId), "packaging item", !data.packSizeId);
 
+    // Packaging leaves stock here, so it gets the same guard as raw
+    // materials at start: locked per item, and never more than on hand.
+    for (const itemId of [...new Set(data.packagingConsumed.map((l) => l.itemId))].sort()) {
+      await lockItem(tx, itemId);
+    }
     for (const line of data.packagingConsumed) {
       // Value used + damaged together, then split, so the two rows add up
       // to exactly what the combined quantity is worth.
       const position = await ledgerPosition(tx, line.itemId);
+      const taking = line.qtyBase + line.damagedQty;
+      if (taking > position.qtyBase) {
+        const item = await tx.item.findUniqueOrThrow({ where: { id: line.itemId } });
+        throw new AppError(
+          409,
+          "insufficient_stock",
+          `Not enough ${item.name}: ${formatQty(Math.max(position.qtyBase, 0), item.baseUnit)} in stock, ${formatQty(taking, item.baseUnit)} used and damaged. Record the purchase first, or correct the amounts.`,
+          { itemId: line.itemId, available: position.qtyBase, needed: taking },
+        );
+      }
       const usedValue = issueValuePaise(line.qtyBase, position);
       const damagedValue = issueValuePaise(line.qtyBase + line.damagedQty, position) - usedValue;
 

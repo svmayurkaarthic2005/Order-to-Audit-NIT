@@ -230,6 +230,35 @@ describe("stock and cost integrity", () => {
     expect(onHand._sum.qtyBase).toBe(100_000); // nothing was taken
   });
 
+  it("won't finish a run that uses more packaging than is in stock", async () => {
+    const admin = await loginAs("admin@porulottam.test");
+    const flour = await makeItem(admin, "RAW_MATERIAL");
+    const pouch = await makeItem(admin, "PACKAGING", "PIECE");
+    const finished = await makeItem(admin, "FINISHED_GOOD", "PIECE");
+    await request(app).post("/inventory/opening-stock").set("Cookie", admin).send({ itemId: flour, qtyBase: 40_000, totalCostPaise: 0 });
+    await request(app).post("/inventory/opening-stock").set("Cookie", admin).send({ itemId: pouch, qtyBase: 100, totalCostPaise: 25_000 });
+    const bom = await request(app).post("/boms").set("Cookie", admin).send({
+      finishedItemId: finished,
+      expectedYieldQty: 200,
+      lines: [{ rawItemId: flour, qtyPerBatch: 40_000 }, { rawItemId: pouch, qtyPerBatch: 200 }],
+    });
+    bomIds.push(bom.body.data.id);
+    const run = (await request(app).post("/production-runs").set("Cookie", admin).send({ bomHeaderId: bom.body.data.id, batchSize: 1 })).body.data;
+    await request(app).post(`/production-runs/${run.id}/start`).set("Cookie", admin).send({ actualConsumption: [{ itemId: flour, qtyBase: 40_000 }] });
+
+    // 188 used + 6 damaged = 194 pouches, but only 100 are in stock.
+    const res = await request(app)
+      .post(`/production-runs/${run.id}/complete`)
+      .set("Cookie", admin)
+      .set("Idempotency-Key", crypto.randomUUID())
+      .send({ actualOutputQty: 188, packagingConsumed: [{ itemId: pouch, qtyBase: 188, damagedQty: 6 }] });
+    expect(res.status).toBe(409);
+    expect(res.body.error.message).toBe("Not enough Ledger Test Item: 100 pieces in stock, 194 pieces used and damaged. Record the purchase first, or correct the amounts.");
+    const pouches = await prisma.stockMovement.aggregate({ where: { itemId: pouch }, _sum: { qtyBase: true } });
+    expect(pouches._sum.qtyBase).toBe(100); // nothing was taken
+    expect((await prisma.productionRun.findUniqueOrThrow({ where: { id: run.id } })).status).toBe("STARTED"); // still open to finish
+  });
+
   it("uses unbatched stock (like opening stock) together with batches, never more than both", async () => {
     const admin = await loginAs("admin@porulottam.test");
     const murukku = await makeItem(admin, "FINISHED_GOOD", "PIECE");

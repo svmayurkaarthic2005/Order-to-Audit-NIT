@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Button, Card, EmptyState, ErrorText, Input, Loading, PageHeader, Select, StatusBadge, Table, Td, Th, THead } from "@/components/ui";
+import { Button, Card, EmptyState, ErrorText, Input, Loading, PageHeader, Select, StatusBadge, Table, Td, Th, THead, qty } from "@/components/ui";
 
 type Item = {
   id: string;
@@ -53,6 +53,12 @@ export default function Items() {
     queryKey: ["items", search],
     queryFn: () => api.get<{ items: Item[]; total: number }>(`/items?search=${encodeURIComponent(search)}`),
   });
+  // On hand comes from the stock ledger (the same figure as Stock and Reports).
+  const { data: stock } = useQuery({
+    queryKey: ["reports", "stock-summary"],
+    queryFn: () => api.get<{ itemId: string; qtyBase: number }[]>("/reports/stock-summary"),
+  });
+  const onHand = (itemId: string) => stock?.find((s) => s.itemId === itemId)?.qtyBase ?? 0;
 
   const createMutation = useMutation({
     // HSN and GST only mean something on a product you invoice; without them
@@ -249,6 +255,7 @@ export default function Items() {
               <Th>Name</Th>
               <Th>Type</Th>
               <Th>Measured by</Th>
+              <Th numeric>On hand</Th>
               {canMutate && <Th className="text-right"><span className="sr-only">Actions</span></Th>}
             </tr>
           </THead>
@@ -265,6 +272,9 @@ export default function Items() {
                   <StatusBadge variant={TYPE_VARIANT[i.type]}>{TYPE_LABEL[i.type]}</StatusBadge>
                 </Td>
                 <Td className="text-muted-foreground">{UNIT_LABEL[i.baseUnit]}</Td>
+                <Td numeric className={`font-semibold ${stock && onHand(i.id) <= 0 ? "text-destructive" : "text-foreground"}`}>
+                  {stock ? qty(onHand(i.id), i.baseUnit) : "…"}
+                </Td>
                 {canMutate && (
                   <Td className="text-right whitespace-nowrap">
                     <Button
