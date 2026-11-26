@@ -59,34 +59,38 @@ describe("pack-size costing — shared recipe, per-pack packaging and output", (
     await openingStock(adminCookie, pouch200Id, 10_000, 10_000 * 5); // 5 paise/piece
     await openingStock(adminCookie, pouch500Id, 10_000, 10_000 * 9); // 9 paise/piece
 
-    // One shared BOM: the raw-material recipe (flour) plus BOTH pack sizes'
-    // own packaging lines, so either can be consumed at completion time.
-    // The BOM's own canonical finished item is the 200g pack — PackSize
-    // rows are what let a run instead target the 500g item.
+    // One shared BOM holds only the common raw-material recipe. Each pack
+    // size owns its own output yield and packaging list.
     const bomRes = await request(app).post("/boms").set("Cookie", adminCookie).send({
       finishedItemId: finished200Id,
       expectedYieldQty: 100,
-      lines: [
-        { rawItemId: flourId, qtyPerBatch: 10_000 },
-        { rawItemId: pouch200Id, qtyPerBatch: 100 },
-        { rawItemId: pouch500Id, qtyPerBatch: 40 },
-      ],
+      lines: [{ rawItemId: flourId, qtyPerBatch: 10_000 }],
     });
     const bomId = bomRes.body.data.id as string;
 
     const packSize200 = await request(app).post("/pack-sizes").set("Cookie", adminCookie).send({
-      finishedItemId: finished200Id, baseBomId: bomId, multiplier: 1, label: "200g",
+      finishedItemId: finished200Id,
+      baseBomId: bomId,
+      expectedOutputQty: 100,
+      label: "200g",
+      packagingLines: [{ itemId: pouch200Id, qtyPerBatch: 100 }],
     });
     const packSize500 = await request(app).post("/pack-sizes").set("Cookie", adminCookie).send({
-      finishedItemId: finished500Id, baseBomId: bomId, multiplier: 2, label: "500g",
+      finishedItemId: finished500Id,
+      baseBomId: bomId,
+      expectedOutputQty: 40,
+      label: "500g",
+      packagingLines: [{ itemId: pouch500Id, qtyPerBatch: 40 }],
     });
     expect(packSize200.status).toBe(201);
     expect(packSize500.status).toBe(201);
 
     // ── Run 1: packed as the 200g pack size ──
-    const run200 = await request(app).post("/production-runs").set("Cookie", adminCookie).send({ bomHeaderId: bomId });
-    await request(app).post(`/production-runs/${run200.body.data.id}/start`).set("Cookie", adminCookie)
+    const run200 = await request(app).post("/production-runs").set("Cookie", adminCookie).send({ bomHeaderId: bomId, packSizeId: packSize200.body.data.id });
+    const start200 = await request(app).post(`/production-runs/${run200.body.data.id}/start`).set("Cookie", adminCookie)
       .send({ actualConsumption: [{ itemId: flourId, qtyBase: 10_000 }] });
+    expect(start200.status).toBe(200);
+    expect(start200.body.data.materials.map((m: { itemId: string }) => m.itemId).sort()).toEqual([flourId, pouch200Id].sort());
     await request(app)
       .post(`/production-runs/${run200.body.data.id}/complete`)
       .set("Cookie", adminCookie)
@@ -94,13 +98,16 @@ describe("pack-size costing — shared recipe, per-pack packaging and output", (
       .send({
         actualOutputQty: 100,
         packagingConsumed: [{ itemId: pouch200Id, qtyBase: 100, damagedQty: 0 }],
-        packSizeId: packSize200.body.data.id,
       });
 
     // ── Run 2: same BOM, packed as the 500g pack size instead ──
-    const run500 = await request(app).post("/production-runs").set("Cookie", adminCookie).send({ bomHeaderId: bomId });
-    await request(app).post(`/production-runs/${run500.body.data.id}/start`).set("Cookie", adminCookie)
+    const run500 = await request(app).post("/production-runs").set("Cookie", adminCookie).send({ bomHeaderId: bomId, packSizeId: packSize500.body.data.id });
+    const start500 = await request(app).post(`/production-runs/${run500.body.data.id}/start`).set("Cookie", adminCookie)
       .send({ actualConsumption: [{ itemId: flourId, qtyBase: 10_000 }] });
+    expect(start500.status).toBe(200);
+    expect(start500.body.data.expectedOutputQty).toBe(40);
+    expect(start500.body.data.materials.map((m: { itemId: string }) => m.itemId).sort()).toEqual([flourId, pouch500Id].sort());
+    expect(start500.body.data.materials.some((m: { itemId: string }) => m.itemId === pouch200Id)).toBe(false);
     await request(app)
       .post(`/production-runs/${run500.body.data.id}/complete`)
       .set("Cookie", adminCookie)
@@ -108,7 +115,6 @@ describe("pack-size costing — shared recipe, per-pack packaging and output", (
       .send({
         actualOutputQty: 40,
         packagingConsumed: [{ itemId: pouch500Id, qtyBase: 40, damagedQty: 0 }],
-        packSizeId: packSize500.body.data.id,
       });
 
     // Each run's output landed under its OWN finished-good SKU, not the
@@ -117,6 +123,7 @@ describe("pack-size costing — shared recipe, per-pack packaging and output", (
     const movement500 = await prisma.stockMovement.findFirst({ where: { sourceId: run500.body.data.id, source: "PRODUCTION_OUTPUT" } });
     expect(movement200?.itemId).toBe(finished200Id);
     expect(movement500?.itemId).toBe(finished500Id);
+    expect(run500.body.data.expectedOutputQty).toBe(40);
 
     // Each produced its own FinishedGoodsBatch, under its own item.
     const batch200 = await prisma.finishedGoodsBatch.findFirst({ where: { productionRunId: run200.body.data.id } });
@@ -144,9 +151,12 @@ describe("pack-size costing — shared recipe, per-pack packaging and output", (
     expect(breakdown500.body.data.packagingLines[0].totalCostPaise).toBe(360); // 40 * 9 paise
 
     expect(breakdown200.body.data.costPerGoodUnitPaise).not.toBe(breakdown500.body.data.costPerGoodUnitPaise);
+
+    const variance500 = await request(app).get(`/production-runs/${run500.body.data.id}/variance`).set("Cookie", adminCookie);
+    expect(variance500.body.data.yield).toMatchObject({ planned: 40, actual: 40, variancePct: 0, flagged: false });
   });
 
-  it("rejects a packSizeId that belongs to a different BOM", async () => {
+  it("rejects planning a run with a pack size from a different recipe family", async () => {
     const adminCookie = await loginAs("admin@porulottam.test");
     const flourId = await makeItem(adminCookie, "RAW_MATERIAL");
     const finishedAId = await makeItem(adminCookie, "FINISHED_GOOD");
@@ -164,17 +174,17 @@ describe("pack-size costing — shared recipe, per-pack packaging and output", (
       lines: [{ rawItemId: flourId, qtyPerBatch: 1_000 }],
     });
     const foreignPackSize = await request(app).post("/pack-sizes").set("Cookie", adminCookie).send({
-      finishedItemId: finishedBId, baseBomId: bomB.body.data.id, multiplier: 1, label: "foreign",
+      finishedItemId: finishedBId,
+      baseBomId: bomB.body.data.id,
+      expectedOutputQty: 10,
+      label: "foreign",
+      packagingLines: [],
     });
 
-    const run = await request(app).post("/production-runs").set("Cookie", adminCookie).send({ bomHeaderId: bomA.body.data.id });
-    await request(app).post(`/production-runs/${run.body.data.id}/start`).set("Cookie", adminCookie)
-      .send({ actualConsumption: [{ itemId: flourId, qtyBase: 1_000 }] });
-    const res = await request(app)
-      .post(`/production-runs/${run.body.data.id}/complete`)
-      .set("Cookie", adminCookie)
-      .set("Idempotency-Key", `packsize-foreign-${run.body.data.id}`)
-      .send({ actualOutputQty: 10, packagingConsumed: [], packSizeId: foreignPackSize.body.data.id });
+    const res = await request(app).post("/production-runs").set("Cookie", adminCookie).send({
+      bomHeaderId: bomA.body.data.id,
+      packSizeId: foreignPackSize.body.data.id,
+    });
 
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe("invalid_pack_size");
