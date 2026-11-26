@@ -10,7 +10,7 @@ type BomLineInput = { rawItemId: string; qtyPerBatch: number };
 export async function listBoms() {
   return prisma.bomHeader.findMany({
     where: { active: true },
-    include: { finishedItem: true, lines: { include: { rawItem: true } }, packSizes: { include: { finishedItem: true } } },
+    include: { finishedItem: true, lines: { include: { rawItem: true } }, packSizes: { include: { finishedItem: true, lines: { include: { item: true } } } } },
     orderBy: { createdAt: "desc" },
   });
 }
@@ -18,7 +18,7 @@ export async function listBoms() {
 export async function getBom(id: string) {
   const bom = await prisma.bomHeader.findUnique({
     where: { id },
-    include: { finishedItem: true, lines: { include: { rawItem: true } }, packSizes: { include: { finishedItem: true } } },
+    include: { finishedItem: true, lines: { include: { rawItem: true } }, packSizes: { include: { finishedItem: true, lines: { include: { item: true } } } } },
   });
   if (!bom || !bom.active) {
     throw new AppError(404, "not_found", "BOM not found");
@@ -126,7 +126,7 @@ export async function editBom(id: string, data: { expectedYieldQty: number; line
 
     return tx.bomHeader.findUniqueOrThrow({
       where: { id: next.id },
-      include: { finishedItem: true, lines: { include: { rawItem: true } }, packSizes: { include: { finishedItem: true } } },
+      include: { finishedItem: true, lines: { include: { rawItem: true } }, packSizes: { include: { finishedItem: true, lines: { include: { item: true } } } } },
     });
   });
 }
@@ -145,22 +145,68 @@ export async function listBomVersions(id: string) {
 // A pack size can never be created without a base BOM — it is just that
 // BOM's output scaled by an integer multiplier (e.g. 500 g = 2x the 250 g
 // base BOM), never an independent recipe.
-export async function createPackSize(data: {
-  finishedItemId: string;
-  baseBomId: string;
-  multiplier: number;
-  label: string;
-}) {
-  const [finishedItem, baseBom] = await Promise.all([
-    prisma.item.findUnique({ where: { id: data.finishedItemId } }),
-    prisma.bomHeader.findUnique({ where: { id: data.baseBomId } }),
-  ]);
-  if (!finishedItem || !finishedItem.active) {
-    throw new AppError(404, "not_found", "Finished good item not found");
-  }
-  if (!baseBom || !baseBom.active) {
-    throw new AppError(400, "invalid_base_bom", "baseBomId does not refer to an existing BOM");
-  }
+export async function createPackSize(
+  data: {
+    finishedItemId: string;
+    baseBomId: string;
+    multiplier: number;
+    label: string;
+    expectedYieldQty: number;
+    lines: { itemId: string; qtyPerBatch: number }[];
+  },
+  actingUserId: string | null = null,
+) {
+  return prisma.$transaction(async (tx) => {
+    const [finishedItem, baseBom] = await Promise.all([
+      tx.item.findUnique({ where: { id: data.finishedItemId } }),
+      tx.bomHeader.findUnique({ where: { id: data.baseBomId } }),
+    ]);
+    if (!finishedItem || !finishedItem.active || finishedItem.type !== "FINISHED_GOOD") {
+      throw new AppError(404, "not_found", "Active finished good item not found");
+    }
+    if (!baseBom || !baseBom.active) {
+      throw new AppError(400, "invalid_base_bom", "baseBomId must refer to the current version of a recipe");
+    }
 
-  return prisma.packSize.create({ data });
+    const itemIds = data.lines.map((line) => line.itemId);
+    if (new Set(itemIds).size !== itemIds.length) {
+      throw new AppError(400, "duplicate_line", "A pack size cannot list the same packaging item twice");
+    }
+    const packagingItems = await tx.item.findMany({ where: { id: { in: itemIds }, active: true } });
+    if (packagingItems.length !== itemIds.length) {
+      throw new AppError(404, "not_found", "One or more packaging items were not found or are inactive");
+    }
+    const invalidItem = packagingItems.find((item) => item.type !== "PACKAGING");
+    if (invalidItem) {
+      throw new AppError(400, "invalid_packaging_item", `${invalidItem.name} is not a packaging item`);
+    }
+
+    const packSize = await tx.packSize.create({
+      data: {
+        finishedItemId: data.finishedItemId,
+        baseBomId: data.baseBomId,
+        multiplier: data.multiplier,
+        label: data.label,
+        expectedYieldQty: data.expectedYieldQty,
+        lines: { create: data.lines },
+      },
+      include: { finishedItem: true, lines: { include: { item: true } } },
+    });
+    await logAudit(tx, {
+      userId: actingUserId,
+      action: "PACK_SIZE_CREATED",
+      entityType: "PackSize",
+      entityId: packSize.id,
+      after: {
+        label: packSize.label,
+        finishedItem: packSize.finishedItem.name,
+        expectedPacketsPerBatch: packSize.expectedYieldQty,
+        packaging: packSize.lines.map((line) => ({
+          item: line.item.name,
+          qtyPerBatch: line.qtyPerBatch,
+        })),
+      },
+    });
+    return packSize;
+  });
 }
