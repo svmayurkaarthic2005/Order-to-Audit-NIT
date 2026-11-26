@@ -25,7 +25,7 @@ export const packSizeCreateSchema = z.object({
       itemId: z.string().min(1),
       qtyPerBatch: z.coerce.number().int().positive(),
     }),
-  ).default([]),
+  ).min(1, "Add at least one packaging item for this pack size"),
 });
 
 
@@ -37,5 +37,5 @@ export const packSizeUpdateSchema = z.object({
       itemId: z.string().min(1),
       qtyPerBatch: z.coerce.number().int().positive(),
     }),
-  ).default([]),
+  ).min(1, "Add at least one packaging item for this pack size"),
 });
