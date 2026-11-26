@@ -44,7 +44,11 @@ type CostLine = { itemId: string; sku: string; name: string; qtyBase: number; un
 export async function getProductionRunCostBreakdown(runId: string) {
   const run = await prisma.productionRun.findUnique({
     where: { id: runId },
-    include: { bomHeader: { include: { lines: { include: { rawItem: true } } } } },
+    include: {
+      bomHeader: { include: { finishedItem: true } },
+      packSize: { include: { finishedItem: true } },
+      materials: { include: { item: true } },
+    },
   });
   if (!run) {
     throw new AppError(404, "not_found", "Production run not found");
@@ -58,8 +62,10 @@ export async function getProductionRunCostBreakdown(runId: string) {
     include: { item: true },
   });
 
-  const rawItemIds = new Set(run.bomHeader.lines.filter((l) => l.rawItem.type === "RAW_MATERIAL").map((l) => l.rawItemId));
-  const packagingItemIds = new Set(run.bomHeader.lines.filter((l) => l.rawItem.type === "PACKAGING").map((l) => l.rawItemId));
+  // The run's material snapshot records the exact material/packaging lines
+  // planned for the chosen pack size; don't re-read unrelated variant lines.
+  const rawItemIds = new Set(run.materials.filter((m) => m.item.type === "RAW_MATERIAL").map((m) => m.itemId));
+  const packagingItemIds = new Set(run.materials.filter((m) => m.item.type === "PACKAGING").map((m) => m.itemId));
 
   function linesFor(itemIds: Set<string>, sources: string[]): CostLine[] {
     const byItem = new Map<string, { qtyBase: number; totalCostPaise: number; item: { id: string; sku: string; name: string } }>();
@@ -91,7 +97,7 @@ export async function getProductionRunCostBreakdown(runId: string) {
   const costPerGoodUnitPaise = outputMovement?.unitCostPaise ?? 0;
 
   const latestInvoiceLine = await prisma.invoiceItem.findFirst({
-    where: { itemId: run.bomHeader.finishedItemId },
+    where: { itemId: run.packSize?.finishedItemId ?? run.bomHeader.finishedItemId },
     orderBy: { invoice: { createdAt: "desc" } },
   });
 
