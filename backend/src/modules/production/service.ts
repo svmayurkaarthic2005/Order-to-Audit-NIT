@@ -364,10 +364,27 @@ async function completeProductionRunInTransaction(
     // Only packaging planned for this pack size is valid at completion.
     requireEachLineOnce(packagingLineIds, data.packagingConsumed.map((l) => l.itemId), "packaging item");
 
+    // Packaging is physically consumed here, so serialize concurrent finishes
+    // and check the full used + damaged quantity before reading its WAC.
+    for (const itemId of [...new Set(data.packagingConsumed.map((line) => line.itemId))].sort()) {
+      await lockItem(tx, itemId);
+    }
+
     for (const line of data.packagingConsumed) {
+      const position = await ledgerPosition(tx, line.itemId);
+      const requiredQty = line.qtyBase + line.damagedQty;
+      if (requiredQty > position.qtyBase) {
+        const itemName = run.materials.find((material) => material.itemId === line.itemId)?.item.name ?? "packaging stock";
+        throw new AppError(
+          409,
+          "insufficient_stock",
+          `Not enough ${itemName}: ${position.qtyBase} available, ${requiredQty} needed.`,
+          { itemId: line.itemId, available: position.qtyBase, needed: requiredQty },
+        );
+      }
+
       // Value used + damaged together, then split, so the two rows add up
       // to exactly what the combined quantity is worth.
-      const position = await ledgerPosition(tx, line.itemId);
       const usedValue = issueValuePaise(line.qtyBase, position);
       const damagedValue = issueValuePaise(line.qtyBase + line.damagedQty, position) - usedValue;
 
