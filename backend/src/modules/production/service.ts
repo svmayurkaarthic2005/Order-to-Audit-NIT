@@ -84,10 +84,16 @@ export async function createProductionRun(data: { bomHeaderId: string; batchSize
     if (data.packSizeId) {
       const packSize = await tx.packSize.findUnique({
         where: { id: data.packSizeId },
-        include: { baseBom: true },
+        include: { baseBom: true, lines: true },
       });
       if (!packSize || packSize.baseBom.familyId !== bom.familyId) {
         throw new AppError(400, "invalid_pack_size", "packSizeId does not belong to this recipe");
+      }
+      // Legacy pack sizes are backfilled with a safe placeholder yield but
+      // have no trustworthy pack-specific packaging. They must be configured
+      // once in Recipes before a production run can select them.
+      if (packSize.lines.length === 0) {
+        throw new AppError(409, "pack_size_not_configured", "Configure this pack size's expected output and packaging before planning a run");
       }
       if (packSize.baseBomId !== bom.id) {
         throw new AppError(409, "stale_pack_size", "This pack size is attached to a newer recipe version. Reload and plan again.");
