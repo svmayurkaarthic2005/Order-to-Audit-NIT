@@ -203,8 +203,8 @@ e-Invoice/e-Way Bill format, and a Tamil interface for floor staff.
   show kg, litres and pieces.
 - One dispatch per invoice, for the full invoiced quantity or less (partial dispatch and returns
   are optional in the brief and not built).
-- Overpayment is allowed and shown as nothing outstanding, rather than refused; it's the
-  business's call.
+- A payment can't be more than the invoice still owes: the extra would otherwise vanish from
+  "still to collect". Advance payments and customer credit balances are not built.
 
 ## Known gaps
 

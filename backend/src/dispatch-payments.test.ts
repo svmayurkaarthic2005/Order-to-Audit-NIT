@@ -113,14 +113,31 @@ describe("dispatch and payments", () => {
     expect(outstandingRes.body.data.outstandingPaise).toBe(387_500);
   });
 
-  it("allows a second partial payment and recomputes outstanding correctly, never below zero", async () => {
+  it("allows a second partial payment but refuses one larger than what's still owed", async () => {
     const adminCookie = await loginAs("admin@porulottam.test");
     const salesmanCookie = await loginAs("salesman@porulottam.test");
     const { invoiceId } = await makeIssuedInvoice(adminCookie, salesmanCookie, 10, 1, 1_000); // ₹10.50 total after 5% GST
 
     await request(app).post("/payments").set("Cookie", adminCookie).send({ invoiceId, amountPaise: 1_000 });
-    const res = await request(app).post("/payments").set("Cookie", adminCookie).send({ invoiceId, amountPaise: 100 });
-    expect(res.body.data.outstandingPaise).toBe(0); // overpaid slightly, floored at zero, never negative
+    const over = await request(app).post("/payments").set("Cookie", adminCookie).send({ invoiceId, amountPaise: 100 });
+    expect(over.status).toBe(409);
+    expect(over.body.error.code).toBe("overpayment");
+    expect(over.body.error.message).toContain("₹0.50");
+
+    const exact = await request(app).post("/payments").set("Cookie", adminCookie).send({ invoiceId, amountPaise: 50 });
+    expect(exact.status).toBe(201);
+    expect(exact.body.data.outstandingPaise).toBe(0);
+    const again = await request(app).post("/payments").set("Cookie", adminCookie).send({ invoiceId, amountPaise: 1 });
+    expect(again.body.error.message).toBe("This invoice is already fully paid.");
+  });
+
+  it("two payments at once can't together pay more than what's owed", async () => {
+    const adminCookie = await loginAs("admin@porulottam.test");
+    const salesmanCookie = await loginAs("salesman@porulottam.test");
+    const { invoiceId } = await makeIssuedInvoice(adminCookie, salesmanCookie, 10, 1, 1_000); // ₹10.50
+    const pay = () => request(app).post("/payments").set("Cookie", adminCookie).send({ invoiceId, amountPaise: 1_050 });
+    const statuses = (await Promise.all([pay(), pay()])).map((r) => r.status).sort();
+    expect(statuses).toEqual([201, 409]);
   });
 
   it("a salesman/production cannot dispatch or record payments; an accountant can read but not write", async () => {
