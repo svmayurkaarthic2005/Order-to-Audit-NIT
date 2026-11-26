@@ -380,10 +380,10 @@ export default function ProductionRuns() {
       ) : !runs || runs.length === 0 ? (
         <EmptyState>No runs yet. Plan one above to get started.</EmptyState>
       ) : (
-        <ul className="flex flex-col gap-3">
+        <ul className="flex flex-col gap-2">
           {runs.map((run) => (
             <li key={run.id}>
-              <Card className="p-4">
+              <Card className="px-4 py-2.5">
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <p className="font-medium text-foreground">

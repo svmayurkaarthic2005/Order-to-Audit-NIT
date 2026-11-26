@@ -222,7 +222,7 @@ export default function Reports() {
         <>
           {/* ── Sales Register ── */}
           {tab === "Sales Register" && (
-            <Card className="mb-5 p-5">
+            <Card className="mb-4 p-4">
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-sm font-semibold text-foreground">Sales Trend</h2>
                 <div className="flex gap-0.5 rounded-lg border border-border bg-secondary/50 p-0.5">
@@ -315,7 +315,7 @@ export default function Reports() {
           {/* ── GST Summary ── */}
           {tab === "GST Summary" && gstSummary.data && (
             <div className="flex flex-col gap-4">
-              <Card className="grid grid-cols-2 gap-4 p-5 sm:grid-cols-5">
+              <Card className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-5">
                 {[
                   { label: "Invoices", value: String(gstSummary.data.invoiceCount) },
                   { label: "Taxable", value: money(gstSummary.data.totals.taxableValuePaise) },

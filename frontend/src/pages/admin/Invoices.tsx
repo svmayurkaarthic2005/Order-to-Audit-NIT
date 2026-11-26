@@ -123,7 +123,7 @@ export default function Invoices() {
             return (
               <li key={inv.id}>
                 <Card>
-                  <div className="flex flex-wrap items-start justify-between gap-3 px-5 py-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3 px-4 py-3">
                     <div>
                       <p className="text-base font-semibold text-foreground">
                         Invoice #{inv.invoiceNumber}
@@ -135,12 +135,12 @@ export default function Invoices() {
                       </p>
                     </div>
                     <div className="text-right">
-                      <p className="tabular text-lg font-semibold text-foreground">{money(inv.totalPaise)}</p>
+                      <p className="tabular text-base font-semibold text-foreground">{money(inv.totalPaise)}</p>
                       <p className={`text-sm font-medium ${balance.tone}`}>{balance.text}</p>
                     </div>
                   </div>
 
-                  <div className="grid gap-x-10 gap-y-3 border-t border-border px-5 py-3 text-sm md:grid-cols-[1fr_auto]">
+                  <div className="grid gap-x-10 gap-y-3 border-t border-border px-4 py-2.5 text-sm md:grid-cols-[1fr_auto]">
                     <div>
                       {inv.items.map((l, i) => (
                         <p key={i} className="text-foreground">
@@ -179,7 +179,7 @@ export default function Invoices() {
                     )}
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-2 border-t border-border bg-secondary/40 px-5 py-3">
+                  <div className="flex flex-wrap items-center gap-2 border-t border-border bg-secondary/40 px-4 py-2.5">
                     <Button size="sm" variant="secondary" onClick={() => downloadPdf(inv.id)}>
                       Download PDF
                     </Button>
@@ -272,7 +272,7 @@ export default function Invoices() {
                   </div>
 
                   {(emailStatusByInvoice[inv.id] || paymentErrorByInvoice[inv.id] || (canMutate && creditNoteInvoiceId === inv.id)) && (
-                    <div className="flex flex-col gap-2 border-t border-border px-5 py-3">
+                    <div className="flex flex-col gap-2 border-t border-border px-4 py-2.5">
                       {emailStatusByInvoice[inv.id] && (
                         <p className={`text-sm ${emailStatusByInvoice[inv.id] === "sent" ? "text-success" : "text-destructive"}`}>
                           {emailStatusByInvoice[inv.id] === "sent"

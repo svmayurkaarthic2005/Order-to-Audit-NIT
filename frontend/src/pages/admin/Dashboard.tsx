@@ -140,8 +140,8 @@ export default function Dashboard() {
     <div className="w-full min-w-0">
       <PageHeader title={`Hello, ${user?.name.split(" ")[0] ?? ""}`} description="Here's what needs doing today and how the business stands." />
 
-      <div className="grid items-start gap-5 lg:grid-cols-3">
-        <Card className="p-5 lg:col-span-2">
+      <div className="grid items-start gap-4 lg:grid-cols-3">
+        <Card className="p-4 lg:col-span-2">
           <div className="mb-1 flex items-baseline justify-between">
             <h2 className="text-base font-semibold text-foreground">To do</h2>
             {todo.length > 0 && <span className="text-xs text-muted-foreground">{plural(todo.length, "thing", "things")} need you</span>}
@@ -175,7 +175,7 @@ export default function Dashboard() {
           )}
         </Card>
 
-        <Card className="p-5">
+        <Card className="p-4">
           <h2 className="mb-3 text-base font-semibold text-foreground">Shortcuts</h2>
           <div className="flex flex-col gap-2">
             {quickActions.map((a) => (
@@ -187,20 +187,20 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      <div className="mt-5 grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
         {figures.map((f) => (
           <Link key={f.label} to={f.to} className="block">
-            <Card className="card-hover h-full p-4">
+            <Card className="card-hover h-full px-4 py-3">
               <p className="text-sm text-muted-foreground">{f.label}</p>
-              <p className={`tabular mt-1 text-2xl font-bold ${f.warn ? "text-warning" : "text-foreground"}`}>{f.value}</p>
+              <p className={`tabular mt-0.5 text-xl font-semibold ${f.warn ? "text-warning" : "text-foreground"}`}>{f.value}</p>
               <p className="mt-1 text-xs text-muted-foreground">{f.sub}</p>
             </Card>
           </Link>
         ))}
       </div>
 
-      <div className="mt-5 grid gap-5 lg:grid-cols-2">
-        <Card className="p-5">
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        <Card className="p-4">
           <div className="mb-3 flex items-baseline justify-between">
             <h2 className="text-base font-semibold text-foreground">Stock levels</h2>
             <Link to="/admin/stock-data" className="text-sm text-primary hover:underline">All stock</Link>
@@ -218,7 +218,7 @@ export default function Dashboard() {
           </ul>
         </Card>
 
-        <Card className="p-5">
+        <Card className="p-4">
           <div className="mb-3 flex items-baseline justify-between">
             <h2 className="text-base font-semibold text-foreground">Latest orders</h2>
             <Link to="/admin/orders" className="text-sm text-primary hover:underline">All orders</Link>

@@ -115,7 +115,7 @@ export default function BatchGenealogy() {
       {isRaw && forwardData && (
         <div className="space-y-6">
           {/* Stage 1: Origin Batch */}
-          <Card className="border-l-4 border-l-primary p-5">
+          <Card className="border-l-4 border-l-primary p-4">
             <span className="text-xs font-medium text-primary">Stage 1: Origin Lot</span>
             <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
               <div>
@@ -149,7 +149,7 @@ export default function BatchGenealogy() {
             ) : (
               <div className="space-y-4">
                 {forwardData.productionRuns.map((run) => (
-                  <Card key={run.id} className="p-5">
+                  <Card key={run.id} className="p-4">
                     <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-3">
                       <div>
                         <span className="font-mono text-xs font-bold text-primary">Run #{run.id.slice(0, 8)}</span>
@@ -217,7 +217,7 @@ export default function BatchGenealogy() {
       {/* Backward Genealogy View */}
       {!isRaw && backwardData && (
         <div className="space-y-6">
-          <Card className="border-l-4 border-l-primary p-5">
+          <Card className="border-l-4 border-l-primary p-4">
             <span className="text-xs font-medium text-primary">
               End Target: Customer Dispatch
             </span>
@@ -243,7 +243,7 @@ export default function BatchGenealogy() {
           <div className="space-y-4">
             <h4 className="text-sm font-bold text-foreground">Source Lots & Ingredients</h4>
             {backwardData.itemBatches.map((ib, idx) => (
-              <Card key={idx} className="p-5">
+              <Card key={idx} className="p-4">
                 <div className="border-b border-border pb-3">
                   <span className="text-xs font-medium text-primary">
                     Finished Goods Lot
