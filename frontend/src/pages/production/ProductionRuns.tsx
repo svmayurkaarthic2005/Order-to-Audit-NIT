@@ -65,6 +65,7 @@ export default function ProductionRuns() {
   const canMutate = user?.role !== "ACCOUNTANT";
   const queryClient = useQueryClient();
   const [bomId, setBomId] = useState("");
+  const [packSizeId, setPackSizeId] = useState("");
   const [batchSize, setBatchSize] = useState("1");
   const [error, setError] = useState<string | null>(null);
   // Start/finish/cancel errors belong to one run and show on its card.
