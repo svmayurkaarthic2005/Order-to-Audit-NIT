@@ -31,6 +31,7 @@ async function onHand(cookie: string, sku: string) {
 describe("benchmark scenario (section 5), replayed on a fresh database", () => {
   let admin = "";
   let owner = "";
+  let salesmanB = "";
   let runId = "";
   let fgAfterRun = 0;
   let retailerInvoiceId = "";
@@ -40,7 +41,7 @@ describe("benchmark scenario (section 5), replayed on a fresh database", () => {
     admin = await login("admin@porulottam.test");
     owner = await login("owner@porulottam.test");
     const salesmanA = await login("salesman@porulottam.test");
-    const salesmanB = await login("salesman.b@porulottam.test");
+    salesmanB = await login("salesman.b@porulottam.test");
     const production = await login("production@porulottam.test");
     const flour = await itemId("RM-FLOUR");
     const oil = await itemId("RM-OIL");
@@ -167,8 +168,11 @@ describe("benchmark scenario (section 5), replayed on a fresh database", () => {
     expect(res.body.data.outstandingPaise).toBe(387_500);
   });
 
-  it("Distributor B is refused for a shortage of 32 packets; IGST would apply if invoiced", () => {
+  it("Distributor B is refused for a shortage of 32 packets; IGST would apply if invoiced", async () => {
     expect(distributorApproval.status).toBe(409);
+    // Salesman B hears about it, not just the approver's screen.
+    const bell = (await request(app).get("/notifications").set("Cookie", salesmanB)).body.data.items as { title: string; message: string }[];
+    expect(bell.some((n) => n.title.includes("Distributor B") && n.message.includes("32 short"))).toBe(true);
     expect(distributorApproval.body.error.code).toBe("insufficient_stock");
     expect(distributorApproval.body.error.details.shortfall).toBe(32);
     // Karnataka customer, Tamil Nadu factory: interstate, so IGST only.

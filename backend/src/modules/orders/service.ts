@@ -232,6 +232,20 @@ export async function approveOrder(id: string, actingUserId: string) {
     await syncAlertsForItems(result.items.map((i) => i.itemId));
     await notifyOrderUpdate(id, "salesman", `Order for ${result.customer.name} approved`, "The stock is set aside. It will be invoiced and sent next.", "approved");
     return result;
+  }).catch(async (err) => {
+    // A refused approval is a shortage the salesman and the owner should hear
+    // about, not just a message on the approver's screen (the brief's
+    // Distributor B case: 120 asked, 88 free, 32 short).
+    if (err instanceof AppError && err.code === "insufficient_stock") {
+      const order = await prisma.salesOrder.findUnique({ where: { id }, include: { customer: true } });
+      const shortfall = (err.details as { shortfall?: number } | undefined)?.shortfall;
+      if (order) {
+        const message = `Not enough packets in stock: ${shortfall} short. Make more, or edit the order down.`;
+        await notify({ recipientUserId: order.salesmanUserId, type: "ORDER_SHORTAGE", title: `Order for ${order.customer.name} can't be filled yet`, message, severity: "WARNING", sourceType: "SalesOrder", sourceId: id, dedupeKeySuffix: `:short:${shortfall}` });
+        await notify({ recipientRoles: ["OWNER", "ADMIN"], type: "ORDER_SHORTAGE", title: `Order for ${order.customer.name}: ${shortfall} packets short`, message, severity: "WARNING", sourceType: "SalesOrder", sourceId: id, dedupeKeySuffix: `:short:${shortfall}` });
+      }
+    }
+    throw err;
   });
 }
 
