@@ -11,15 +11,23 @@ type Bom = {
   expectedYieldQty: number;
   finishedItem: { name: string; sku: string };
   lines: { rawItemId: string; qtyPerBatch: number; rawItem: { sku: string; name: string; type: string; baseUnit: string } }[];
-  packSizes: { id: string; label: string; finishedItem: { name: string; sku: string } }[];
+  packSizes: {
+    id: string;
+    label: string;
+    expectedOutputQty: number;
+    finishedItem: { name: string; sku: string };
+    packagingLines: { itemId: string; qtyPerBatch: number; item: { name: string; sku: string; baseUnit: string } }[];
+  }[];
 };
-type RunMaterial = { itemId: string; plannedQtyBase: number; actualQtyBase: number | null; item: { sku: string; name: string; baseUnit: string } };
+type RunMaterial = { itemId: string; plannedQtyBase: number; actualQtyBase: number | null; item: { sku: string; name: string; type: string; baseUnit: string } };
 type Run = {
   id: string;
   status: "DRAFT" | "STARTED" | "COMPLETED" | "CANCELLED";
   batchSize: number;
   actualOutputQty: number | null;
+  expectedOutputQty: number | null;
   damagedQty: number | null;
+  packSize: { id: string; label: string; finishedItem: { name: string; sku: string } } | null;
   // The recipe version this run was planned with (it may since have been edited).
   bomHeader: Omit<Bom, "packSizes"> & { active: boolean };
   materials: RunMaterial[];
@@ -67,7 +75,6 @@ export default function ProductionRuns() {
 
   const [completingRunId, setCompletingRunId] = useState<string | null>(null);
   const [actualOutputQty, setActualOutputQty] = useState("");
-  const [packSizeId, setPackSizeId] = useState("");
   const [packaging, setPackaging] = useState<PackagingLine[]>([]);
   const [laborCostPaise, setLaborCostPaise] = useState("");
   const [overheadCostPaise, setOverheadCostPaise] = useState("");
@@ -101,26 +108,45 @@ export default function ProductionRuns() {
   const inStock = (itemId: string) => stock?.find((s) => s.itemId === itemId)?.availableQtyBase ?? 0;
 
   const selectedBom = boms?.find((b) => b.id === bomId);
+  const selectedPackSize = selectedBom?.packSizes.find((p) => p.id === packSizeId)
+    ?? selectedBom?.packSizes.find((p) => p.finishedItem.sku === selectedBom.finishedItem.sku)
+    ?? selectedBom?.packSizes[0];
   const plannedBatches = Math.max(1, Number(batchSize) || 1);
-  // How many batches today's stock covers: the scarcest ingredient decides.
-  const maxBatches = selectedBom
-    ? Math.min(...selectedBom.lines.filter((l) => l.qtyPerBatch > 0).map((l) => Math.floor(inStock(l.rawItemId) / l.qtyPerBatch)))
+  // A run needs the shared raw materials plus only the packaging for its pack size.
+  // Recipes without configured pack sizes retain their original BOM packaging.
+  const planningLines = selectedBom
+    ? [
+        ...selectedBom.lines.filter((line) => line.rawItem.type === "RAW_MATERIAL"),
+        ...(selectedPackSize
+          ? selectedPackSize.packagingLines.map((line) => ({
+              rawItemId: line.itemId,
+              qtyPerBatch: line.qtyPerBatch,
+              rawItem: { ...line.item, type: "PACKAGING" },
+            }))
+          : selectedBom.lines.filter((line) => line.rawItem.type === "PACKAGING")),
+      ]
+    : [];
+  // How many batches today's stock covers: the scarcest required input decides.
+  const maxBatches = planningLines.length > 0
+    ? Math.min(...planningLines.filter((line) => line.qtyPerBatch > 0).map((line) => Math.floor(inStock(line.rawItemId) / line.qtyPerBatch)))
     : null;
-  // Raw materials leave stock when a run starts; packaging only when it finishes.
-  const shortLines = stock && selectedBom ? selectedBom.lines.filter((l) => inStock(l.rawItemId) < l.qtyPerBatch * plannedBatches) : [];
-  const rawShort = shortLines.some((l) => l.rawItem.type === "RAW_MATERIAL");
-  const packShort = shortLines.some((l) => l.rawItem.type === "PACKAGING");
+  // Raw materials leave stock at start; the selected packaging is used at finish.
+  const shortLines = stock && selectedBom ? planningLines.filter((line) => inStock(line.rawItemId) < line.qtyPerBatch * plannedBatches) : [];
+  const rawShort = shortLines.some((line) => line.rawItem.type === "RAW_MATERIAL");
+  const packShort = shortLines.some((line) => line.rawItem.type === "PACKAGING");
   const startingRun = runs?.find((r) => r.id === startingRunId);
   const completingRun = runs?.find((r) => r.id === completingRunId);
-  const completingBom = boms?.find((b) => b.familyId === completingRun?.bomHeader.familyId);
-  // Pack sizes that put the output into a different product than the recipe's own.
-  const otherPacks = completingBom?.packSizes.filter((p) => p.finishedItem.sku !== completingBom.finishedItem.sku) ?? [];
 
   const createMutation = useMutation({
-    mutationFn: () => api.post("/production-runs", { bomHeaderId: bomId, batchSize: Number(batchSize) }),
+    mutationFn: () => api.post("/production-runs", {
+      bomHeaderId: bomId,
+      batchSize: Number(batchSize),
+      ...(selectedPackSize ? { packSizeId: selectedPackSize.id } : {}),
+    }),
     onSuccess: () => {
       setError(null);
       setBomId("");
+      setPackSizeId("");
       setBatchSize("1");
       queryClient.invalidateQueries({ queryKey: ["production-runs"] });
     },
@@ -147,7 +173,6 @@ export default function ProductionRuns() {
         `/production-runs/${runId}/complete`,
         {
           actualOutputQty: Number(actualOutputQty),
-          ...(packSizeId ? { packSizeId } : {}),
           packagingConsumed: packaging.map((p) => ({
             itemId: p.itemId,
             qtyBase: toBase(p.quantity, p.baseUnit),
@@ -162,7 +187,6 @@ export default function ProductionRuns() {
       setRunError(null);
       setCompletingRunId(null);
       setActualOutputQty("");
-      setPackSizeId("");
       setPackaging([]);
       setLaborCostPaise("");
       setOverheadCostPaise("");
@@ -203,15 +227,14 @@ export default function ProductionRuns() {
   function openCompleteForm(run: Run) {
     setCompletingRunId(run.id);
     setStartingRunId(null);
-    setPackSizeId("");
-    const packagingLines = run.bomHeader.lines.filter((l) => l.rawItem.type === "PACKAGING");
-    setActualOutputQty(String(run.bomHeader.expectedYieldQty * run.batchSize));
+    const packagingLines = run.materials.filter((material) => material.item.type === "PACKAGING");
+    setActualOutputQty(String((run.expectedOutputQty ?? run.bomHeader.expectedYieldQty) * run.batchSize));
     setPackaging(
-      packagingLines.map((l) => ({
-        itemId: l.rawItemId,
-        name: l.rawItem.name,
-        baseUnit: l.rawItem.baseUnit,
-        quantity: fromBase(l.qtyPerBatch * run.batchSize, l.rawItem.baseUnit),
+      packagingLines.map((material) => ({
+        itemId: material.itemId,
+        name: material.item.name,
+        baseUnit: material.item.baseUnit,
+        quantity: fromBase(material.plannedQtyBase, material.item.baseUnit),
         damagedQty: "0",
       })),
     );
@@ -234,19 +257,43 @@ export default function ProductionRuns() {
             className="p-5"
           >
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-12">
-              <div className="sm:col-span-8">
+              <div className={selectedBom?.packSizes.length ? "sm:col-span-6" : "sm:col-span-8"}>
                 <Field label="What are you making?" required>
-                  <Select value={bomId} required onChange={(e) => setBomId(e.target.value)} className="w-full">
+                  <Select
+                    value={bomId}
+                    required
+                    onChange={(e) => {
+                      const next = boms?.find((b) => b.id === e.target.value);
+                      setBomId(e.target.value);
+                      setPackSizeId(
+                        next?.packSizes.find((p) => p.finishedItem.sku === next.finishedItem.sku)?.id
+                          ?? next?.packSizes[0]?.id
+                          ?? "",
+                      );
+                    }}
+                    className="w-full"
+                  >
                     <option value="">Choose a product</option>
                     {boms?.map((b) => (
-                      <option key={b.id} value={b.id}>
-                        {b.finishedItem.name} ({b.expectedYieldQty} packets per batch)
-                      </option>
+                      <option key={b.id} value={b.id}>{b.finishedItem.name}</option>
                     ))}
                   </Select>
                 </Field>
               </div>
-              <div className="sm:col-span-4">
+              {selectedBom && selectedBom.packSizes.length > 0 && (
+                <div className="sm:col-span-3">
+                  <Field label="Pack size" required>
+                    <Select value={selectedPackSize?.id ?? ""} required onChange={(e) => setPackSizeId(e.target.value)} className="w-full">
+                      {selectedBom.packSizes.map((pack) => (
+                        <option key={pack.id} value={pack.id}>
+                          {pack.finishedItem.name} · {pack.label} ({pack.expectedOutputQty}/batch)
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                </div>
+              )}
+              <div className={selectedBom?.packSizes.length ? "sm:col-span-3" : "sm:col-span-4"}>
                 <Field label="Number of batches" required>
                   <Input type="number" required min="1" value={batchSize} onChange={(e) => setBatchSize(e.target.value)} className="w-full" />
                 </Field>
@@ -257,7 +304,7 @@ export default function ProductionRuns() {
               <p className="text-xs text-muted-foreground">
                 {selectedBom ? (
                   <>
-                    You should get about <span className="tabular font-semibold text-foreground">{selectedBom.expectedYieldQty * plannedBatches}</span> packets
+                    You should get about <span className="tabular font-semibold text-foreground">{(selectedPackSize?.expectedOutputQty ?? selectedBom.expectedYieldQty) * plannedBatches}</span> {selectedPackSize?.finishedItem.name ?? "packets"}
                     {maxBatches !== null && stock && (
                       <> · stock today covers {maxBatches} {maxBatches === 1 ? "batch" : "batches"}</>
                     )}
@@ -280,7 +327,7 @@ export default function ProductionRuns() {
                   </tr>
                 </thead>
                 <tbody>
-                  {selectedBom.lines.map((l) => {
+                  {planningLines.map((l) => {
                     const need = l.qtyPerBatch * plannedBatches;
                     const have = inStock(l.rawItemId);
                     const short = stock !== undefined && have < need;
@@ -325,8 +372,9 @@ export default function ProductionRuns() {
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <p className="font-medium text-foreground">
-                      {run.bomHeader.finishedItem.name}
+                      {run.packSize?.finishedItem.name ?? run.bomHeader.finishedItem.name}
                     </p>
+                    {run.packSize && <p className="text-xs text-muted-foreground">{run.packSize.label} pack</p>}
                     <p className="text-xs text-muted-foreground">
                       {run.batchSize} {run.batchSize === 1 ? "batch" : "batches"}, recipe version {run.bomHeader.version}
                     </p>
@@ -544,18 +592,9 @@ export default function ProductionRuns() {
                     }}
                     className="mt-3 flex flex-col gap-2 rounded-md border border-border p-3"
                   >
-                    {completingBom && otherPacks.length > 0 && (
-                      <Field label="Packed as">
-                        <Select value={packSizeId} onChange={(e) => setPackSizeId(e.target.value)}>
-                          <option value="">{completingBom.finishedItem.name}</option>
-                          {otherPacks.map((p) => (
-                            <option key={p.id} value={p.id}>
-                              {p.finishedItem.name} ({p.label})
-                            </option>
-                          ))}
-                        </Select>
-                      </Field>
-                    )}
+                    <p className="text-sm text-muted-foreground">
+                      Packing as {run.packSize?.finishedItem.name ?? run.bomHeader.finishedItem.name}
+                    </p>
                     <Field label="Good packets made" required>
                       <Input type="number" required value={actualOutputQty} onChange={(e) => setActualOutputQty(e.target.value)} />
                     </Field>
