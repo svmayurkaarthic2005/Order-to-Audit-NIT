@@ -179,9 +179,24 @@ export function AppShell({ children }: { children: ReactNode }) {
     .toUpperCase()
     .slice(0, 2);
 
+  // A role with one section (the salesman: Orders) has nowhere else to go, so
+  // no side bar or menu button: the brand sits in the top bar. The user's name
+  // and Sign out live only in the top bar, for every role.
+  const singleSection = sectionsFor(user.role).length === 1;
+  const homePath = user.role === "SALESMAN" ? "/salesman/orders" : user.role === "PRODUCTION" ? "/production/runs" : "/admin/dashboard";
+  const signOutButton = (
+    <button
+      onClick={() => logout()}
+      className="flex min-h-[36px] items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-muted-foreground ring-1 ring-border transition-colors hover:bg-secondary hover:text-foreground"
+    >
+      Sign out
+    </button>
+  );
+
   return (
     <div className="flex min-h-screen flex-col md:h-screen md:flex-row md:overflow-hidden bg-background">
       {/* ── Desktop sidebar ────────────────────────────────────────────── */}
+      {!singleSection && (
       <aside
         className="hidden md:flex md:w-60 md:h-screen md:shrink-0 md:flex-col"
         style={{ background: "#1e1b4b" }}
@@ -222,40 +237,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           <NavLinks role={user.role} />
         </div>
 
-        {/* User footer */}
-        <div className="shrink-0 border-t border-white/10 px-4 py-3.5 bg-black/10">
-          <div className="flex items-center gap-3">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-indigo-400/30 text-xs font-bold text-white ring-1 ring-white/15">
-              {initials}
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold text-white leading-tight">
-                {user.name}
-              </p>
-              <p className="text-xs text-white/45 leading-tight">{ROLE_LABEL[user.role]}</p>
-            </div>
-          </div>
-          <button
-            onClick={() => logout()}
-            className="mt-2.5 flex w-full items-center gap-1.5 text-xs text-white/50 transition-colors hover:text-white"
-          >
-            <svg
-              width="13"
-              height="13"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" />
-            </svg>
-            Sign out
-          </button>
-        </div>
       </aside>
+      )}
 
       {/* ── Mobile header ──────────────────────────────────────────────── */}
       <div className="md:hidden">
@@ -290,6 +273,14 @@ export function AppShell({ children }: { children: ReactNode }) {
           {/* Hamburger / Close — 44 px min touch target */}
           <div className="flex items-center gap-1">
             <NotificationBell />
+            {singleSection ? (
+              <button
+                onClick={() => logout()}
+                className="flex min-h-[44px] items-center rounded-lg px-3 text-xs font-medium text-white/80 ring-1 ring-white/20 transition-colors hover:bg-white/10 hover:text-white"
+              >
+                Sign out
+              </button>
+            ) : (
             <button
               onClick={() => setMobileNavOpen((v) => !v)}
               className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg text-white/70 transition-colors hover:bg-white/10 hover:text-white active:bg-white/15"
@@ -327,6 +318,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               </svg>
             )}
           </button>
+            )}
           </div>
         </header>
 
@@ -389,7 +381,18 @@ export function AppShell({ children }: { children: ReactNode }) {
       <main className="flex-1 min-w-0 md:h-screen flex flex-col md:overflow-hidden">
         <header className="shrink-0 border-b border-border bg-white">
           <div className="hidden items-center justify-between px-8 py-3 md:flex">
-            <p className="text-base font-semibold text-foreground">{findActive(user.role, pathname)?.section.label ?? ""}</p>
+            {singleSection ? (
+              <Link to={homePath} className="flex items-center gap-2.5" title="Porulottam ERP">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg text-white" style={{ background: "#1e1b4b" }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                  </svg>
+                </div>
+                <span className="text-base font-bold text-foreground">Porulottam ERP</span>
+              </Link>
+            ) : (
+              <p className="text-base font-semibold text-foreground">{findActive(user.role, pathname)?.section.label ?? ""}</p>
+            )}
             <div className="flex items-center gap-3">
               <NotificationBell />
               <div className="flex h-8 w-8 items-center justify-center rounded-full bg-secondary text-xs font-semibold text-foreground">
@@ -399,6 +402,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 <p className="text-sm font-medium leading-tight text-foreground">{user.name}</p>
                 <p className="text-xs leading-tight text-muted-foreground">{ROLE_LABEL[user.role]}</p>
               </div>
+              {signOutButton}
             </div>
           </div>
           <SectionTabs role={user.role} />
