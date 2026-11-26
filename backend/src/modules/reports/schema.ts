@@ -24,4 +24,5 @@ export const salesTrendQuerySchema = reportQuerySchema
 
 export const stockSummaryQuerySchema = z.object({
   type: z.enum(["RAW_MATERIAL", "PACKAGING", "FINISHED_GOOD"]).optional(),
+  format: z.enum(["json", "csv", "pdf"]).default("json"),
 });

@@ -117,8 +117,11 @@ describe("benchmark scenario (section 5), replayed on a fresh database", () => {
     expect((await request(app).post("/payments").set("Cookie", admin).send({ invoiceId: retailerInvoiceId, amountPaise: 400_000 })).status).toBe(201);
   });
 
-  it("flour closing balance is 120 kg (100 + 60 - 40)", async () => {
+  it("flour closing balance is 120 kg (100 + 60 - 40), and the purchase register shows the ₹2,700 paid", async () => {
     expect(await onHand(admin, "RM-FLOUR")).toBe(120_000);
+    // ₹45/kg is 4.5 paise a gram: the register must use the exact amount, not qty x rounded rate.
+    const res = await request(app).get("/reports/purchase-register").set("Cookie", admin);
+    expect(res.body.data.map((p: { totalPaise: number }) => p.totalPaise)).toEqual([270_000]);
   });
 
   it("oil closing balance is 19.5 L", async () => {
@@ -185,12 +188,17 @@ describe("benchmark scenario (section 5), replayed on a fresh database", () => {
     expect(res.status).toBe(200);
     expect(res.body.data.invoiceCount).toBe(1);
     expect(res.body.data.totals).toMatchObject({ taxableValuePaise: 750_000, cgstPaise: 18_750, sgstPaise: 18_750, igstPaise: 0, totalPaise: 787_500 });
+    // Invoice-wise, shaped for GSTR-1: Retailer A has a GSTIN, so B2B, supplied in Tamil Nadu.
+    expect(res.body.data.invoices).toEqual([
+      expect.objectContaining({ customer: "Retailer A", supplyType: "B2B", placeOfSupply: "Tamil Nadu", taxRatePct: "5", taxableValuePaise: 750_000, cgstPaise: 18_750, sgstPaise: 18_750, igstPaise: 0 }),
+    ]);
   });
 
   it("sales register: Retailer A, 150 packets, ₹7,500 taxable", async () => {
     const res = await request(app).get("/reports/sales-register").set("Cookie", admin);
     const retailerA = res.body.data.customerWise.find((c: { customerName: string }) => c.customerName === "Retailer A");
     expect(retailerA).toMatchObject({ qtyBase: 150, taxableValuePaise: 750_000 });
+    expect(res.body.data.productWise).toEqual([expect.objectContaining({ qtyBase: 150, taxableValuePaise: 750_000 })]);
   });
 
   it("stock ledger for Murukku: 50 opening + 188 made - 150 dispatched (opening packets go out first)", async () => {
@@ -210,11 +218,22 @@ describe("benchmark scenario (section 5), replayed on a fresh database", () => {
     const res = await request(app).get("/reports/production").set("Cookie", admin);
     const row = res.body.data.find((r: { finishedGoodSku: string }) => r.finishedGoodSku === "FG-MURUKKU-200G");
     expect(row.yieldVariancePct).toBeCloseTo(-0.06, 10);
+
+    // The export carries the same figures: one row per material, yield -6.0%, 6 damaged, oil +5.0%.
+    const csv = (await request(app).get("/reports/production?format=csv").set("Cookie", admin)).text.split("\n");
+    expect(csv[0]).toBe("run,product,status,batches,expectedPackets,goodPackets,yieldVariance %,damagedPackaging,material,planned,actual,usageVariance %");
+    const oilRow = csv.find((l) => l.includes("RM-OIL"));
+    expect(oilRow).toMatch(/,COMPLETED,1,200,188,-6\.0,6,RM-OIL,10 L,10\.5 L,5\.0$/);
   });
 
   it("payments & collections: Retailer A owes ₹3,875, all within 30 days", async () => {
     const res = await request(app).get("/reports/payments-collections").set("Cookie", admin);
     const retailerA = res.body.data.find((r: { customerName: string }) => r.customerName === "Retailer A");
     expect(retailerA).toMatchObject({ outstandingPaise: 387_500, "0-30": 387_500 });
+
+    // Exported in rupees, ageing columns included.
+    const csv = (await request(app).get("/reports/payments-collections?format=csv").set("Cookie", admin)).text.split("\n");
+    expect(csv[0]).toBe("customer,outstanding (Rs),0-30 days (Rs),31-60 days (Rs),61-90 days (Rs),over 90 days (Rs)");
+    expect(csv).toContain("Retailer A,3875.00,3875.00,0.00,0.00,0.00");
   });
 });

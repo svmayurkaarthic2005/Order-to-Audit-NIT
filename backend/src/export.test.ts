@@ -24,8 +24,9 @@ describe("toCsv", () => {
     expect(lines[4]).toBe("'\tindented");
   });
 
-  it("leaves ordinary values untouched", () => {
+  it("leaves ordinary values untouched, negative numbers included", () => {
     expect(toCsv([{ sku: "RM-FLOUR", qty: 100 }])).toBe("sku,qty\nRM-FLOUR,100");
+    expect(toCsv([{ variance: "-6.0" }, { variance: -12 }])).toBe("variance\n-6.0\n-12");
   });
 
   it("returns an empty string for no rows", () => {

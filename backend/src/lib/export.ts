@@ -1,5 +1,27 @@
 import PDFDocument from "pdfkit";
 
+// Turns report rows into what an accountant reads: amounts in rupees (not
+// paise), percentages as percentages, dates as dates, and no internal ids.
+export function forExport(rows: Record<string, unknown>[]): Record<string, unknown>[] {
+  return rows.map((row) => {
+    const out: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(row)) {
+      if (key === "id" || key.endsWith("Id")) continue;
+      if (key.endsWith("Paise")) {
+        out[`${key.slice(0, -5)} (Rs)`] = typeof value === "number" ? (value / 100).toFixed(2) : value;
+      } else if (key.endsWith("Pct") && key !== "taxRatePct") {
+        // Renamed even when blank, so every row has the same columns.
+        out[`${key.slice(0, -3)} %`] = typeof value === "number" ? (value * 100).toFixed(1) : value;
+      } else if (value instanceof Date) {
+        out[key] = value.toISOString().slice(0, 10);
+      } else {
+        out[key] = value;
+      }
+    }
+    return out;
+  });
+}
+
 // A well-formed CSV opens correctly in Excel, so this one format covers
 // both "Excel" and "CSV" from the spec without a binary .xlsx dependency.
 export function toCsv(rows: Record<string, unknown>[]): string {
@@ -14,7 +36,8 @@ export function toCsv(rows: Record<string, unknown>[]): string {
     // this data (supplier, customer, item) are user-entered, so prefix a
     // literal quote to force text interpretation, per CSV-injection
     // mitigation guidance (OWASP).
-    if (/^[=+\-@\t\r]/.test(s)) {
+    // A plain number (like -6.0) can't be a formula; leave it a number.
+    if (/^[=+\-@\t\r]/.test(s) && !/^-?\d+(\.\d+)?$/.test(s)) {
       s = `'${s}`;
     }
     return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;

@@ -144,7 +144,11 @@ prices never change an earlier run's cost.
 - Production runs that move raw-material, packaging and finished-goods stock automatically
 - Planned against actual consumption and yield, with variance shown and flagged beyond ±3%
 - Stock summary and per-item stock ledger
-- Sales register and stock report, exported to CSV (opens in Excel) and PDF
+- All six section 4.6 reports (sales register by customer and by product, GST summary,
+  purchase register, stock summary and ledger, production, payments with ageing), each
+  filterable by date and exported to CSV (opens in Excel) and PDF, amounts in rupees. The GST
+  summary lists every invoice as B2B or B2C with place of supply, for GSTR-1, and its
+  CGST/SGST/IGST totals are the GSTR-3B 3.1(a) figures
 
 **Should have:** all done.
 

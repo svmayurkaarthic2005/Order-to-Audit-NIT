@@ -1,5 +1,6 @@
 import { AppError } from "../../lib/AppError.js";
 import { prisma } from "../../lib/prisma.js";
+import { formatQty } from "../../lib/units.js";
 import { financialYearFor } from "../invoices/service.js";
 import { getProductionRunCostBreakdown } from "../production/costing.js";
 import { getProductionRunVariance } from "../production/variance.js";
@@ -120,7 +121,8 @@ export async function salesTrend(granularity: "monthly" | "yearly", from?: Date,
 export async function gstSummary(from?: Date, to?: Date) {
   const invoices = await prisma.invoice.findMany({
     where: { status: "ISSUED", createdAt: dateRange(from, to) },
-    include: { items: true },
+    include: { items: true, customer: true },
+    orderBy: [{ financialYear: "asc" }, { invoiceNumber: "asc" }],
   });
 
   const totals = invoices.reduce(
@@ -149,23 +151,49 @@ export async function gstSummary(from?: Date, to?: Date) {
       .sort((a, b) => a[0] - b[0])
       .map(([taxRatePct, taxableValuePaise]) => ({ taxRatePct, taxableValuePaise })),
     invoiceCount: invoices.length,
+    invoices: invoices.map((inv) => ({
+      invoiceNo: `${inv.financialYear}/${inv.invoiceNumber}`,
+      date: inv.createdAt,
+      customer: inv.customer.name,
+      customerGstin: inv.customer.gstin ?? "",
+      // B2B when the buyer has a GSTIN (GSTR-1 table 4), otherwise B2C (table 7).
+      supplyType: inv.customer.gstin ? "B2B" : "B2C",
+      placeOfSupply: inv.customer.state,
+      taxRatePct: [...new Set(inv.items.map((i) => i.taxRatePct))].join("/"),
+      taxableValuePaise: inv.taxableValuePaise,
+      cgstPaise: inv.cgstPaise,
+      sgstPaise: inv.sgstPaise,
+      igstPaise: inv.igstPaise,
+      totalPaise: inv.totalPaise,
+    })),
   };
 }
 
 // (3) Purchase register.
 export async function purchaseRegister(from?: Date, to?: Date) {
   const purchases = await prisma.purchase.findMany({
-    where: { createdAt: dateRange(from, to) },
+    where: { purchaseDate: dateRange(from, to) },
     include: { supplier: true, items: { include: { item: true } } },
     orderBy: { purchaseDate: "desc" },
   });
+  // The exact amount paid is on the stock receipt. qty x rate-per-gram is
+  // not: Rs 45/kg is 4.5 paise a gram, stored rounded, so 60 kg would show
+  // Rs 3,000 instead of Rs 2,700.
+  const receipts = await prisma.stockMovement.groupBy({
+    by: ["sourceId"],
+    where: { source: "PURCHASE", sourceId: { in: purchases.map((p) => p.id) } },
+    _sum: { totalCostPaise: true },
+  });
+  const totalOf = new Map(receipts.map((r) => [r.sourceId, r._sum.totalCostPaise ?? 0]));
 
   return purchases.map((p) => ({
     purchaseId: p.id,
     supplierName: p.supplier.name,
+    supplierGstin: p.supplier.gstin ?? "",
     purchaseDate: p.purchaseDate,
     cancelled: p.cancelledAt !== null,
-    totalPaise: p.items.reduce((sum, i) => sum + i.qtyBase * i.rateBasePaise, 0),
+    items: p.items.map((i) => `${i.item.name} ${formatQty(i.qtyBase, i.item.baseUnit)}`).join("; "),
+    totalPaise: totalOf.get(p.id) ?? 0,
     lineCount: p.items.length,
   }));
 }
@@ -239,6 +267,8 @@ export async function productionReport(from?: Date, to?: Date) {
           sku: m.item.sku,
           plannedQtyBase: m.plannedQtyBase,
           actualQtyBase: m.actualQtyBase,
+          planned: formatQty(m.plannedQtyBase, m.item.baseUnit),
+          actual: formatQty(m.actualQtyBase as number, m.item.baseUnit),
           variancePct: m.plannedQtyBase > 0 ? ((m.actualQtyBase as number) - m.plannedQtyBase) / m.plannedQtyBase : null,
         })),
     };

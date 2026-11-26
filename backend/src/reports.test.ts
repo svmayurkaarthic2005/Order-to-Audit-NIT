@@ -81,15 +81,25 @@ describe("reports", () => {
     expect(res.body.data.productWise).toEqual([]);
   });
 
-  it("CSV and PDF export formats are returned with the right content type", async () => {
+  it("every section 4.6 report exports to CSV and PDF, with amounts in rupees", async () => {
     const cookie = await loginAs("admin@porulottam.test");
-    const csvRes = await request(app).get("/reports/purchase-register?format=csv").set("Cookie", cookie);
-    expect(csvRes.status).toBe(200);
-    expect(csvRes.headers["content-type"]).toContain("text/csv");
+    const reports = ["sales-register", "gst-summary", "purchase-register", "stock-summary", "production", "payments-collections"];
+    for (const report of reports) {
+      const csvRes = await request(app).get(`/reports/${report}?format=csv`).set("Cookie", cookie);
+      expect(csvRes.status, report).toBe(200);
+      expect(csvRes.headers["content-type"]).toContain("text/csv");
+      // Columns are in rupees, never raw paise or internal ids.
+      const header = csvRes.text.split("\n")[0] ?? "";
+      expect(header, report).not.toMatch(/Paise|Id\b/);
 
-    const pdfRes = await request(app).get("/reports/purchase-register?format=pdf").set("Cookie", cookie);
-    expect(pdfRes.status).toBe(200);
-    expect(pdfRes.headers["content-type"]).toContain("application/pdf");
+      const pdfRes = await request(app).get(`/reports/${report}?format=pdf`).set("Cookie", cookie);
+      expect(pdfRes.status, report).toBe(200);
+      expect(pdfRes.headers["content-type"]).toContain("application/pdf");
+    }
+    // The stock ledger needs an item.
+    const item = await prisma.item.findFirstOrThrow({ where: { sku: "RM-FLOUR" } });
+    const ledgerRes = await request(app).get(`/reports/stock-ledger?itemId=${item.id}&format=csv`).set("Cookie", cookie);
+    expect(ledgerRes.headers["content-type"]).toContain("text/csv");
   });
 
   it("a salesman/production role cannot read any report; an accountant can", async () => {

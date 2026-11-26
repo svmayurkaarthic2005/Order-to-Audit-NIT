@@ -12,6 +12,20 @@ type SalesRegister = {
 type GstSummary = {
   totals: { taxableValuePaise: number; cgstPaise: number; sgstPaise: number; igstPaise: number; totalPaise: number };
   byRate: { taxRatePct: number; taxableValuePaise: number }[];
+  invoices: {
+    invoiceNo: string;
+    date: string;
+    customer: string;
+    customerGstin: string;
+    supplyType: "B2B" | "B2C";
+    placeOfSupply: string;
+    taxRatePct: string;
+    taxableValuePaise: number;
+    cgstPaise: number;
+    sgstPaise: number;
+    igstPaise: number;
+    totalPaise: number;
+  }[];
   invoiceCount: number;
 };
 type PurchaseRow = { purchaseId: string; supplierName: string; purchaseDate: string; cancelled: boolean; totalPaise: number; lineCount: number };
@@ -136,9 +150,9 @@ export default function Reports() {
     "Sales Register": "sales-register",
     "GST Summary": "gst-summary",
     "Purchase Register": "purchase-register",
-    "Stock Summary": null,
+    "Stock Summary": "stock-summary",
     "Production": "production",
-    "Payments & Collections": null,
+    "Payments & Collections": "payments-collections",
   };
   const exportPath = endpointForExport[tab];
   const isLoading = {
@@ -274,6 +288,26 @@ export default function Reports() {
                     Total: {money(salesRegister.data.customerWise.reduce((sum, c) => sum + c.totalPaise, 0))}
                   </span>
                 </div>
+
+                <h3 className="mb-2 mt-6 text-sm font-semibold text-foreground">By product</h3>
+                <Table>
+                  <THead>
+                    <tr>
+                      <Th>Product</Th>
+                      <Th numeric>Qty</Th>
+                      <Th numeric>Taxable value</Th>
+                    </tr>
+                  </THead>
+                  <tbody>
+                    {salesRegister.data.productWise.map((p) => (
+                      <tr key={p.itemId} className="hover:bg-secondary/30">
+                        <Td className="font-medium text-foreground">{p.description}</Td>
+                        <Td numeric>{p.qtyBase.toLocaleString("en-IN")}</Td>
+                        <Td numeric>{money(p.taxableValuePaise)}</Td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </Table>
               </>
             )
           )}
@@ -314,6 +348,49 @@ export default function Reports() {
                   ))}
                 </tbody>
               </Table>
+
+              <div>
+                <h3 className="mb-1 text-sm font-semibold text-foreground">Invoice by invoice</h3>
+                <p className="mb-2 text-xs text-muted-foreground">
+                  Laid out for filing: B2B rows go in GSTR-1 table 4, B2C rows in table 7, and the tax columns add up to GSTR-3B 3.1(a).
+                </p>
+                <Table>
+                  <THead>
+                    <tr>
+                      <Th>Invoice</Th>
+                      <Th>Customer</Th>
+                      <Th>Type</Th>
+                      <Th>Place of supply</Th>
+                      <Th numeric>Taxable</Th>
+                      <Th numeric>CGST</Th>
+                      <Th numeric>SGST</Th>
+                      <Th numeric>IGST</Th>
+                      <Th numeric>Total</Th>
+                    </tr>
+                  </THead>
+                  <tbody>
+                    {gstSummary.data.invoices.map((inv) => (
+                      <tr key={inv.invoiceNo} className="hover:bg-secondary/30">
+                        <Td className="whitespace-nowrap">
+                          <span className="block font-medium text-foreground">{inv.invoiceNo}</span>
+                          <span className="text-xs text-muted-foreground">{new Date(inv.date).toLocaleDateString("en-IN")}</span>
+                        </Td>
+                        <Td>
+                          <span className="block text-foreground">{inv.customer}</span>
+                          {inv.customerGstin && <span className="text-xs text-muted-foreground">{inv.customerGstin}</span>}
+                        </Td>
+                        <Td>{inv.supplyType}</Td>
+                        <Td>{inv.placeOfSupply}</Td>
+                        <Td numeric>{money(inv.taxableValuePaise)}</Td>
+                        <Td numeric>{money(inv.cgstPaise)}</Td>
+                        <Td numeric>{money(inv.sgstPaise)}</Td>
+                        <Td numeric>{money(inv.igstPaise)}</Td>
+                        <Td numeric className="font-semibold text-foreground">{money(inv.totalPaise)}</Td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </Table>
+              </div>
             </div>
           )}
 
