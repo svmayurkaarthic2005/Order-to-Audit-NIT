@@ -47,6 +47,9 @@ describe("BOM management", () => {
 
     expect(bom.packSizes).toHaveLength(1);
     expect(bom.packSizes[0].label).toBe("200g");
+    expect(bom.packSizes[0].expectedOutputQty).toBe(200);
+    expect(bom.packSizes[0].packagingLines.map((line: { item: { sku: string }; qtyPerBatch: number }) => [line.item.sku, line.qtyPerBatch]))
+      .toEqual([["PKG-POUCH-200G", 200], ["PKG-CARTON-20", 10]]);
   });
 
   it("creates a BOM with its lines inside one transaction", async () => {
@@ -112,6 +115,7 @@ describe("BOM management", () => {
     const cookie = await loginAs("admin@porulottam.test");
     const finishedId = await makeTestItem(cookie, "FINISHED_GOOD");
     const rawId = await makeTestItem(cookie, "RAW_MATERIAL");
+    const packagingId = await makeTestItem(cookie, "PACKAGING");
     const bomRes = await request(app)
       .post("/boms")
       .set("Cookie", cookie)
@@ -120,9 +124,17 @@ describe("BOM management", () => {
     const res = await request(app)
       .post("/pack-sizes")
       .set("Cookie", cookie)
-      .send({ finishedItemId: finishedId, baseBomId: bomRes.body.data.id, multiplier: 2, label: "test-500g" });
+      .send({
+        finishedItemId: finishedId,
+        baseBomId: bomRes.body.data.id,
+        expectedOutputQty: 40,
+        label: "test-500g",
+        packagingLines: [{ itemId: packagingId, qtyPerBatch: 40 }],
+      });
     expect(res.status).toBe(201);
-    expect(res.body.data.multiplier).toBe(2);
+    expect(res.body.data.expectedOutputQty).toBe(40);
+    expect(res.body.data.packagingLines).toHaveLength(1);
+    expect(res.body.data.packagingLines[0].itemId).toBe(packagingId);
   });
 
   it("rejects a pack size with no base BOM, with a clear error", async () => {
@@ -132,7 +144,7 @@ describe("BOM management", () => {
     const res = await request(app)
       .post("/pack-sizes")
       .set("Cookie", cookie)
-      .send({ finishedItemId: finishedId, baseBomId: "00000000-0000-0000-0000-000000000000", multiplier: 1, label: "test-nope" });
+      .send({ finishedItemId: finishedId, baseBomId: "00000000-0000-0000-0000-000000000000", expectedOutputQty: 100, label: "test-nope", packagingLines: [] });
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe("invalid_base_bom");
   });
