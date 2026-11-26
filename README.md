@@ -5,7 +5,7 @@ production, raw-material and finished-goods stock, GST billing, dispatch, paymen
 audit reporting, in one role-based application. Built for the NIT Tiruchirappalli internship
 shortlisting task.
 
-- **Live demo:** https://porulottam-erp.vercel.app (test logins [below](#test-logins-password-password123-for-all))
+- **Live demo:** https://porulottam-erp-bay.vercel.app (test logins [below](#test-logins-password-password123-for-all))
 - **Run it locally:** five commands, below
 - **Re-run the benchmark yourself:** `cd backend && npm run benchmark` (builds a brand-new database
   and replays section 5 end to end; details [below](#the-benchmark-section-5))
@@ -248,7 +248,7 @@ CI runs all of it, plus the benchmark, on a fresh database on every push.
 
 ## Deployment
 
-**Live at https://porulottam-erp.vercel.app**, on **Vercel** (frontend and API, Mumbai region)
+**Live at https://porulottam-erp-bay.vercel.app**, on **Vercel** (frontend and API, Mumbai region)
 with **Supabase** (Postgres and private PDF storage, Mumbai). The hosted database holds only the
 seed, so you can run the section 5 scenario on it from the start.
 
