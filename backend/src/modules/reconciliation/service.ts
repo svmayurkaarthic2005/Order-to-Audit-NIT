@@ -105,12 +105,17 @@ export async function checkProductionVariance(runId: string): Promise<CheckResul
 export async function checkPackagingReconciliation(runId: string): Promise<CheckResult | null> {
   const run = await prisma.productionRun.findUnique({
     where: { id: runId },
-    include: { materials: { include: { item: true } }, bomHeader: true },
+    include: {
+      materials: { include: { item: true } },
+      bomHeader: true,
+      packSize: true,
+    },
   });
   if (!run || run.status !== "COMPLETED") return null;
 
+  const finishedItemId = run.packSize?.finishedItemId ?? run.bomHeader.finishedItemId;
   const cartonConversion = await prisma.unitConversion.findFirst({
-    where: { itemId: run.bomHeader.finishedItemId, label: { contains: "carton", mode: "insensitive" } },
+    where: { itemId: finishedItemId, label: { contains: "carton", mode: "insensitive" } },
   });
   if (!cartonConversion) return null;
 
