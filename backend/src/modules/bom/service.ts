@@ -142,9 +142,8 @@ export async function listBomVersions(id: string) {
   });
 }
 
-// A pack size can never be created without a base BOM — it is just that
-// BOM's output scaled by an integer multiplier (e.g. 500 g = 2x the 250 g
-// base BOM), never an independent recipe.
+// A pack size shares the recipe's raw-material lines, but defines its own
+// expected good packets per batch and the packaging that format consumes.
 export async function createPackSize(
   data: {
     finishedItemId: string;
