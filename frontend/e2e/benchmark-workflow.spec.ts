@@ -85,6 +85,7 @@ test("2. Salesman A orders 150 for Retailer A; admin approves, invoices (CGST+SG
   await expect(admin.getByText("No orders are waiting for approval.")).toBeVisible();
   await admin.getByRole("button", { name: "To invoice" }).click();
   await admin.getByRole("button", { name: "Create invoice" }).first().click();
+  await expect(admin.getByText("Every approved order has an invoice.")).toBeVisible();
 
   await admin.goto("/admin/invoices");
   await expect(admin.getByText("₹7,875.00").first()).toBeVisible();
