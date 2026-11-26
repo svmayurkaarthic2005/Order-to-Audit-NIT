@@ -19,7 +19,7 @@ shortlisting task.
 | Database | PostgreSQL (Docker locally; Supabase when hosted) |
 | Auth | JWT in an httpOnly cookie, bcrypt, role checks on every route |
 | Invoices | PDFKit; stored in Supabase Storage (private bucket) or local disk |
-| Tests | Vitest + Supertest against a real Postgres: 171 tests, plus the benchmark replay |
+| Tests | Vitest + Supertest against a real Postgres: 177 tests, plus the benchmark replay |
 | CI | GitHub Actions: migrate, seed, typecheck, tests, benchmark, frontend build |
 
 One web app serves every role: the salesman gets a phone-sized order screen that keeps working
@@ -140,13 +140,18 @@ prices never change an earlier run's cost.
 - Product, raw-material, packaging, customer and supplier masters; recipes (BOM) with pack sizes.
   Recipes are versioned: an edit saves the next version and retires the old one, which is never
   changed or deleted. New plans use the latest version; a run already planned keeps its version
-  until someone presses "Use latest recipe", and started or finished runs never change. The
-  activity log records who changed which amounts
+  until someone presses "Use latest recipe", and started or finished runs never change. Pack
+  sizes share the raw-material recipe, but each has its own expected good packets per batch and
+  packaging list; select the pack size when planning, and the run freezes its yield and packaging
+  requirements. Pack-size edits are audited too.
 - Phone-friendly order entry; admin approve, edit or reject, with a stock check before approval
 - GST invoice PDF: GSTIN, HSN, taxable value, CGST+SGST or IGST by place of supply, numbering per
   financial year
-- Production runs that move raw-material, packaging and finished-goods stock automatically
-- Planned against actual consumption and yield, with variance shown and flagged beyond ±3%
+- Production runs that move raw-material, selected-packaging and finished-goods stock automatically
+- A shared 40 kg recipe can make 200 × 200 g packets or 80 × 500 g packets; each pack size checks
+  its own pouch/carton stock and posts output to its own finished-product SKU
+- Planned against actual consumption and pack-specific yield, with variance shown and flagged
+  beyond ±3%
 - Stock summary and per-item stock ledger
 - All six section 4.6 reports (sales register by customer and by product, GST summary,
   purchase register, stock summary and ledger, production, payments with ageing), each
@@ -190,7 +195,8 @@ e-Invoice/e-Way Bill format, and a Tamil interface for floor staff.
 - **Money is integer paise**, never floats. Rates that don't fit a whole paise per gram (₹45/kg
   is 4.5 paise/g) are booked from the exact line total.
 - **Every change is logged** with user and time: order edits (before and after), approvals,
-  invoices, credit notes, payments, dispatch, and each production run's start, finish and cancel.
+  invoices, recipe and pack-size configuration edits, credit notes, payments, dispatch, and each
+  production run's start, finish and cancel.
 - **Concurrency:** approving orders takes a per-product lock, so two approvals can't sell the
   same packets twice; run start/finish/cancel claim the status change atomically; a dispatch is
   unique per invoice; offline orders carry an idempotency key.
@@ -198,8 +204,9 @@ e-Invoice/e-Way Bill format, and a Tamil interface for floor staff.
   transaction as the receipt; cancelling a run puts the material back on the batch it came from.
 - **Orders can't dodge the stock check** by splitting one product over two lines: duplicates
   are refused, and approval totals quantities per product anyway.
-- **Production inputs must be complete:** starting a run must report every raw material on the
-  recipe exactly once, and finishing must report its packaging.
+- **Production inputs must be complete:** starting a run must report every raw material exactly once;
+  finishing must report only the selected pack size's packaging, and the server locks/checks that
+  packaging stock before posting so concurrent finishes cannot drive it below zero.
 
 ## Assumptions
 
@@ -228,7 +235,7 @@ e-Invoice/e-Way Bill format, and a Tamil interface for floor staff.
 
 ```bash
 cd backend
-npm test            # 171 tests, real Postgres, about 20 seconds
+npm test            # 177 tests, real Postgres
 npm run benchmark   # section 5 on a brand-new database, 15 checks
 ```
 
