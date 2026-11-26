@@ -135,6 +135,26 @@ describe("BOM management", () => {
     expect(res.body.data.expectedOutputQty).toBe(40);
     expect(res.body.data.packagingLines).toHaveLength(1);
     expect(res.body.data.packagingLines[0].itemId).toBe(packagingId);
+
+    const updated = await request(app)
+      .put(`/pack-sizes/${res.body.data.id}`)
+      .set("Cookie", cookie)
+      .send({
+        expectedOutputQty: 35,
+        label: "test-500g-updated",
+        packagingLines: [{ itemId: packagingId, qtyPerBatch: 35 }],
+      });
+    expect(updated.status).toBe(200);
+    expect(updated.body.data).toMatchObject({
+      label: "test-500g-updated",
+      expectedOutputQty: 35,
+    });
+    expect(updated.body.data.packagingLines[0]).toMatchObject({ itemId: packagingId, qtyPerBatch: 35 });
+
+    const audit = await prisma.auditLog.findFirstOrThrow({
+      where: { action: "PACK_SIZE_UPDATED", entityId: res.body.data.id },
+    });
+    expect(JSON.parse(audit.afterJson!)).toMatchObject({ label: "test-500g-updated", expectedOutputQty: 35 });
   });
 
   it("rejects a pack size with no base BOM, with a clear error", async () => {
