@@ -155,7 +155,7 @@ async function main() {
   }
 
   await prisma.packSize.upsert({
-    where: { finishedItemId_label: { finishedItemId: murukku200g.id, label: "200g" } },
+    where: { baseBomId_finishedItemId_label: { baseBomId: bom.id, finishedItemId: murukku200g.id, label: "200g" } },
     update: {},
     create: {
       finishedItemId: murukku200g.id,
