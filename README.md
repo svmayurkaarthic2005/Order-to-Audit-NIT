@@ -155,7 +155,7 @@ prices never change an earlier run's cost.
 - Purchases and suppliers (a purchase can carry the supplier's lot number and expiry)
 - Payments, outstanding per invoice and customer, ageing buckets (0-30, 31-60, 61-90, 90+)
 - Cost per packet with overheads, with a per-run breakdown and margin
-- GST summary report, by rate
+- GST summary report: totals, by rate, and invoice by invoice (B2B/B2C, place of supply)
 - Variance alerts beyond tolerance, as notifications
 - Owner dashboard: today's to-do list, sales, dues, stock levels, latest orders
 
