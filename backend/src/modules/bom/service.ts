@@ -107,8 +107,49 @@ export async function editBom(id: string, data: { expectedYieldQty: number; line
       },
       include: { finishedItem: true, lines: { include: { rawItem: true } } },
     });
-    // Pack sizes belong to the recipe, not to one version.
-    await tx.packSize.updateMany({ where: { baseBomId: id }, data: { baseBomId: next.id } });
+    // Pack formats are versioned alongside the recipe. Keep the old rows
+    // attached to the retired BOM for planned/completed runs, and clone each
+    // format (yield + packaging lines) onto the new BOM so the new version
+    // can be configured independently before it is used.
+    const oldPackSizes = await tx.packSize.findMany({
+      where: { baseBomId: id },
+      include: { lines: true },
+    });
+    for (const oldPack of oldPackSizes) {
+      const nextPack = await tx.packSize.create({
+        data: {
+          finishedItemId: oldPack.finishedItemId,
+          baseBomId: next.id,
+          multiplier: oldPack.multiplier,
+          label: oldPack.label,
+          expectedYieldQty: oldPack.expectedYieldQty,
+          lines: {
+            create: oldPack.lines.map((line) => ({
+              itemId: line.itemId,
+              qtyPerBatch: line.qtyPerBatch,
+            })),
+          },
+        },
+      });
+      await logAudit(tx, {
+        userId: actingUserId,
+        action: "PACK_SIZE_VERSIONED",
+        entityType: "PackSize",
+        entityId: nextPack.id,
+        before: {
+          recipeVersion: current.version,
+          label: oldPack.label,
+          expectedPacketsPerBatch: oldPack.expectedYieldQty,
+          packagingLineCount: oldPack.lines.length,
+        },
+        after: {
+          recipeVersion: next.version,
+          label: nextPack.label,
+          expectedPacketsPerBatch: nextPack.expectedYieldQty,
+          packagingLineCount: oldPack.lines.length,
+        },
+      });
+    }
 
     const before = readable(current);
     const after = readable(next);
