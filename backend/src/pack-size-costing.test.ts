@@ -105,6 +105,16 @@ describe("pack-size costing — shared recipe, per-pack packaging and output", (
 
     // ── Run 2: same BOM, packed as the 500g pack size instead ──
     const run500 = await request(app).post("/production-runs").set("Cookie", adminCookie).send({ bomHeaderId: bomId, packSizeId: packSize500.body.data.id });
+
+    // Change the pack configuration after planning. This existing run must
+    // keep its 80-packet/80-pouch snapshot until an operator replans it.
+    const updatedPack500 = await request(app).put(`/pack-sizes/${packSize500.body.data.id}`).set("Cookie", adminCookie).send({
+      expectedOutputQty: 72,
+      label: "500g-v2",
+      packagingLines: [{ itemId: pouch500Id, qtyPerBatch: 72 }],
+    });
+    expect(updatedPack500.status).toBe(200);
+
     const start500 = await request(app).post(`/production-runs/${run500.body.data.id}/start`).set("Cookie", adminCookie)
       .send({ actualConsumption: [{ itemId: flourId, qtyBase: 10_000 }] });
     expect(start500.status).toBe(200);
