@@ -46,6 +46,6 @@ packSizesRouter.post("/", canManageBoms, validate("body", packSizeCreateSchema),
 });
 
 packSizesRouter.put("/:id", canManageBoms, validate("body", packSizeUpdateSchema), async (req, res) => {
-  const packSize = await updatePackSize(req.params.id as string, req.body);
+  const packSize = await updatePackSize(req.params.id as string, req.body, req.user!.id);
   res.json({ data: packSize });
 });
