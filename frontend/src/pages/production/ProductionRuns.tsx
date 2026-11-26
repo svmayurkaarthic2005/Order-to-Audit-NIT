@@ -300,8 +300,9 @@ export default function ProductionRuns() {
                   >
                     <option value="">Recipe default: {selectedBom?.finishedItem.name ?? "base product"}</option>
                     {selectedBom?.packSizes.map((pack) => (
-                      <option key={pack.id} value={pack.id}>
+                      <option key={pack.id} value={pack.id} disabled={pack.lines.length === 0}>
                         {pack.finishedItem.name} — {pack.label} ({pack.expectedYieldQty} packets per batch)
+                        {pack.lines.length === 0 ? " · setup required in Recipes" : ""}
                       </option>
                     ))}
                   </Select>
