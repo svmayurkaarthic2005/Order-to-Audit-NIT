@@ -112,6 +112,7 @@ export default function ProductionRuns() {
   const selectedPackSize = selectedBom?.packSizes.find((p) => p.id === packSizeId)
     ?? selectedBom?.packSizes.find((p) => p.finishedItem.sku === selectedBom.finishedItem.sku)
     ?? selectedBom?.packSizes[0];
+  const selectedPackNeedsSetup = Boolean(selectedPackSize && selectedPackSize.packagingLines.length === 0);
   const plannedBatches = Math.max(1, Number(batchSize) || 1);
   // A run needs the shared raw materials plus only the packaging for its pack size.
   // Recipes without configured pack sizes retain their original BOM packaging.
@@ -287,7 +288,7 @@ export default function ProductionRuns() {
                     <Select value={selectedPackSize?.id ?? ""} required onChange={(e) => setPackSizeId(e.target.value)} className="w-full">
                       {selectedBom.packSizes.map((pack) => (
                         <option key={pack.id} value={pack.id}>
-                          {pack.finishedItem.name} · {pack.label} ({pack.expectedOutputQty}/batch)
+                          {pack.finishedItem.name} · {pack.label} ({pack.expectedOutputQty}/batch){pack.packagingLines.length === 0 ? " · Setup required" : ""}
                         </option>
                       ))}
                     </Select>
@@ -314,10 +315,15 @@ export default function ProductionRuns() {
                   "Pick a product to see how many packets to expect."
                 )}
               </p>
-              <Button type="submit" disabled={createMutation.isPending} className="self-end sm:self-auto px-6">
+              <Button type="submit" disabled={createMutation.isPending || selectedPackNeedsSetup} className="self-end sm:self-auto px-6">
                 {createMutation.isPending ? "Saving…" : "Plan run"}
               </Button>
             </div>
+            {selectedPackNeedsSetup && (
+              <p className="mt-2 text-xs text-destructive">
+                This pack size has no packaging configured. Edit it on the Recipes page and add its pouch/carton requirements before planning.
+              </p>
+            )}
             {selectedBom && (
               <table className="mt-4 w-full text-sm">
                 <thead>
