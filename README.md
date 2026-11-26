@@ -137,7 +137,11 @@ prices never change an earlier run's cost.
 **Must have:** all done.
 
 - Login with five roles (salesman, admin, production, accountant, owner)
-- Product, raw-material, packaging, customer and supplier masters; recipes (BOM) with pack sizes
+- Product, raw-material, packaging, customer and supplier masters; recipes (BOM) with pack sizes.
+  Recipes are versioned: an edit saves the next version and retires the old one, which is never
+  changed or deleted. New plans use the latest version; a run already planned keeps its version
+  until someone presses "Use latest recipe", and started or finished runs never change. The
+  activity log records who changed which amounts
 - Phone-friendly order entry; admin approve, edit or reject, with a stock check before approval
 - GST invoice PDF: GSTIN, HSN, taxable value, CGST+SGST or IGST by place of supply, numbering per
   financial year

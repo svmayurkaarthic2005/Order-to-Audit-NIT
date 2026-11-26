@@ -137,7 +137,7 @@ async function main() {
   const bom = await prisma.bomHeader.upsert({
     where: { id: "bom-murukku-200g" },
     update: {},
-    create: { id: "bom-murukku-200g", finishedItemId: murukku200g.id, expectedYieldQty: 200 },
+    create: { id: "bom-murukku-200g", familyId: "bom-murukku-200g", finishedItemId: murukku200g.id, expectedYieldQty: 200 },
   });
   const bomLines: Array<[string, number]> = [
     [flour.id, 40_000], // 40 kg
@@ -149,7 +149,7 @@ async function main() {
   for (const [rawItemId, qtyPerBatch] of bomLines) {
     await prisma.bomLine.upsert({
       where: { bomHeaderId_rawItemId: { bomHeaderId: bom.id, rawItemId } },
-      update: { qtyPerBatch },
+      update: {}, // a recipe version's amounts never change; edits add a version
       create: { bomHeaderId: bom.id, rawItemId, qtyPerBatch },
     });
   }

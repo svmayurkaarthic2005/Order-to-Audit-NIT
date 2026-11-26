@@ -6,6 +6,8 @@ import { Button, Card, EmptyState, ErrorText, Field, Input, Loading, PageHeader,
 
 type Bom = {
   id: string;
+  familyId: string;
+  version: number;
   expectedYieldQty: number;
   finishedItem: { name: string; sku: string };
   lines: { rawItemId: string; qtyPerBatch: number; rawItem: { sku: string; name: string; type: string; baseUnit: string } }[];
@@ -18,7 +20,8 @@ type Run = {
   batchSize: number;
   actualOutputQty: number | null;
   damagedQty: number | null;
-  bomHeader: { finishedItem: { name: string; sku: string } };
+  // The recipe version this run was planned with (it may since have been edited).
+  bomHeader: Omit<Bom, "packSizes"> & { active: boolean };
   materials: RunMaterial[];
 };
 // Form quantities are in kg / L / pcs; converted to base units on submit.
@@ -109,7 +112,7 @@ export default function ProductionRuns() {
   const packShort = shortLines.some((l) => l.rawItem.type === "PACKAGING");
   const startingRun = runs?.find((r) => r.id === startingRunId);
   const completingRun = runs?.find((r) => r.id === completingRunId);
-  const completingBom = boms?.find((b) => b.finishedItem.sku === completingRun?.bomHeader.finishedItem.sku);
+  const completingBom = boms?.find((b) => b.familyId === completingRun?.bomHeader.familyId);
   // Pack sizes that put the output into a different product than the recipe's own.
   const otherPacks = completingBom?.packSizes.filter((p) => p.finishedItem.sku !== completingBom.finishedItem.sku) ?? [];
 
@@ -168,6 +171,16 @@ export default function ProductionRuns() {
     onError: (err, runId) => setRunError({ runId, message: err instanceof ApiError ? err.message : "Couldn't finish the run." }),
   });
 
+  const latestRecipeMutation = useMutation({
+    mutationFn: (runId: string) => api.post(`/production-runs/${runId}/use-latest-recipe`, {}),
+    onSuccess: () => {
+      setRunError(null);
+      setStartingRunId(null);
+      queryClient.invalidateQueries({ queryKey: ["production-runs"] });
+    },
+    onError: (err, runId) => setRunError({ runId, message: err instanceof ApiError ? err.message : "Couldn't update the run's recipe." }),
+  });
+
   const cancelMutation = useMutation({
     mutationFn: (runId: string) => api.post(`/production-runs/${runId}/cancel`, {}),
     onSuccess: () => {
@@ -180,8 +193,8 @@ export default function ProductionRuns() {
   function openStartForm(run: Run) {
     setStartingRunId(run.id);
     setCompletingRunId(null);
-    const bom = boms?.find((b) => b.finishedItem.sku === run.bomHeader.finishedItem.sku);
-    const rawLines = bom?.lines.filter((l) => l.rawItem.type === "RAW_MATERIAL") ?? [];
+    // The run's own recipe version, not whatever is latest.
+    const rawLines = run.bomHeader.lines.filter((l) => l.rawItem.type === "RAW_MATERIAL");
     setConsumption(
       rawLines.map((l) => ({ itemId: l.rawItemId, name: l.rawItem.name, baseUnit: l.rawItem.baseUnit, quantity: fromBase(l.qtyPerBatch * run.batchSize, l.rawItem.baseUnit) })),
     );
@@ -191,9 +204,8 @@ export default function ProductionRuns() {
     setCompletingRunId(run.id);
     setStartingRunId(null);
     setPackSizeId("");
-    const bom = boms?.find((b) => b.finishedItem.sku === run.bomHeader.finishedItem.sku);
-    const packagingLines = bom?.lines.filter((l) => l.rawItem.type === "PACKAGING") ?? [];
-    setActualOutputQty(String(bom ? bom.expectedYieldQty * run.batchSize : ""));
+    const packagingLines = run.bomHeader.lines.filter((l) => l.rawItem.type === "PACKAGING");
+    setActualOutputQty(String(run.bomHeader.expectedYieldQty * run.batchSize));
     setPackaging(
       packagingLines.map((l) => ({
         itemId: l.rawItemId,
@@ -315,7 +327,9 @@ export default function ProductionRuns() {
                     <p className="font-medium text-foreground">
                       {run.bomHeader.finishedItem.name}
                     </p>
-                    <p className="text-xs text-muted-foreground">{run.batchSize} {run.batchSize === 1 ? "batch" : "batches"}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {run.batchSize} {run.batchSize === 1 ? "batch" : "batches"}, recipe version {run.bomHeader.version}
+                    </p>
                   </div>
                   <StatusBadge variant={RUN_STATUS_VARIANT[run.status]}>{RUN_STATUS_LABEL[run.status]}</StatusBadge>
                 </div>
@@ -339,6 +353,22 @@ export default function ProductionRuns() {
                   </p>
                 )}
 
+                {run.status === "DRAFT" && !run.bomHeader.active && (() => {
+                  const latest = boms?.find((b) => b.familyId === run.bomHeader.familyId);
+                  return (
+                    <div className="mt-2 flex flex-col gap-2 rounded-md border border-warning/30 bg-warning-bg p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+                      <span className="text-foreground">
+                        The recipe has changed since this run was planned
+                        {latest ? ` (now version ${latest.version})` : ""}. It will use version {run.bomHeader.version} unless you update it.
+                      </span>
+                      {canMutate && (
+                        <Button size="sm" variant="secondary" disabled={latestRecipeMutation.isPending} onClick={() => latestRecipeMutation.mutate(run.id)}>
+                          Use latest recipe
+                        </Button>
+                      )}
+                    </div>
+                  );
+                })()}
                 {runError?.runId === run.id && (
                   <div className="mt-2">
                     <ErrorText>{runError.message}</ErrorText>

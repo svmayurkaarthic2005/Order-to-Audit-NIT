@@ -235,7 +235,8 @@ describe("stock and cost integrity", () => {
     const murukku = await makeItem(admin, "FINISHED_GOOD", "PIECE");
     // 50 opening packets with no batch, plus a production batch of 188.
     await request(app).post("/inventory/opening-stock").set("Cookie", admin).send({ itemId: murukku, qtyBase: 50, totalCostPaise: 0 });
-    const bom = await prisma.bomHeader.create({ data: { finishedItemId: murukku, expectedYieldQty: 200 } });
+    const bomId = crypto.randomUUID();
+    const bom = await prisma.bomHeader.create({ data: { id: bomId, familyId: bomId, finishedItemId: murukku, expectedYieldQty: 200 } });
     bomIds.push(bom.id);
     const run = await prisma.productionRun.create({ data: { bomHeaderId: bom.id, batchSize: 1, status: "COMPLETED" } });
     const batch = await prisma.finishedGoodsBatch.create({

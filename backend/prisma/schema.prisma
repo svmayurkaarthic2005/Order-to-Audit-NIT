@@ -178,12 +178,20 @@ model BomHeader {
   finishedItemId  String
   finishedItem    Item     @relation("BomFinishedItem", fields: [finishedItemId], references: [id])
   expectedYieldQty Int // base-unit qty of finished good per batch
+  // Versioned: an edit adds the next version and retires this one (active
+  // false, retiredAt set). Every version of one recipe shares familyId, the
+  // first version's id. A version's lines never change after it is made.
+  familyId        String
+  version         Int      @default(1)
   active          Boolean  @default(true)
+  retiredAt       DateTime?
   createdAt       DateTime @default(now())
 
   lines           BomLine[]
   packSizes       PackSize[]
   productionRuns  ProductionRun[]
+
+  @@unique([familyId, version])
 }
 
 model BomLine {

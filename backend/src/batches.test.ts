@@ -42,7 +42,8 @@ async function testSupplier() {
 
 async function testBom(cookie: string | string[]) {
   const finishedItemId = await makeTestItem(cookie, "FINISHED_GOOD", "PIECE");
-  const bom = await prisma.bomHeader.create({ data: { finishedItemId, expectedYieldQty: 100 } });
+  const bomId = crypto.randomUUID();
+  const bom = await prisma.bomHeader.create({ data: { id: bomId, familyId: bomId, finishedItemId, expectedYieldQty: 100 } });
   testBomIds.push(bom.id);
   return bom;
 }
@@ -288,8 +289,11 @@ describe("batch & lot tracking — FEFO, expiry, genealogy & ledger reconciliati
     });
 
     // 2. Production run consumes raw batch and produces finished goods batch
+    const bomHeaderId = crypto.randomUUID();
     const bomHeader = await prisma.bomHeader.create({
       data: {
+        id: bomHeaderId,
+        familyId: bomHeaderId,
         finishedItemId: fgItemId,
         expectedYieldQty: 100,
         lines: { create: [{ rawItemId, qtyPerBatch: 500 }] },

@@ -1,7 +1,6 @@
 import { z } from "zod";
 
-export const bomCreateSchema = z.object({
-  finishedItemId: z.string().min(1),
+const recipeBody = {
   expectedYieldQty: z.coerce.number().int().positive(),
   lines: z
     .array(
@@ -11,7 +10,10 @@ export const bomCreateSchema = z.object({
       }),
     )
     .min(1),
-});
+};
+
+export const bomCreateSchema = z.object({ finishedItemId: z.string().min(1), ...recipeBody });
+export const bomEditSchema = z.object(recipeBody);
 
 export const packSizeCreateSchema = z.object({
   finishedItemId: z.string().min(1),

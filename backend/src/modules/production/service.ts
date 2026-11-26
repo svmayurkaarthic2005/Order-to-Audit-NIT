@@ -64,12 +64,51 @@ export async function listProductionRuns() {
 
 export async function createProductionRun(data: { bomHeaderId: string; batchSize: number }) {
   const bom = await prisma.bomHeader.findUnique({ where: { id: data.bomHeaderId } });
-  if (!bom || !bom.active) {
+  if (!bom) {
     throw new AppError(404, "not_found", "BOM not found");
+  }
+  // New plans always use the latest version.
+  if (!bom.active) {
+    throw new AppError(409, "recipe_retired", "This recipe has been changed since. Reload and plan with the latest version.");
   }
   return prisma.productionRun.create({
     data: { bomHeaderId: data.bomHeaderId, batchSize: data.batchSize },
     include: includeClause(),
+  });
+}
+
+// A planned run keeps the recipe version it was planned with. Moving it to
+// the latest version is an explicit step, only while it is still planned:
+// once started, its materials have left stock at that version's amounts.
+export async function useLatestRecipe(id: string, actingUserId: string) {
+  return prisma.$transaction(async (tx) => {
+    const run = await tx.productionRun.findUnique({ where: { id }, include: { bomHeader: true } });
+    if (!run) {
+      throw new AppError(404, "not_found", "Production run not found");
+    }
+    const latest = await tx.bomHeader.findFirst({ where: { familyId: run.bomHeader.familyId, active: true } });
+    if (!latest) {
+      throw new AppError(409, "recipe_retired", "This recipe has no current version");
+    }
+    if (latest.id === run.bomHeaderId) {
+      throw new AppError(409, "already_latest", "This run already uses the latest recipe");
+    }
+    const { count } = await tx.productionRun.updateMany({
+      where: { id, status: "DRAFT", bomHeaderId: run.bomHeaderId },
+      data: { bomHeaderId: latest.id },
+    });
+    if (count === 0) {
+      throw new AppError(409, "invalid_status", "Only a planned run can move to the latest recipe");
+    }
+    await logAudit(tx, {
+      userId: actingUserId,
+      action: "PRODUCTION_RUN_RECIPE_UPDATED",
+      entityType: "ProductionRun",
+      entityId: id,
+      before: { recipeVersion: run.bomHeader.version },
+      after: { recipeVersion: latest.version },
+    });
+    return tx.productionRun.findUniqueOrThrow({ where: { id }, include: includeClause() });
   });
 }
 
@@ -218,8 +257,10 @@ async function completeProductionRunInTransaction(
 
     outputItemId = run.bomHeader.finishedItemId;
     if (data.packSizeId) {
-      const packSize = await tx.packSize.findUnique({ where: { id: data.packSizeId } });
-      if (!packSize || packSize.baseBomId !== run.bomHeaderId) {
+      // Pack sizes follow the recipe's latest version, and a run may be on
+      // an older one, so they match by recipe rather than by version.
+      const packSize = await tx.packSize.findUnique({ where: { id: data.packSizeId }, include: { baseBom: true } });
+      if (!packSize || packSize.baseBom.familyId !== run.bomHeader.familyId) {
         throw new AppError(400, "invalid_pack_size", "packSizeId does not belong to this run's BOM");
       }
       outputItemId = packSize.finishedItemId;

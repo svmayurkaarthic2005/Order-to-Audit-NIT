@@ -1,8 +1,8 @@
 import { Router } from "express";
 import { requireAuth, requireRole } from "../../middleware/auth.js";
 import { validate } from "../../lib/validate.js";
-import { createBom, createPackSize, getBom, listBoms } from "./service.js";
-import { bomCreateSchema, packSizeCreateSchema } from "./schema.js";
+import { createBom, createPackSize, editBom, getBom, listBomVersions, listBoms } from "./service.js";
+import { bomCreateSchema, bomEditSchema, packSizeCreateSchema } from "./schema.js";
 
 export const bomRouter = Router();
 export const packSizesRouter = Router();
@@ -25,8 +25,18 @@ bomRouter.get("/:id", canReadBoms, async (req, res) => {
   res.json({ data: bom });
 });
 
+bomRouter.get("/:id/versions", canReadBoms, async (req, res) => {
+  res.json({ data: await listBomVersions(req.params.id as string) });
+});
+
 bomRouter.post("/", canManageBoms, validate("body", bomCreateSchema), async (req, res) => {
-  const bom = await createBom(req.body);
+  const bom = await createBom(req.body, req.user!.id);
+  res.status(201).json({ data: bom });
+});
+
+// Saves a new version; the old one is retired, never changed or deleted.
+bomRouter.put("/:id", canManageBoms, validate("body", bomEditSchema), async (req, res) => {
+  const bom = await editBom(req.params.id as string, req.body, req.user!.id);
   res.status(201).json({ data: bom });
 });
 

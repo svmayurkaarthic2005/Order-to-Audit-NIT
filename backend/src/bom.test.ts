@@ -10,12 +10,12 @@ async function loginAs(email: string) {
 
 const TEST_SKU_PREFIX = "BOM-TEST-";
 
-async function makeTestItem(cookie: string, type: "RAW_MATERIAL" | "PACKAGING" | "FINISHED_GOOD") {
+async function makeTestItem(cookie: string, type: "RAW_MATERIAL" | "PACKAGING" | "FINISHED_GOOD", name = "BOM Test Item") {
   const sku = `${TEST_SKU_PREFIX}${type}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const res = await request(app)
     .post("/items")
     .set("Cookie", cookie)
-    .send({ sku, name: "BOM Test Item", type, baseUnit: "G" });
+    .send({ sku, name, type, baseUnit: "G" });
   return res.body.data.id as string;
 }
 
@@ -159,5 +159,66 @@ describe("BOM management", () => {
       .set("Cookie", cookie)
       .send({ finishedItemId: "x", expectedYieldQty: 1, lines: [{ rawItemId: "y", qtyPerBatch: 1 }] });
     expect(createRes.status).toBe(403);
+
+    const editRes = await request(app).put("/boms/x").set("Cookie", cookie).send({ expectedYieldQty: 1, lines: [{ rawItemId: "y", qtyPerBatch: 1 }] });
+    expect(editRes.status).toBe(403);
+  });
+
+  it("editing a recipe adds a version: the old one is retired, unchanged, and planned runs keep it until moved", async () => {
+    const admin = await loginAs("admin@porulottam.test");
+    const finishedId = await makeTestItem(admin, "FINISHED_GOOD");
+    const flour = await makeTestItem(admin, "RAW_MATERIAL", "Test flour");
+    const oil = await makeTestItem(admin, "RAW_MATERIAL", "Test oil");
+    const v1 = (
+      await request(app).post("/boms").set("Cookie", admin).send({ finishedItemId: finishedId, expectedYieldQty: 200, lines: [{ rawItemId: flour, qtyPerBatch: 40_000 }] })
+    ).body.data;
+    const plannedOnV1 = (await request(app).post("/production-runs").set("Cookie", admin).send({ bomHeaderId: v1.id, batchSize: 1 })).body.data;
+
+    // Edit: flour 40 kg -> 38 kg, oil added, 190 packets.
+    const editRes = await request(app)
+      .put(`/boms/${v1.id}`)
+      .set("Cookie", admin)
+      .send({ expectedYieldQty: 190, lines: [{ rawItemId: flour, qtyPerBatch: 38_000 }, { rawItemId: oil, qtyPerBatch: 10_000 }] });
+    expect(editRes.status).toBe(201);
+    const v2 = editRes.body.data;
+    expect(v2).toMatchObject({ version: 2, familyId: v1.id, active: true, expectedYieldQty: 190 });
+
+    // v1 is retired but kept exactly as it was.
+    const v1Now = await prisma.bomHeader.findUniqueOrThrow({ where: { id: v1.id }, include: { lines: true } });
+    expect(v1Now.active).toBe(false);
+    expect(v1Now.retiredAt).not.toBeNull();
+    expect(v1Now.lines.map((l) => l.qtyPerBatch)).toEqual([40_000]);
+
+    // Only the latest version can be picked for a new plan.
+    const list = (await request(app).get("/boms").set("Cookie", admin)).body.data as { id: string }[];
+    expect(list.map((b) => b.id)).toContain(v2.id);
+    expect(list.map((b) => b.id)).not.toContain(v1.id);
+    const planOld = await request(app).post("/production-runs").set("Cookie", admin).send({ bomHeaderId: v1.id, batchSize: 1 });
+    expect(planOld.status).toBe(409);
+    expect(planOld.body.error.code).toBe("recipe_retired");
+
+    // Editing the retired version again is refused (someone else got there first).
+    const staleEdit = await request(app).put(`/boms/${v1.id}`).set("Cookie", admin).send({ expectedYieldQty: 1, lines: [{ rawItemId: flour, qtyPerBatch: 1 }] });
+    expect(staleEdit.status).toBe(409);
+
+    // History lists both versions, newest first.
+    const versions = (await request(app).get(`/boms/${v2.id}/versions`).set("Cookie", admin)).body.data as { version: number }[];
+    expect(versions.map((v) => v.version)).toEqual([2, 1]);
+
+    // The activity log says who changed what.
+    const log = await prisma.auditLog.findFirstOrThrow({ where: { action: "RECIPE_EDITED", entityId: v1.id }, include: { user: true } });
+    expect(log.user?.email).toBe("admin@porulottam.test");
+    expect(JSON.parse(log.afterJson!).changed).toBe("Packets per batch: 200 to 190; Test flour: 40 kg to 38 kg; Test oil: not used to 10 kg");
+
+    // The planned run still uses v1 until someone moves it.
+    const stillV1 = await prisma.productionRun.findUniqueOrThrow({ where: { id: plannedOnV1.id } });
+    expect(stillV1.bomHeaderId).toBe(v1.id);
+    const moved = await request(app).post(`/production-runs/${plannedOnV1.id}/use-latest-recipe`).set("Cookie", admin);
+    expect(moved.status).toBe(200);
+    expect(moved.body.data.bomHeaderId).toBe(v2.id);
+    const again = await request(app).post(`/production-runs/${plannedOnV1.id}/use-latest-recipe`).set("Cookie", admin);
+    expect(again.body.error.code).toBe("already_latest");
+
+    await prisma.productionRun.update({ where: { id: plannedOnV1.id }, data: { status: "CANCELLED" } });
   });
 });

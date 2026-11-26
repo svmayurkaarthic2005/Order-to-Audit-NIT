@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Button, Card, EmptyState, ErrorText, Field, Input, Loading, PageHeader, Select, qty, unitOf } from "@/components/ui";
@@ -10,8 +10,10 @@ type Bom = {
   id: string;
   finishedItemId: string;
   expectedYieldQty: number;
+  version: number;
+  createdAt: string;
   finishedItem: { name: string; sku: string };
-  lines: { rawItem: { sku: string; name: string; baseUnit: string }; qtyPerBatch: number }[];
+  lines: { rawItemId: string; rawItem: { sku: string; name: string; baseUnit: string }; qtyPerBatch: number }[];
   packSizes: { id: string; label: string; multiplier: number; finishedItem: { name: string } }[];
 };
 
@@ -19,7 +21,16 @@ const emptyLine: BomLineInput = { rawItemId: "", qtyPerBatch: "" };
 
 export default function BOM() {
   const { user } = useAuth();
-  const canMutate = user?.role !== "ACCOUNTANT";
+  // Same rule as the server: only admin and owner change recipes.
+  const canMutate = user?.role === "ADMIN" || user?.role === "OWNER";
+  // The recipe being edited; saving makes its next version.
+  const [editing, setEditing] = useState<Bom | null>(null);
+  const [historyFor, setHistoryFor] = useState<string | null>(null);
+  // The page scrolls inside the layout, not the window, so bring the form itself into view.
+  const formRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (editing) formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [editing]);
   const queryClient = useQueryClient();
   const [finishedItemId, setFinishedItemId] = useState("");
   const [expectedYieldQty, setExpectedYieldQty] = useState("");
@@ -47,20 +58,30 @@ export default function BOM() {
   const rawAndPackagingItems = items?.items.filter((i) => i.type !== "FINISHED_GOOD") ?? [];
   const baseUnitOf = (itemId: string) => items?.items.find((i) => i.id === itemId)?.baseUnit ?? "PIECE";
 
+  const { data: versions } = useQuery({
+    queryKey: ["boms", historyFor, "versions"],
+    queryFn: () => api.get<Bom[]>(`/boms/${historyFor}/versions`),
+    enabled: historyFor !== null,
+  });
+
   const createBomMutation = useMutation({
-    mutationFn: () =>
-      api.post("/boms", {
-        finishedItemId,
+    mutationFn: () => {
+      const body = {
         expectedYieldQty: Number(expectedYieldQty),
         lines: lines.map((l) => ({ rawItemId: l.rawItemId, qtyPerBatch: Math.round(Number(l.qtyPerBatch) * unitOf(baseUnitOf(l.rawItemId)).factor) })),
-      }),
+      };
+      return editing ? api.put(`/boms/${editing.id}`, body) : api.post("/boms", { finishedItemId, ...body });
+    },
     onSuccess: () => {
       setError(null);
       setFinishedItemId("");
       setExpectedYieldQty("");
       setLines([{ ...emptyLine }]);
       setShowRecipeForm(false);
+      setEditing(null);
+      setHistoryFor(null);
       queryClient.invalidateQueries({ queryKey: ["boms"] });
+      queryClient.invalidateQueries({ queryKey: ["production-runs"] });
     },
     onError: (err) => setError(err instanceof ApiError ? err.message : "Couldn't save the recipe."),
   });
@@ -89,6 +110,23 @@ export default function BOM() {
     onError: (err) => setPackError(err instanceof ApiError ? err.message : "Couldn't save the pack size."),
   });
 
+  function startEdit(b: Bom) {
+    setEditing(b);
+    setShowRecipeForm(true);
+    setError(null);
+    setFinishedItemId(b.finishedItemId);
+    setExpectedYieldQty(String(b.expectedYieldQty));
+    setLines(b.lines.map((l) => ({ rawItemId: l.rawItemId, qtyPerBatch: String(l.qtyPerBatch / unitOf(l.rawItem.baseUnit).factor) })));
+  }
+
+  function closeRecipeForm() {
+    setShowRecipeForm(false);
+    setEditing(null);
+    setFinishedItemId("");
+    setExpectedYieldQty("");
+    setLines([{ ...emptyLine }]);
+  }
+
   function updateLine(index: number, patch: Partial<BomLineInput>) {
     setLines((prev) => prev.map((l, i) => (i === index ? { ...l, ...patch } : l)));
   }
@@ -104,7 +142,7 @@ export default function BOM() {
               <Button size="sm" variant="secondary" onClick={() => setShowPackForm((v) => !v)}>
                 {showPackForm ? "Close" : "New pack size"}
               </Button>
-              <Button size="sm" onClick={() => setShowRecipeForm((v) => !v)}>
+              <Button size="sm" onClick={() => (showRecipeForm ? closeRecipeForm() : setShowRecipeForm(true))}>
                 {showRecipeForm ? "Close" : "New recipe"}
               </Button>
             </>
@@ -113,8 +151,16 @@ export default function BOM() {
       />
 
       {canMutate && showRecipeForm && (
+        <div ref={formRef} className="scroll-mt-4">
         <Card className="mb-4 p-4">
-          <h2 className="mb-3 text-sm font-semibold text-foreground">New recipe</h2>
+          <h2 className="text-sm font-semibold text-foreground">
+            {editing ? `Edit recipe: ${editing.finishedItem.name}` : "New recipe"}
+          </h2>
+          <p className="mb-3 mt-0.5 text-xs text-muted-foreground">
+            {editing
+              ? `Saving makes version ${editing.version + 1}. Version ${editing.version} is kept, and runs already planned or done keep using it.`
+              : "What goes into one batch, and how many packets it makes."}
+          </p>
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -124,7 +170,7 @@ export default function BOM() {
           >
             <div className="grid gap-3 sm:grid-cols-2">
               <Field label="Product" required>
-                <Select value={finishedItemId} required onChange={(e) => setFinishedItemId(e.target.value)} className="w-full">
+                <Select value={finishedItemId} required disabled={editing !== null} onChange={(e) => setFinishedItemId(e.target.value)} className="w-full">
                   <option value="">Choose a product</option>
                   {finishedGoods.map((it) => (
                     <option key={it.id} value={it.id}>
@@ -192,10 +238,11 @@ export default function BOM() {
             {error && <ErrorText>{error}</ErrorText>}
 
             <Button type="submit" disabled={createBomMutation.isPending} className="self-start">
-              Save recipe
+              {editing ? `Save as version ${editing.version + 1}` : "Save recipe"}
             </Button>
           </form>
         </Card>
+        </div>
       )}
 
       {canMutate && showPackForm && (
@@ -272,10 +319,25 @@ export default function BOM() {
           {boms.map((b) => (
             <li key={b.id}>
               <Card className="p-4">
-                <p className="font-medium text-foreground">
-                  {b.finishedItem.name}
-                  <span className="ml-2 font-normal text-muted-foreground">makes {b.expectedYieldQty} packets per batch</span>
-                </p>
+                <div className="flex items-start justify-between gap-3">
+                  <p className="font-medium text-foreground">
+                    {b.finishedItem.name}
+                    <span className="ml-2 font-normal text-muted-foreground">makes {b.expectedYieldQty} packets per batch</span>
+                  </p>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <span className="text-xs text-muted-foreground">Version {b.version}</span>
+                    {b.version > 1 && (
+                      <Button size="sm" variant="secondary" onClick={() => setHistoryFor(historyFor === b.id ? null : b.id)}>
+                        {historyFor === b.id ? "Hide history" : "History"}
+                      </Button>
+                    )}
+                    {canMutate && (
+                      <Button size="sm" variant="secondary" onClick={() => startEdit(b)}>
+                        Edit
+                      </Button>
+                    )}
+                  </div>
+                </div>
                 <ul className="mt-2 text-sm text-muted-foreground">
                   {b.lines.map((l, i) => (
                     <li key={i} className="flex justify-between">
@@ -284,6 +346,25 @@ export default function BOM() {
                     </li>
                   ))}
                 </ul>
+                {historyFor === b.id && versions && (
+                  <div className="mt-3 border-t border-border pt-3">
+                    <p className="mb-2 text-xs font-medium text-muted-foreground">Earlier versions (kept for the runs that used them)</p>
+                    <ul className="flex flex-col gap-2">
+                      {versions
+                        .filter((v) => v.id !== b.id)
+                        .map((v) => (
+                          <li key={v.id} className="rounded-md bg-secondary/50 p-2.5 text-sm">
+                            <p className="text-xs text-muted-foreground">
+                              Version {v.version}, from {new Date(v.createdAt).toLocaleDateString("en-IN")}: {v.expectedYieldQty} packets per batch
+                            </p>
+                            <p className="mt-1 text-muted-foreground">
+                              {v.lines.map((l) => `${l.rawItem.name} ${qty(l.qtyPerBatch, l.rawItem.baseUnit)}`).join(", ")}
+                            </p>
+                          </li>
+                        ))}
+                    </ul>
+                  </div>
+                )}
                 {b.packSizes.length > 0 && (
                   <p className="mt-2 border-t border-border pt-2 text-sm text-muted-foreground">
                     Also packed as: {b.packSizes.map((p) => `${p.finishedItem.name} (${p.label}, ${p.multiplier} ${p.multiplier === 1 ? "packet" : "packets"})`).join(", ")}

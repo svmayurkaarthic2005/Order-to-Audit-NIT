@@ -8,6 +8,7 @@ import {
   getProductionRun,
   listProductionRuns,
   startProductionRun,
+  useLatestRecipe,
 } from "./service.js";
 import { productionRunCompleteSchema, productionRunCreateSchema, productionRunStartSchema } from "./schema.js";
 import { getProductionRunVariance } from "./variance.js";
@@ -78,6 +79,11 @@ productionRouter.post(
     res.json({ data: run });
   },
 );
+
+productionRouter.post("/:id/use-latest-recipe", canManageRuns, async (req, res) => {
+  const run = await useLatestRecipe(req.params.id as string, req.user!.id);
+  res.json({ data: run });
+});
 
 productionRouter.post("/:id/cancel", canManageRuns, async (req, res) => {
   const run = await cancelProductionRun(req.params.id as string, req.user!.id);
