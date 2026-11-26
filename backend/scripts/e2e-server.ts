@@ -31,6 +31,8 @@ const env = {
   SUPABASE_SERVICE_ROLE_KEY: "",
   GMAIL_USER: "",
   GMAIL_APP_PASSWORD: "",
+  // Invoice emails run end to end into a test outbox; nothing is sent.
+  MAIL_TEST_OUTBOX: "1",
 };
 execSync("npx prisma migrate deploy", { stdio: "inherit", env });
 execSync("npx tsx prisma/seed.ts", { stdio: "inherit", env });

@@ -65,7 +65,7 @@ async function put(target: Locator, value: string) {
   await mark(target, true);
   await pause(target.page(), 300);
   await target.fill("");
-  await target.pressSequentially(value, { delay: DRY ? 0 : 50 });
+  await target.pressSequentially(value, { delay: DRY ? 0 : 70 });
   await pause(target.page(), 300);
   await mark(target, false);
 }
@@ -84,12 +84,35 @@ async function press(target: Locator) {
   await target.click();
   await mark(target, false);
 }
-async function go(page: Page, url: string) {
-  await page.goto(url);
+// Move around the way a person does: click the sidebar or tab link, so the
+// app switches screens without reloading. A tab that only shows inside its
+// section is reached through the section first. A full page load is left
+// only for a page no link leads to (the first load, or after the PDF).
+const SECTION: Record<string, string> = {
+  "/admin/bom": "/production/runs",
+  "/admin/purchases": "/admin/stock-data",
+  "/admin/dispatch": "/admin/orders",
+  "/admin/audit-log": "/admin/reports",
+  "/admin/customers": "/admin/items",
+};
+async function go(page: Page, url: string): Promise<void> {
+  const here = page.url().startsWith("http") ? new URL(page.url()) : null;
+  if (here && here.pathname + here.search === url) return;
+  // Skip the phone slide-out menu: it stays in the page, tucked behind the top bar.
+  const link = page.locator(`a[href="${url}"]:not(#mobile-nav a):visible`).first();
+  if (await link.count()) {
+    await press(link);
+  } else if (SECTION[url] && here?.origin === new URL(page.url()).origin && (await page.locator(`a[href="${SECTION[url]}"]:not(#mobile-nav a):visible`).count())) {
+    await go(page, SECTION[url]);
+    return go(page, url);
+  } else {
+    await page.goto(url);
+  }
+  await expect(page).toHaveURL((u) => u.pathname + u.search === url);
   await pause(page, 600);
 }
 
-const pause = (page: Page, ms: number) => page.waitForTimeout(ms * (process.env.DEMO_DRY ? 0.1 : 0.8));
+const pause = (page: Page, ms: number) => page.waitForTimeout(ms * (process.env.DEMO_DRY ? 0.1 : 1.15));
 
 async function say(page: Page, step: string, title: string, detail: string, ms = 3500) {
   await caption(page, step, title, detail);
@@ -141,10 +164,11 @@ async function addItem(page: Page, name: string, type: string, unit: string, hsn
   await expect(page.getByRole("cell", { name, exact: true }).first()).toBeVisible();
 }
 
-async function addParty(page: Page, kind: "customer" | "supplier", name: string, state: string) {
+async function addParty(page: Page, kind: "customer" | "supplier", name: string, state: string, email?: string) {
   const form = page.locator("form").filter({ has: page.getByPlaceholder(kind === "customer" ? "Customer name" : "Supplier name") });
   await put(form.getByPlaceholder(kind === "customer" ? "Customer name" : "Supplier name"), name);
   await choose(form.locator("select").first(), { label: state });
+  if (email) await put(form.getByPlaceholder("Optional, needed to email invoices"), email);
   await pause(page, 400);
   await press(form.getByRole("button", { name: kind === "customer" ? "Add customer" : "Add supplier" }));
   await expect(page.getByText(name, { exact: true }).first()).toBeVisible();
@@ -185,7 +209,7 @@ test("section 5 benchmark, end to end", async ({ page }) => {
         bar.id = "demo-caption";
         bar.setAttribute(
           "style",
-          "position:fixed;left:12px;right:12px;bottom:12px;z-index:2147483647;pointer-events:none;" +
+          "position:fixed;left:12px;right:12px;z-index:2147483647;pointer-events:none;" +
             "background:rgba(17,24,39,.92);color:#fff;border-radius:10px;padding:10px 16px;" +
             "font:14px/1.4 system-ui,sans-serif;box-shadow:0 6px 24px rgba(0,0,0,.25)",
         );
@@ -204,9 +228,12 @@ test("section 5 benchmark, end to end", async ({ page }) => {
       sub.setAttribute("style", "opacity:.85;margin-top:2px");
       sub.textContent = detail;
       bar.replaceChildren(head, ...(detail ? [sub] : []));
+      // On a phone screen, sit above the order screen's fixed Send bar.
+      bar.style.bottom = window.innerWidth < 768 ? "136px" : "12px";
     };
     (window as unknown as { renderDemoCaption: () => void }).renderDemoCaption = render;
     document.addEventListener("DOMContentLoaded", render);
+    window.addEventListener("resize", render);
   });
 
   // ── Master data, typed into the real screens ──────────────────────────
@@ -226,9 +253,9 @@ test("section 5 benchmark, end to end", async ({ page }) => {
 
   await go(page, "/admin/customers");
   await caption(page, "Master data", "Customers and supplier", "Retailer A in Tamil Nadu (same state as the factory), Distributor B in Karnataka.");
-  await addParty(page, "customer", "Retailer A", "Tamil Nadu");
+  await addParty(page, "customer", "Retailer A", "Tamil Nadu", "retailer.a@example.com");
   await addParty(page, "customer", "Distributor B", "Karnataka");
-  await go(page, "/admin/customers?type=supplier");
+  await press(page.getByRole("button", { name: "Suppliers", exact: true }));
   await addParty(page, "supplier", SUPPLIER, "Tamil Nadu");
   await pause(page, 2000);
 
@@ -310,7 +337,7 @@ test("section 5 benchmark, end to end", async ({ page }) => {
   await say(page, "Steps 2–3", "Planned vs actual: oil +5% flagged, yield −6% flagged (188 vs 200)", "Flour and spice mix are within the ±3% tolerance; cartons 9 vs 10 is also flagged.", 7000);
 
   await go(page, "/admin/stock-data");
-  await say(page, "Steps 2–3", "Closing balances, worked out from the stock ledger", "Flour 120 kg (100 + 60 − 40) · Oil 19.5 L · Pouches 306 · Murukku 238 packets (50 + 188).", 7000);
+  await say(page, "Steps 2–3", "Closing balances, worked out from the stock ledger", "Flour 120 kg (100 + 60 − 40) at ₹43.125/kg average cost · Oil 19.5 L · Pouches 306 · Murukku 238 packets (50 + 188).", 7500);
   await signOut(page);
 
   // ── Step 4: Salesman A, on a phone ────────────────────────────────────
@@ -336,6 +363,10 @@ test("section 5 benchmark, end to end", async ({ page }) => {
   await go(page, "/admin/invoices");
   await expect(page.getByText("₹7,875.00").first()).toBeVisible();
   await say(page, "Step 5", "GST invoice: ₹7,500 + CGST ₹187.50 + SGST ₹187.50 = ₹7,875", "Numbered by financial year; HSN, place of supply and both halves of GST on the invoice.", 6000);
+  await press(page.getByRole("button", { name: "Send to customer" }).first());
+  await press(page.getByRole("button", { name: "Email Retailer A" }));
+  await expect(page.getByText("Invoice emailed to retailer.a@example.com.")).toBeVisible();
+  await say(page, "Step 5", "Invoice PDF emailed to Retailer A; WhatsApp sharing sits beside it", "This recording copy uses a test mail outbox, so nothing actually leaves the machine.", 5500);
 
   // The invoice PDF, opened from its share link on the same tab.
   const pdfUrl = await page.evaluate(async (api) => {
@@ -446,12 +477,12 @@ test("section 5 benchmark, end to end", async ({ page }) => {
   await pause(page, 1500);
 
   await go(page, "/admin/audit-log");
-  await say(page, "Audit trail", "Activity log: who did what, and when", "Master data, purchase, run, approval, invoice, dispatch and payment. Append-only, enforced by the database.", 6000);
+  await say(page, "Audit trail", "Activity log: who did what, and when", "Master data, purchase, run, approval, invoice, dispatch and payment. Append-only, enforced by the database.", 4500);
   await say(
     page,
     "",
     "40 kg of flour in, 188 packets out",
     "Consumption, expected and actual output, wastage, closing balances and finished stock were all recorded automatically.",
-    6000,
+    5000,
   );
 });

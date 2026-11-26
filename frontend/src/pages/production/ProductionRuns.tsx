@@ -616,7 +616,7 @@ export default function ProductionRuns() {
                             <th className="py-1.5 text-left font-medium">Material</th>
                             <th className="py-1.5 text-right font-medium">Planned</th>
                             <th className="py-1.5 pl-3 text-left font-medium">Actually used</th>
-                            <th className="py-1.5 pl-3 text-left font-medium">Of which damaged</th>
+                            <th className="py-1.5 pl-3 text-left font-medium">Damaged (included in used)</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -728,7 +728,7 @@ export default function ProductionRuns() {
                             </Field>
                           </div>
                           <div className="flex-1">
-                            <Field label="Of which damaged">
+                            <Field label="Damaged (included in used)">
                               <Input
                                 type="number"
                                 min="0"

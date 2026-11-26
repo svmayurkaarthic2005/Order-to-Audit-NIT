@@ -11,9 +11,20 @@ type StockStatusRow = {
   type: "RAW_MATERIAL" | "PACKAGING" | "FINISHED_GOOD";
   unit: string;
   availableQtyBase: number;
+  onHandQtyBase: number;
+  valuePaise: number;
   reorderLevel: number | null;
   status: "LOW" | "NORMAL";
 };
+
+// Moving weighted-average cost per display unit, from the ledger's exact value
+// and quantity: flour after the benchmark purchase is ₹43.125/kg.
+function averageCost(row: StockStatusRow) {
+  if (row.onHandQtyBase <= 0) return null;
+  const { label, factor } = unitOf(row.unit);
+  const rupees = (row.valuePaise / row.onHandQtyBase) * factor / 100;
+  return `₹${rupees.toLocaleString("en-IN", { maximumFractionDigits: 3 })}/${label}`;
+}
 
 type OnHand = { qtyBase: number; unit: string; asOf: string };
 
@@ -354,6 +365,7 @@ export default function LowStockAlerts() {
               <Th>Item</Th>
               <Th>Type</Th>
               <Th numeric>Available</Th>
+              <Th numeric>Average cost</Th>
               <Th numeric>Warn me below</Th>
               <Th>Status</Th>
             </tr>
@@ -368,6 +380,7 @@ export default function LowStockAlerts() {
                 <Td numeric className="font-semibold text-foreground">
                   {qty(row.availableQtyBase, row.unit)}
                 </Td>
+                <Td numeric className="tabular text-muted-foreground">{averageCost(row) ?? "—"}</Td>
                 <Td numeric>
                   <ReorderLevelCell row={row} canMutate={canMutate} />
                 </Td>

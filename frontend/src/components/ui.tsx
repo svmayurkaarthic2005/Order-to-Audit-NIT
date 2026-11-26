@@ -6,7 +6,7 @@ import { Link } from "react-router-dom";
 // ── Inputs ───────────────────────────────────────────────────────────────────
 
 export const inputClass =
-  "h-9 rounded-md border border-input bg-white px-3 text-sm text-foreground transition-colors duration-150 placeholder:text-muted-foreground/70 focus:border-primary focus:outline-none focus:ring-3 focus:ring-primary/15 disabled:cursor-not-allowed disabled:bg-muted/50 disabled:opacity-60 hover:border-muted-foreground/40";
+  "h-9 max-md:h-11 max-md:text-base rounded-md border border-input bg-white px-3 text-sm text-foreground transition-colors duration-150 placeholder:text-muted-foreground/70 focus:border-primary focus:outline-none focus:ring-3 focus:ring-primary/15 disabled:cursor-not-allowed disabled:bg-muted/50 disabled:opacity-60 hover:border-muted-foreground/40";
 
 export function Input(props: InputHTMLAttributes<HTMLInputElement>) {
   const { className = "", ...rest } = props;

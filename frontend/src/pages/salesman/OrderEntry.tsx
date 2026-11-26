@@ -160,7 +160,7 @@ export default function OrderEntry() {
         </p>
       )}
 
-      <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+      <form onSubmit={handleSubmit} className="flex flex-col gap-5 max-md:pb-32">
         {/* Customer */}
         <Card className="p-4">
           <Field label="Customer" required>
@@ -241,7 +241,7 @@ export default function OrderEntry() {
                         type="button"
                         onClick={() => stepQty(i, -1)}
                         aria-label="Decrease quantity"
-                        className="flex w-9 shrink-0 items-center justify-center rounded-lg border border-input bg-white text-muted-foreground transition-colors hover:border-muted-foreground/40 hover:text-foreground"
+                        className="flex w-9 max-md:w-12 shrink-0 items-center justify-center rounded-lg border border-input bg-white text-muted-foreground transition-colors hover:border-muted-foreground/40 hover:text-foreground"
                       >
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M5 12h14" /></svg>
                       </button>
@@ -258,7 +258,7 @@ export default function OrderEntry() {
                         type="button"
                         onClick={() => stepQty(i, 1)}
                         aria-label="Increase quantity"
-                        className="flex w-9 shrink-0 items-center justify-center rounded-lg border border-input bg-white text-muted-foreground transition-colors hover:border-muted-foreground/40 hover:text-foreground"
+                        className="flex w-9 max-md:w-12 shrink-0 items-center justify-center rounded-lg border border-input bg-white text-muted-foreground transition-colors hover:border-muted-foreground/40 hover:text-foreground"
                       >
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
                       </button>
@@ -311,14 +311,15 @@ export default function OrderEntry() {
           </Button>
         </div>
 
-        {/* Total */}
-        <div className="flex items-center justify-between rounded-xl border border-border bg-secondary/50 px-5 py-4">
+        {validationError && <ErrorText>{validationError}</ErrorText>}
+        {submitError && <ErrorText>{submitError}</ErrorText>}
+
+        {/* Total and Send: fixed to the bottom of a phone screen, so both stay in reach. */}
+        <div className="flex flex-col gap-3 max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:z-30 max-md:gap-2 max-md:border-t max-md:border-border max-md:bg-white/95 max-md:px-4 max-md:py-3 max-md:shadow-[0_-4px_16px_rgba(0,0,0,0.06)] max-md:backdrop-blur">
+        <div className="flex items-center justify-between rounded-xl border border-border bg-secondary/50 px-5 py-4 max-md:border-0 max-md:bg-transparent max-md:p-0">
           <span className="text-sm font-semibold text-muted-foreground">Total</span>
           <span className="tabular text-2xl font-bold text-foreground">{money(total)}</span>
         </div>
-
-        {validationError && <ErrorText>{validationError}</ErrorText>}
-        {submitError && <ErrorText>{submitError}</ErrorText>}
 
         <Button type="submit" disabled={createMutation.isPending} className="h-12 w-full text-base">
           {createMutation.isPending ? (
@@ -331,6 +332,7 @@ export default function OrderEntry() {
             </span>
           ) : "Send order"}
         </Button>
+        </div>
       </form>
     </div>
   );

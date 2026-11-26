@@ -77,7 +77,10 @@ export async function getStockStatus() {
   const items = await prisma.item.findMany({ where: { active: true }, orderBy: { sku: "asc" } });
   return Promise.all(
     items.map(async (item) => {
-      const availableQtyBase = await getAvailableQty(prisma, item.id);
+      const [availableQtyBase, ledger] = await Promise.all([
+        getAvailableQty(prisma, item.id),
+        prisma.stockMovement.aggregate({ where: { itemId: item.id }, _sum: { qtyBase: true, totalCostPaise: true } }),
+      ]);
       const isLow = item.reorderLevel != null && availableQtyBase < item.reorderLevel;
       return {
         itemId: item.id,
@@ -86,6 +89,10 @@ export async function getStockStatus() {
         type: item.type,
         unit: item.baseUnit,
         availableQtyBase,
+        // On-hand and its value at moving weighted-average cost, straight from
+        // the ledger: the page divides one by the other for the average rate.
+        onHandQtyBase: ledger._sum.qtyBase ?? 0,
+        valuePaise: ledger._sum.totalCostPaise ?? 0,
         reorderLevel: item.reorderLevel,
         status: isLow ? "LOW" : "NORMAL",
       };

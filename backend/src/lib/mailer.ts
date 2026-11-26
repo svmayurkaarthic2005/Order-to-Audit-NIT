@@ -8,9 +8,13 @@ function credentials() {
   return { user: process.env.GMAIL_USER, pass: process.env.GMAIL_APP_PASSWORD };
 }
 
+// MAIL_TEST_OUTBOX=1 (the throwaway e2e/demo server only): mail goes through
+// the whole send path into an in-memory transport and never leaves the machine.
+const testOutbox = () => !!process.env.MAIL_TEST_OUTBOX;
+
 export function isMailerConfigured(): boolean {
   const { user, pass } = credentials();
-  return Boolean(user && pass);
+  return testOutbox() || Boolean(user && pass);
 }
 
 // No transporter caching: credentials can change between calls (tests),
@@ -27,6 +31,10 @@ export async function sendMail(params: {
   text: string;
   attachments?: { filename: string; content: Buffer }[];
 }): Promise<void> {
+  if (testOutbox()) {
+    await nodemailer.createTransport({ jsonTransport: true }).sendMail({ from: "test-outbox@localhost", ...params });
+    return;
+  }
   const { user, pass } = credentials();
   if (!user || !pass) {
     throw new AppError(503, "email_not_configured", "Email delivery is not configured on this server");
