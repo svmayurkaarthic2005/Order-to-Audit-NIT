@@ -41,6 +41,6 @@ bomRouter.put("/:id", canManageBoms, validate("body", bomEditSchema), async (req
 });
 
 packSizesRouter.post("/", canManageBoms, validate("body", packSizeCreateSchema), async (req, res) => {
-  const packSize = await createPackSize(req.body);
+  const packSize = await createPackSize(req.body, req.user!.id);
   res.status(201).json({ data: packSize });
 });
