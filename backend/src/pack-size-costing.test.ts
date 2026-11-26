@@ -81,6 +81,22 @@ describe("pack-size costing — shared recipe, per-pack packaging and output", (
     expect(packSize500.status).toBe(201);
     expect(packSize500.body.data.expectedYieldQty).toBe(40);
 
+    // Pre-migration records have a backfilled yield but no reliable
+    // pack-specific packaging configuration. They must be set up before use.
+    const legacyUnconfiguredPack = await prisma.packSize.create({
+      data: {
+        finishedItemId: finished500Id,
+        baseBomId: bomId,
+        multiplier: 2,
+        label: "legacy-unconfigured",
+        expectedYieldQty: 100,
+      },
+    });
+    const legacyPlan = await request(app).post("/production-runs").set("Cookie", adminCookie)
+      .send({ bomHeaderId: bomId, packSizeId: legacyUnconfiguredPack.id });
+    expect(legacyPlan.status).toBe(409);
+    expect(legacyPlan.body.error.code).toBe("pack_size_not_configured");
+
     // A migrated pack-size record can be corrected before any run references it.
     const configuredPack = await request(app).put(`/pack-sizes/${packSize500.body.data.id}`)
       .set("Cookie", adminCookie)
