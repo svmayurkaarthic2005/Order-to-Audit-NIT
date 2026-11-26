@@ -28,3 +28,11 @@ export const packSizeCreateSchema = z.object({
     qtyPerBatch: z.coerce.number().int().positive(),
   })).min(1),
 });
+
+export const packSizeEditSchema = z.object({
+  expectedYieldQty: z.coerce.number().int().positive(),
+  lines: z.array(z.object({
+    itemId: z.string().min(1),
+    qtyPerBatch: z.coerce.number().int().positive(),
+  })).min(1),
+});
