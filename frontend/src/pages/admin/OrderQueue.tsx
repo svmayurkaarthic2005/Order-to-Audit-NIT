@@ -79,6 +79,9 @@ export default function OrderQueue() {
       if (err instanceof ApiError && err.code === "insufficient_stock") {
         const shortfall = (err.details as { shortfall?: number } | undefined)?.shortfall;
         setShortfallByOrder((prev) => ({ ...prev, [orderId]: `Not enough packets in stock. You're ${shortfall} short; make more or edit the order.` }));
+      } else {
+        // Any other failure must show too, never leave the click looking ignored.
+        setShortfallByOrder((prev) => ({ ...prev, [orderId]: err instanceof ApiError ? err.message : "Couldn't approve the order. Try again." }));
       }
     },
   });

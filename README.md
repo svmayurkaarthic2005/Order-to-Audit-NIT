@@ -238,6 +238,18 @@ npm test            # 182 tests, real Postgres, about a minute
 npm run benchmark   # section 5 on a brand-new database, 15 checks
 ```
 
+Browser tests click through the same story in a real browser: production records the purchase
+and the run, Salesman A orders, the admin approves, invoices and dispatches, Distributor B's
+order is refused for 32 packets with Salesman B notified, and the payment leaves ₹3,875 owed.
+
+```bash
+cd frontend
+npx playwright install chromium   # once (or use the installed Chrome: it's the local default)
+npm run e2e                        # starts its own API on :4100 against a fresh <db>_e2e and the site on :5180
+```
+
+CI runs all three on every push: backend tests and benchmark, frontend lint and build, browser tests.
+
 The tests cover the full order-to-cash and production flows and the unhappy paths: wrong
 password, every role boundary (403s), insufficient stock, duplicate order lines, incomplete
 production input, per-pack yield and packaging selection, immutable pack configuration after

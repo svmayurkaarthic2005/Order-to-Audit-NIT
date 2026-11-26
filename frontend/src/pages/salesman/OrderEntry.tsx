@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, ApiError } from "@/lib/api";
-import { Button, Card, ErrorText, Field, Input, PageHeader, Select, money } from "@/components/ui";
+import { Button, Card, ErrorText, Field, Input, Label, PageHeader, Select, money } from "@/components/ui";
 
 type Customer = { id: string; name: string };
 type Item = { id: string; sku: string; name: string; type: string };
@@ -226,7 +226,10 @@ export default function OrderEntry() {
                   </Select>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] items-end gap-3 px-4 py-3">
-                  <Field label="Quantity" required>
+                  {/* Not a Field: a label around the stepper would send clicks on
+                      "Quantity" to the minus button. The input is named directly. */}
+                  <div className="flex flex-col">
+                    <Label required>Quantity</Label>
                     <div className="flex items-stretch gap-1">
                       <button
                         type="button"
@@ -238,6 +241,7 @@ export default function OrderEntry() {
                       </button>
                       <Input
                         placeholder="0"
+                        aria-label="Quantity"
                         type="number"
                         inputMode="numeric"
                         value={line.qtyBase}
@@ -253,7 +257,7 @@ export default function OrderEntry() {
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
                       </button>
                     </div>
-                  </Field>
+                  </div>
                   <Field label="Price per packet (₹)" required>
                     <Input
                       placeholder="e.g. 50"

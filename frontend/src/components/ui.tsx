@@ -63,12 +63,17 @@ export function Label({ children, required }: { children: ReactNode; required?: 
   );
 }
 
+// A <label> around the control links the two: screen readers announce the
+// field's name, and clicking the name focuses the input.
 export function Field({ label, required, children }: { label: string; required?: boolean; children: ReactNode }) {
   return (
-    <div className="flex flex-col">
-      <Label required={required}>{label}</Label>
+    <label className="flex flex-col">
+      <span className="mb-1.5 block text-sm font-medium text-foreground">
+        {label}
+        {required && <span className="ml-0.5 text-destructive">*</span>}
+      </span>
       {children}
-    </div>
+    </label>
   );
 }
 
