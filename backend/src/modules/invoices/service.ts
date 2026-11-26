@@ -3,7 +3,7 @@ import { logAudit } from "../../lib/audit.js";
 import { sendMail } from "../../lib/mailer.js";
 import { prisma } from "../../lib/prisma.js";
 import { InvoicePdfNotFoundError, uploadInvoicePdf, urlForInvoicePdf } from "../../lib/storage.js";
-import { calculate } from "../gst/calculate.js";
+import { calculate, FACTORY_STATE } from "../gst/calculate.js";
 import { getOutstandingPaise } from "../payments/service.js";
 import { syncAlertsForItems } from "../alerts/service.js";
 import { notifyOrderUpdate } from "../orders/service.js";
@@ -16,7 +16,6 @@ const rupees = (paise: number) =>
 // The factory's own state for CGST+SGST vs IGST determination — never
 // configured per-invoice, so a dev fallback is fine here (same pattern as
 // JWT_SECRET's dev fallback).
-const MANUFACTURER_STATE = process.env.MANUFACTURER_STATE ?? "Tamil Nadu";
 
 // Indian financial year runs April 1 – March 31, e.g. "2026-27" for any
 // date from 2026-04-01 through 2027-03-31.
@@ -79,7 +78,7 @@ export async function createInvoice(orderId: string, actingUserId: string) {
       ratePaise: line.ratePaise,
       taxRatePct: line.item.taxRatePct,
     }));
-    const gst = calculate(gstLineItems, MANUFACTURER_STATE, order.customer.state);
+    const gst = calculate(gstLineItems, FACTORY_STATE, order.customer.state);
 
     const invoice = await tx.invoice.create({
       data: {

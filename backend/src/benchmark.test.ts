@@ -175,6 +175,16 @@ describe("benchmark scenario (section 5), replayed on a fresh database", () => {
     expect(bell.some((n) => n.title.includes("Distributor B") && n.message.includes("32 short"))).toBe(true);
     expect(distributorApproval.body.error.code).toBe("insufficient_stock");
     expect(distributorApproval.body.error.details.shortfall).toBe(32);
+    expect(distributorApproval.body.error.details).toMatchObject({ requested: 120, available: 88 });
+    // The waiting order itself shows the gap and the tax it would carry.
+    const waiting = (await request(app).get("/orders?status=SUBMITTED").set("Cookie", admin)).body.data.items as {
+      customer: { name: string };
+      stockCheck: { requested: number; available: number; short: number }[];
+      taxPreview: { igstPaise: number; cgstPaise: number; interstate: boolean };
+    }[];
+    const distributor = waiting.find((o) => o.customer.name === "Distributor B")!;
+    expect(distributor.stockCheck).toEqual([expect.objectContaining({ requested: 120, available: 88, short: 32 })]);
+    expect(distributor.taxPreview).toMatchObject({ interstate: true, igstPaise: 30_000, cgstPaise: 0 });
     // Karnataka customer, Tamil Nadu factory: interstate, so IGST only.
     const gst = calculate([{ qtyBase: 120, ratePaise: 5_000, taxRatePct: 5 }], "Tamil Nadu", "Karnataka");
     expect(gst).toMatchObject({ cgstPaise: 0, sgstPaise: 0, igstPaise: 30_000, totalPaise: 630_000 });

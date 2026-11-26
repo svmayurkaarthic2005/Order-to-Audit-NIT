@@ -106,8 +106,15 @@ test("3. Salesman B's 120 for Distributor B is refused: 32 packets short, and Sa
 
   const admin = await signIn(browser, USERS.admin);
   await admin.goto("/admin/orders");
+  // Before deciding, the card already shows the gap and the tax it would carry.
+  await expect(admin.getByText("Not enough stock")).toBeVisible();
+  await expect(admin.getByText("Murukku 200 g requested").locator("..")).toContainText("120");
+  await expect(admin.getByText("Available now").locator("..")).toContainText("88");
+  await expect(admin.getByText("Short by").locator("..")).toContainText("32");
+  await expect(admin.getByText(/If invoiced: IGST ₹300\.00 \(Karnataka/)).toBeVisible();
+  await admin.screenshot({ path: "test-results/distributor-b-shortage.png", fullPage: true });
   await admin.getByRole("button", { name: "Approve", exact: true }).first().click();
-  await expect(admin.getByText(/You're 32 short/)).toBeVisible();
+  await expect(admin.getByText(/120 requested, 88 available\. You're 32 short/)).toBeVisible();
   await admin.context().close();
 
   const salesmanB = await signIn(browser, USERS.salesmanB);

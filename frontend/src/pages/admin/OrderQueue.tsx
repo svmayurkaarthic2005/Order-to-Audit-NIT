@@ -9,9 +9,13 @@ type Order = {
   id: string;
   status: "SUBMITTED" | "APPROVED" | "REJECTED" | "DISPATCHABLE" | "DISPATCHED" | "CANCELLED";
   rejectionReason: string | null;
-  customer: { name: string };
+  customer: { name: string; state: string };
   salesmanUser: { name: string };
   items: { itemId: string; qtyBase: number; ratePaise: number; item: { sku: string; name: string } }[];
+  // From the server: the GST the invoice would carry, and for a waiting
+  // order whether stock covers it now (requested vs available).
+  taxPreview: { taxableValuePaise: number; cgstPaise: number; sgstPaise: number; igstPaise: number; totalPaise: number; interstate: boolean };
+  stockCheck: { itemId: string; requested: number; available: number; short: number }[] | null;
 };
 type EditLine = { itemId: string; sku: string; name: string; qtyBase: string; ratePaise: string };
 
@@ -78,7 +82,8 @@ export default function OrderQueue() {
     onError: (err, orderId) => {
       if (err instanceof ApiError && err.code === "insufficient_stock") {
         const shortfall = (err.details as { shortfall?: number } | undefined)?.shortfall;
-        setShortfallByOrder((prev) => ({ ...prev, [orderId]: `Not enough packets in stock. You're ${shortfall} short; make more or edit the order.` }));
+        const d = err.details as { requested?: number; available?: number } | undefined;
+        setShortfallByOrder((prev) => ({ ...prev, [orderId]: `Not enough packets in stock: ${d?.requested ?? "?"} requested, ${d?.available ?? "?"} available. You're ${shortfall} short; make more or edit the order. Nothing was set aside.` }));
       } else {
         // Any other failure must show too, never leave the click looking ignored.
         setShortfallByOrder((prev) => ({ ...prev, [orderId]: err instanceof ApiError ? err.message : "Couldn't approve the order. Try again." }));
@@ -183,7 +188,11 @@ export default function OrderQueue() {
                       <p className="font-semibold text-foreground">{o.customer.name}</p>
                       <p className="mt-0.5 text-xs text-muted-foreground">Placed by {o.salesmanUser.name}</p>
                     </div>
-                    <StatusBadge variant={STATUS_VARIANT[o.status] ?? "neutral"}>{STATUS_LABEL[o.status] ?? o.status}</StatusBadge>
+                    {o.stockCheck?.some((c) => c.short > 0) ? (
+                      <StatusBadge variant="warning">Not enough stock</StatusBadge>
+                    ) : (
+                      <StatusBadge variant={STATUS_VARIANT[o.status] ?? "neutral"}>{STATUS_LABEL[o.status] ?? o.status}</StatusBadge>
+                    )}
                   </div>
 
                   {/* Card body */}
@@ -231,9 +240,25 @@ export default function OrderQueue() {
                     )}
 
                     <div className="flex items-center justify-between border-t border-border/60 pt-3">
-                      <span className="text-sm text-muted-foreground">Total</span>
+                      <span className="text-sm text-muted-foreground">Total before tax</span>
                       <span className="tabular text-base font-bold text-foreground">{money(total)}</span>
                     </div>
+                    <p className="tabular mt-1 text-right text-xs text-muted-foreground">
+                      {o.taxPreview.interstate
+                        ? `If invoiced: IGST ${money(o.taxPreview.igstPaise)} (${o.customer.state} is outside the factory's state), total ${money(o.taxPreview.totalPaise)}`
+                        : `If invoiced: CGST ${money(o.taxPreview.cgstPaise)} + SGST ${money(o.taxPreview.sgstPaise)}, total ${money(o.taxPreview.totalPaise)}`}
+                    </p>
+
+                    {o.stockCheck?.filter((c) => c.short > 0).map((c) => {
+                      const name = o.items.find((l) => l.itemId === c.itemId)?.item.name ?? "Product";
+                      return (
+                        <div key={c.itemId} className="mt-3 grid grid-cols-3 gap-2 rounded-md border border-warning/30 bg-warning-bg px-3 py-2 text-center text-sm">
+                          <div><p className="text-xs text-muted-foreground">{name} requested</p><p className="tabular font-semibold text-foreground">{c.requested}</p></div>
+                          <div><p className="text-xs text-muted-foreground">Available now</p><p className="tabular font-semibold text-foreground">{c.available}</p></div>
+                          <div><p className="text-xs text-muted-foreground">Short by</p><p className="tabular font-semibold text-warning">{c.short}</p></div>
+                        </div>
+                      );
+                    })}
 
                     {editingOrderId === o.id && editError && <div className="mt-3"><ErrorText>{editError}</ErrorText></div>}
 

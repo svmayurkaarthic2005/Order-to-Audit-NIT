@@ -1,3 +1,6 @@
+// The factory's state: CGST + SGST for customers in it, IGST for the rest.
+export const FACTORY_STATE = process.env.MANUFACTURER_STATE ?? "Tamil Nadu";
+
 export type GstLineItem = {
   qtyBase: number;
   ratePaise: number;

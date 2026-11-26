@@ -5,6 +5,7 @@ import { prisma } from "../../lib/prisma.js";
 import { getOnHandQty, getReservedQty } from "../inventory/service.js";
 import { syncAlertsForItems } from "../alerts/service.js";
 import { notify } from "../notifications/service.js";
+import { calculate, FACTORY_STATE } from "../gst/calculate.js";
 
 // Tells the people who act next that an order moved on: the office when a
 // salesman submits one, the salesman when the office decides or ships it.
@@ -55,7 +56,37 @@ export async function listOrders(filter: { salesmanId?: string; status?: string 
     }),
     prisma.salesOrder.count({ where }),
   ]);
-  return { items, total };
+  return { items: await Promise.all(items.map(withPreview)), total };
+}
+
+type ListedOrder = {
+  status: string;
+  customer: { state: string };
+  items: { itemId: string; qtyBase: number; ratePaise: number; item: { taxRatePct: number } }[];
+};
+
+// What the office needs before deciding: the GST the invoice would carry
+// (CGST + SGST in the factory's state, IGST outside it) and, for an order
+// still waiting, whether stock covers it right now: requested vs available
+// (on hand minus what approved orders already hold), the same sum approval uses.
+async function withPreview<T extends ListedOrder>(order: T) {
+  const taxPreview = calculate(
+    order.items.map((l) => ({ qtyBase: l.qtyBase, ratePaise: l.ratePaise, taxRatePct: l.item.taxRatePct })),
+    FACTORY_STATE,
+    order.customer.state,
+  );
+  let stockCheck: { itemId: string; requested: number; available: number; short: number }[] | null = null;
+  if (order.status === "SUBMITTED") {
+    const requested = new Map<string, number>();
+    for (const l of order.items) requested.set(l.itemId, (requested.get(l.itemId) ?? 0) + l.qtyBase);
+    stockCheck = await Promise.all(
+      [...requested].map(async ([itemId, qty]) => {
+        const available = Math.max(0, (await getOnHandQty(prisma, itemId)) - (await getReservedQty(prisma, itemId)));
+        return { itemId, requested: qty, available, short: Math.max(0, qty - available) };
+      }),
+    );
+  }
+  return { ...order, taxPreview: { ...taxPreview, interstate: FACTORY_STATE.trim().toLowerCase() !== order.customer.state.trim().toLowerCase() }, stockCheck };
 }
 
 export async function getOrder(id: string) {
@@ -208,6 +239,8 @@ export async function approveOrder(id: string, actingUserId: string) {
       if (requested > available) {
         throw new AppError(409, "insufficient_stock", "Not enough stock to approve this order", {
           itemId,
+          requested,
+          available: Math.max(0, available),
           shortfall: requested - available,
         });
       }
