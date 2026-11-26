@@ -1,6 +1,9 @@
 import PDFDocument from "pdfkit";
 
-const MANUFACTURER_GSTIN = process.env.MANUFACTURER_GSTIN || "33AAAAA0000A1Z5";
+// The supplier's GSTIN must be the factory's real one (GST invoice rules), so
+// there is no made-up fallback: without MANUFACTURER_GSTIN the PDF says plainly
+// that it is a demonstration invoice.
+const MANUFACTURER_GSTIN = process.env.MANUFACTURER_GSTIN?.trim() || null;
 export const MANUFACTURER_NAME = "Porulottam Foods";
 
 type InvoiceForPdf = {
@@ -52,10 +55,10 @@ export function renderInvoicePdf(invoice: InvoiceForPdf): Promise<Buffer> {
 
     // ── Header ──────────────────────────────────────────────────────────
     doc.fontSize(20).font("Helvetica-Bold").text(MANUFACTURER_NAME, left, doc.y);
-    doc.fontSize(9).font("Helvetica").fillColor("#555").text(`GSTIN: ${MANUFACTURER_GSTIN}`);
+    doc.fontSize(9).font("Helvetica").fillColor("#555").text(`GSTIN: ${MANUFACTURER_GSTIN ?? "not set (demonstration invoice)"}`);
     doc.fillColor("#000");
 
-    doc.fontSize(18).font("Helvetica-Bold").text("TAX INVOICE", left, 50, { width: CONTENT_WIDTH, align: "right" });
+    doc.fontSize(18).font("Helvetica-Bold").text(MANUFACTURER_GSTIN ? "TAX INVOICE" : "TAX INVOICE (DEMO)", left, 50, { width: CONTENT_WIDTH, align: "right" });
     doc
       .fontSize(10)
       .font("Helvetica")
