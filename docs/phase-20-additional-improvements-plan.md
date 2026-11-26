@@ -1,5 +1,10 @@
 # Phase 20+ — Additional Improvements Plan
 
+> **Historical record.** Written during development; the app has moved on since (one-step run
+> recording, recipe versions and pack formats, order shortage display, stage notifications, browser
+> tests). For current behaviour see the [README](../README.md) and [design-note.md](./design-note.md).
+
+
 Continues the Phase 1–19 build (see [design-note.md](./design-note.md) for the architecture those
 phases produced). This document is the living plan for the next round of scope: auditability,
 batch/expiry traceability, explainable costing, low-stock alerts and a notification centre.

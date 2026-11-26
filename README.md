@@ -146,11 +146,15 @@ prices never change an earlier run's cost.
   version and retires the old one, which is never changed or deleted. New plans use the latest
   version; a run already planned keeps its version until someone presses "Use latest recipe", and
   started or finished runs never change. The activity log records who changed which amounts.
-- Phone-friendly order entry; admin approve, edit or reject, with a stock check before approval
+- Phone-friendly order entry; admin approve, edit or reject. A waiting order shows requested,
+  available and short quantities and the GST its invoice would carry (CGST + SGST or IGST)
+  before anyone approves it; approval refuses a shortage and sets nothing aside
 - GST invoice PDF: GSTIN, HSN, taxable value, CGST+SGST or IGST by place of supply, numbering per
   financial year
 - Production runs that move raw-material, pack-specific packaging and finished-goods stock
-  automatically; packaging issues and damage are checked against usable stock and FEFO batches
+  automatically, recorded in one form (materials used, damaged packaging, good packets, costs)
+  that posts all of it in one transaction or none of it; packaging issues and damage are
+  checked against usable stock and FEFO batches
 - Planned against actual consumption and pack-specific expected yield, with variance shown and
   flagged beyond ±3%
 - Stock summary and per-item stock ledger
@@ -166,7 +170,9 @@ prices never change an earlier run's cost.
 - Payments, outstanding per invoice and customer, ageing buckets (0-30, 31-60, 61-90, 90+)
 - Cost per packet with overheads, with a per-run breakdown and margin
 - GST summary report: totals, by rate, and invoice by invoice (B2B/B2C, place of supply)
-- Variance alerts beyond tolerance, as notifications
+- Variance alerts beyond tolerance (yield and each material), as notifications
+- Notifications by role for each order hand-off: new order (owner, admin), approved, rejected,
+  dispatched, cancelled or short of stock (the salesman who took it)
 - Owner dashboard: today's to-do list, sales, dues, stock levels, latest orders
 
 **Stretch goals done:**
@@ -196,21 +202,26 @@ e-Invoice/e-Way Bill format, and a Tamil interface for floor staff.
 - **Money is integer paise**, never floats. Rates that don't fit a whole paise per gram (₹45/kg
   is 4.5 paise/g) are booked from the exact line total.
 - **Every change is logged** with user and time: order edits (before and after), approvals,
-  invoices, credit notes, payments, dispatch, and each production run's start, finish and cancel.
+  invoices, credit notes, payments, dispatch, and each production run's recording and cancel.
 - **Concurrency:** approving orders takes a per-product lock, so two approvals can't sell the
-  same packets twice; run start/finish/cancel claim the status change atomically; a dispatch is
-  unique per invoice; offline orders carry an idempotency key.
+  same packets twice; run recording and cancel claim the status change atomically; a dispatch is
+  unique per invoice, and a dispatch and a credit note on the same invoice lock it, so they can't
+  interleave; offline orders carry an idempotency key.
+- **Cancelling before dispatch frees stock:** a credit note on an invoice that hasn't shipped marks
+  its order cancelled, releasing the packets its approval set aside.
 - **Batches stay in step with the ledger:** a purchase creates its batch in the same
   transaction as the receipt; cancelling a run puts the material back on the batch it came from.
 - **Orders can't dodge the stock check** by splitting one product over two lines: duplicates
   are refused, and approval totals quantities per product anyway.
-- **Production inputs must be complete:** starting a run must report every raw material on the
-  recipe exactly once, and finishing must report its packaging.
+- **Production inputs must be complete:** recording a run must report every raw material on the
+  recipe and every packaging item of its pack exactly once.
 
 ## Assumptions
 
 - The factory is in Tamil Nadu (`MANUFACTURER_STATE`); same-state customers get CGST + SGST,
   others IGST. GST is 5% on Murukku, set on the product.
+- The brief gives no factory GSTIN, so none is invented: until `MANUFACTURER_GSTIN` is set, the
+  invoice PDF is headed "TAX INVOICE (DEMO)" and says the GSTIN is not set.
 - Opening finished goods (50 packets) carry no cost, since the brief doesn't give one; this
   doesn't affect the run's cost per packet.
 - Stock is held in grams, millilitres and pieces so quantities stay whole numbers; the screens
@@ -226,6 +237,7 @@ e-Invoice/e-Way Bill format, and a Tamil interface for floor staff.
   invoiced fine but dispatched as one line.
 - Customer-specific prices and schemes aren't modelled; the salesman enters the price per order
   and the admin can edit it before approval.
+- No user-management screen: the six logins are seeded.
 - The demo video is not recorded yet.
 - The hosted demo runs on free tiers (see below), so the first request after a quiet spell can
   be slow, and Supabase pauses a project after a week with no activity.
@@ -308,7 +320,7 @@ connects as the table owner and is unaffected.
 
 - `docs/design-note.md`: architecture, data model, how stock and BOM consumption are computed,
   costing and valuation
-- `docs/er-diagram.md`: entity-relationship diagram
+- `docs/er-diagram.md`: entity-relationship diagram of all 29 tables, generated from the schema by `python docs/gen-er-diagram.py`
 - `docs/demo-video-script.md`: the demo, scene by scene
 - `docs/phase-20-additional-improvements-plan.md`: the plan the "also built" features came from
 

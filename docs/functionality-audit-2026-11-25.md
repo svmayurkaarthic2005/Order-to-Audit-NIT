@@ -1,6 +1,11 @@
 # Full functionality audit — every role, every nav item, notifications
 
 **Date:** 2026-11-25
+
+> **Historical record.** Written during development; the app has moved on since (one-step run
+> recording, recipe versions and pack formats, order shortage display, stage notifications, browser
+> tests). For current behaviour see the [README](../README.md) and [design-note.md](./design-note.md).
+
 **Scope:** requested as "navigation, all dashboard, check all functionality from start to end, even small functionality, in every role, including workflow — give a final report addressing the issues — and check notification functionality."
 
 ## Method

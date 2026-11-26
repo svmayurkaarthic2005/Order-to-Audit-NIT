@@ -1,67 +1,79 @@
-# Demo video script — ≤8 minutes
+# Demo video script (8 minutes)
 
-Scene-by-scene script for the submission demo. Timings are cumulative; each scene is a single
-continuous screen recording with narration, no edits needed beyond trimming between scenes. This
-script doubles as the post-deployment benchmark re-verification: following it step-by-step against
-the live Vercel URLs should reproduce the same 10 exact numbers in `README.md`.
+Scene by scene, in the order of the brief's section 5 benchmark. Timings are cumulative. The live
+site is https://porulottam-erp-bay.vercel.app; its database starts with the six logins only, so
+the master data is entered on camera. Following this script against the live site reproduces the
+numbers in the README's benchmark table. The browser tests (`cd frontend && npm run e2e`) click
+through the same story and check the same numbers.
 
-Record with the Playwright CLI skill (installed in this repo) if a scripted, repeatable capture is
-wanted instead of a manual screen recording.
+Before recording: press Ctrl+Shift+R once; each demo account is a button on the login page.
 
 ---
 
-**0:00–0:30 — Cold open.** Show the login screen. *"This is Porulottam ERP — Every material.
-Every process. One connected system. An order-to-audit system for a small food manufacturer:
-one salesman takes an order, the factory checks stock, production turns raw material into
-packets, and the owner can trace every rupee and every gram back to where it came from. I'll
-walk through the whole flow once, start to finish."*
+**0:00–1:00 — Setup (Owner).** Sign in as **Owner**.
 
-**0:30–1:15 — BOM (recipe).** Sign in as Admin. Open **BOM / recipes**. Point at the existing
-Murukku 200 g recipe: Flour, Oil, Spice mix per batch, expected yield 200 packets, plus its
-200 g pack size. *"This recipe is what production runs against — planned quantities live only
-here, never duplicated into the ledger."*
+- **Setup → Products & materials:** add Flour, Cooking oil and Spice mix (raw material), 200 g
+  pouch and Carton (packaging), and Murukku 200 g (a product we sell: HSN 19059090, GST 5%).
+- **Setup → Customers & suppliers:** add Retailer A (Tamil Nadu), Distributor B (Karnataka) and a
+  flour supplier.
+- **Production → Recipes → New recipe:** Murukku 200 g, 200 packets per batch, with 40 kg flour,
+  10 L oil, 1.2 kg spice mix, 200 pouches and 10 cartons.
+- **Stock → Stock levels → Record opening stock:** flour 100 kg (₹4,200), oil 30 L (₹4,200),
+  spice mix 5 kg (₹1,000), 500 pouches (₹1,250), 30 cartons (₹450), 50 packets (₹0). Set "Warn me
+  below" to 25 L for oil and 100 kg for flour.
 
-**1:15–2:45 — Production run.** Open **Production runs**. Create a new DRAFT run against the
-Murukku recipe. Click **Record run**: one table, Material | Planned | Actually used | Of which
-damaged, with every "used" box empty. Enter flour 40 kg, oil 10.5 L (10 L planned), spice mix 1.2 kg,
-pouches 194 used / 6 damaged, cartons 9, good packets 188, labour ₹1,200 and gas/power ₹600, then
-**Record run**. Point out it is all-or-nothing: if any material is short, nothing leaves stock and
-the run stays planned. Open **How did it go?**: Oil +5% flagged, yield −6% flagged, cartons −10% flagged, cost per packet
-₹31.14 (₹5,855 ÷ 188) with its stated method
-visible right there. *"Anything outside ±3% tolerance is flagged immediately — not buried in a
-report someone has to go look for."*
+*"Home now shows stock worth ₹11,100: every item at its average cost."* (Pre-record this part and
+speed it up if time is short.)
 
-**2:45–3:30 — Salesman order entry (mobile).** Switch viewport to a phone width, sign in as
-Salesman. Open **New order**: select Retailer A, add 150 packets of Murukku 200 g at ₹50 each,
-submit. Show it land in **My orders** as SUBMITTED. *"The salesman's whole job is three taps —
-customer, product and quantity, submit."*
+**1:00–1:30 — Step 1, purchase (Production).** Sign in as **Production supervisor**. **Stock →
+Purchases:** flour supplier, Flour, 60 kg at ₹45. *"Stock goes up on save, and flour's average
+cost becomes ₹43.125/kg: (100 × 42 + 60 × 45) ÷ 160."*
 
-**3:30–4:30 — Approval and the shortage case.** Back to desktop, sign in as Admin, open
-**Order queue**. Approve Retailer A's order — on-hand drops accordingly. Then show Distributor
-B's pending 120-packet order: attempt to approve it against the now-reduced stock and show the
-exact "short by 32 units" message. *"The system blocks an order it can't actually fill, with the
-exact shortfall — not a vague low-stock warning."*
+**1:30–3:00 — Steps 2–3 and 8, the run (Production).** **Production → Production runs:** plan one
+batch of Murukku 200 g, then **Record run**. Enter, against each planned amount:
 
-**4:30–5:30 — Invoice and GST.** From the approved Retailer A order, create the invoice. Show the
-GST split: taxable ₹7,500, CGST ₹187.50, SGST ₹187.50, total ₹7,875 — same state, so CGST+SGST,
-not IGST. Download the PDF, then demonstrate **Share on WhatsApp** opening the pre-filled
-`wa.me` link with the invoice total and PDF link. *"Once issued, this invoice is frozen — a
-correction is always a credit note, never an edit."*
+- flour 40 kg, oil 10.5 L (10 L planned), spice mix 1.2 kg;
+- pouches 194 used, 6 of them damaged; cartons 9;
+- good packets 188, labour ₹1,200, gas/power ₹600.
 
-**5:30–6:15 — Dispatch and payment.** Open **Dispatch**, ship the invoice, confirm finished-goods
-on-hand lands at 88. Open **Payments**, record ₹4,000 against the ₹7,875 invoice, show outstanding
-settle at exactly ₹3,875.
+*"It's all-or-nothing: if any material were short, nothing would leave stock."* Open **How did it
+go?**: oil +5% and yield −6% flagged (cartons −10% too), cost per packet **₹31.14** (₹5,855 ÷
+188). Show the bell: variance warnings, and oil now below its reorder level. **Stock levels:**
+flour 120 kg, oil 19.5 L, pouches 306, Murukku 238.
 
-**6:15–7:15 — Owner dashboard and reports.** Open **Dashboard**: revenue, outstanding, finished-
-goods stock, flagged production runs all in one glance. Flip through **Reports**: Sales Register,
-GST Summary, Payments & Collections ageing buckets — export one as CSV to show it's a real,
-numbers-match-the-dashboard document, not a mockup.
+**3:00–3:30 — Step 4, Salesman A on a phone.** Switch to phone view. Sign in as **Salesman A**.
+**New order:** Retailer A, Murukku 200 g, 150 packets at ₹50, **Send order**. *"The office is
+told straight away."*
 
-**7:15–7:45 — Audit log and role boundary.** Open **Audit log**, point at the real APPROVE /
-CREATE / CREDIT_NOTE entries from this exact walkthrough. Sign in as Accountant to show every
-screen is visible but every mutation control (Approve, Dispatch, Record payment, …) is simply
-absent for that role.
+**3:30–4:45 — Step 5, approve, invoice, dispatch (Admin).** Desktop view, sign in as **Factory
+admin**.
 
-**7:45–8:00 — Close.** *"Every number in this demo is live and traceable — the invoice total to
-its GST calculation, the cost per packet to the production run that made it, the outstanding
-balance to the payments against it. That traceability, not just the screens, is the point."*
+- The bell shows the new order. **Orders → Approve orders**: the card already says "If
+  invoiced: CGST + SGST". Click **Approve**, then **To invoice → Create invoice**.
+- **Billing:** ₹7,500 before tax + GST ₹375 (half central, half state) = **₹7,875**. **Download
+  PDF**: CGST ₹187.50 and SGST ₹187.50 listed separately. It reads "TAX INVOICE (DEMO)" because
+  no real factory GSTIN is configured.
+- **Orders → Dispatch:** 150 packets, **Record dispatch**. Finished stock is now **88**.
+
+**4:45–5:45 — Step 6, the shortage (Salesman B, then Admin).** Sign in as **Salesman B**: order
+120 packets for Distributor B. Sign in as **Factory admin**: the card shows **Not enough stock**,
+**requested 120 · available now 88 · short by 32**, and **If invoiced: IGST ₹300.00 (Karnataka is
+outside the factory's state)**. Click **Approve**: refused, nothing set aside. *"Salesman B, the
+owner and the admin are all notified of the 32-packet shortage."*
+
+**5:45–6:15 — Step 7, payment (Admin).** **Billing:** ₹4,000 against Retailer A's invoice. Still
+owed: **₹3,875**. *"A payment larger than what's owed is refused."*
+
+**6:15–7:15 — Step 9, the month's reports (Accountant).** Sign in as **Accountant** (read-only).
+**Reports:** Sales Register (₹7,875), GST Summary (CGST + SGST ₹375, invoice by invoice for
+GSTR-1), Purchase Register (₹2,700), Stock Summary (click flour for its ledger: +100, +60, −40),
+Production (yield variance −6% flagged, wastage 6, planned vs actual per material), Payments &
+Collections (₹3,875 in "Up to 30 days"). Export one as CSV and one as PDF.
+
+**7:15–7:45 — Audit and roles.** **Reports → Activity log:** the purchase, the run, the approval,
+invoice, dispatch and payment, each with who and when. Every screen opens for the accountant, but
+no button that changes data is shown.
+
+**7:45–8:00 — Close.** *"40 kg of flour went in; the system recorded consumption, expected and
+actual output, wastage, closing balances and finished stock on its own, and every number traces
+back to the entry that made it."*

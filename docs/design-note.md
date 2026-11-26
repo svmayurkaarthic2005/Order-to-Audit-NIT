@@ -39,7 +39,7 @@ issues raw material at that value, not a hand-entered one, so a finished packet'
 to the actual purchase prices that went into it.
 
 **Every "claim a status transition" operation is atomic by construction.** Approving an order,
-starting or completing a production run, creating an invoice, recording a dispatch — each of these
+recording or cancelling a production run, creating an invoice, recording a dispatch — each of these
 does `UPDATE ... WHERE status = 'expected' SET status = 'next'` and checks the row count, *before*
 posting any side effect (a stock movement, an invoice number). Two concurrent requests racing to
 approve-then-reject the same order, or to complete the same production run twice, can't both
@@ -73,9 +73,26 @@ edits either, and no PATCH or DELETE route on `/invoices` at all. Corrections ar
 reversals for a cancelled run or purchase (put back on the same batch), a credit note for an
 invoice.
 
+**A production run is recorded in one transaction.** The floor fills one form: materials used,
+damaged packaging, good packets, labour and gas/power. Issuing the materials, the packaging and
+the output either all happen or none do, so a shortage found half-way (say, too few pouches)
+leaves the run planned and the stock untouched. Runs are planned against a recipe *version*:
+editing a recipe saves a new version, so planned and finished runs keep the amounts they were
+planned with. A recipe can feed several pack formats (200 g, 500 g), each with its own expected
+packets and packaging.
+
+**Orders show the shortage before anyone decides.** A waiting order carries a live stock check
+(requested, available, short) and the GST its invoice would carry. Approval re-checks under a
+lock and refuses a shortage without setting anything aside; the salesman, owner and admin are
+notified. Each later hand-off (approved, invoiced, dispatched, cancelled) notifies the salesman.
+
+**Checked three ways.** 182 backend tests against a real Postgres, the section 5 benchmark
+replayed on a brand-new database (15 checks), and browser tests that click through the whole
+story as each role. CI runs all three on every push.
+
 ## Assumptions made where the problem statement was silent
 
-- **Production overhead**: the run's actual labour and gas/power, entered when it's finished
+- **Production overhead**: the run's actual labour and gas/power, entered when it's recorded
   (the benchmark's ₹1,200 + ₹600). If left blank, a flat ₹500 per batch is assumed and the run's
   cost panel says so. Material cost + labour + overhead, divided by good packets, gives the cost
   per packet: ₹5,855 ÷ 188 = ₹31.14 for the benchmark run. Damaged packaging is part of the
@@ -89,7 +106,7 @@ invoice.
 ## What this build deliberately does not do
 
 No multi-warehouse, no multi-currency, no partial GST credit workflows,
-no user-management UI (roles are seeded). These are explicitly out of the problem statement's
+no user-management UI (roles are seeded), and dispatch covers single-product invoices only. These are explicitly out of the problem statement's
 scope, and the 19-phase build plan treats every one of them as a stretch item to build only after
 the mandatory benchmark passes, which it now does end to end on a brand-new database
 (`npm run benchmark`, also run by CI on every push).
