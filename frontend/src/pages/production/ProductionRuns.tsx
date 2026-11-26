@@ -304,7 +304,7 @@ export default function ProductionRuns() {
               <p className="text-xs text-muted-foreground">
                 {selectedBom ? (
                   <>
-                    You should get about <span className="tabular font-semibold text-foreground">{(selectedPackSize?.expectedOutputQty ?? selectedBom.expectedYieldQty) * plannedBatches}</span> {selectedPackSize?.finishedItem.name ?? "packets"}
+                    You should get about <span className="tabular font-semibold text-foreground">{(selectedPackSize?.expectedOutputQty ?? selectedBom.expectedYieldQty) * plannedBatches}</span> packets{selectedPackSize && <> of {selectedPackSize.finishedItem.name}</>}
                     {maxBatches !== null && stock && (
                       <> · stock today covers {maxBatches} {maxBatches === 1 ? "batch" : "batches"}</>
                     )}
