@@ -2,7 +2,8 @@ import { Prisma } from "@prisma/client";
 import { AppError } from "../../lib/AppError.js";
 import { prisma } from "../../lib/prisma.js";
 import { logAudit } from "../../lib/audit.js";
-import { displayUnitCostPaise, issueValuePaise, ledgerPosition } from "../../lib/valuation.js";
+import { displayUnitCostPaise, issueValuePaise, ledgerPosition, splitValue } from "../../lib/valuation.js";
+import { lockItem } from "../batches/service.js";
 
 type DbClient = typeof prisma | Prisma.TransactionClient;
 
@@ -120,31 +121,54 @@ export async function postOpeningStock(data: { itemId: string; qtyBase: number; 
 // in opening + receipts − issues ± adjustments = closing. Valued at the
 // ledger's current moving-average rate either way, so a correction never
 // shifts the average cost it's supposed to just true up the quantity for.
+// A write-off also comes off the batches, or FEFO would later issue stock
+// the ledger no longer holds: unusable (expired/on-hold) batches first, then
+// unbatched stock, then usable batches by earliest expiry. A surplus is
+// unbatched: nobody knows which lot it belongs to.
 export async function recordAdjustment(data: { itemId: string; qtyBase: number; reason: string }, actingUserId: string) {
-  await getItemOrThrow(data.itemId);
+  const item = await getItemOrThrow(data.itemId);
+  const finished = item.type === "FINISHED_GOOD";
 
   return prisma.$transaction(async (tx) => {
+    await lockItem(tx, data.itemId);
     const position = await ledgerPosition(tx, data.itemId);
     const newQty = position.qtyBase + data.qtyBase;
     if (newQty < 0) {
       throw new AppError(409, "insufficient_stock", `Only ${position.qtyBase} in stock; can't write off ${-data.qtyBase}`);
     }
 
-    const totalCostPaise = Math.sign(data.qtyBase) * issueValuePaise(Math.abs(data.qtyBase), position);
+    const sign = Math.sign(data.qtyBase);
+    const qty = Math.abs(data.qtyBase);
+    const totalPaise = issueValuePaise(qty, position);
+    const parts =
+      sign > 0 ? [{ batchId: null as string | null, qty }] : await writeOffParts(tx, data.itemId, finished, qty, position.qtyBase);
+    const values = splitValue(totalPaise, parts.map((p) => p.qty));
+
     const adjustment = await tx.stockAdjustment.create({
       data: { itemId: data.itemId, qtyBase: data.qtyBase, reason: data.reason, createdByUserId: actingUserId },
     });
-    const movement = await tx.stockMovement.create({
-      data: {
-        itemId: data.itemId,
-        qtyBase: data.qtyBase,
-        unitCostPaise: displayUnitCostPaise(totalCostPaise, data.qtyBase),
-        totalCostPaise,
-        source: "ADJUSTMENT",
-        sourceId: adjustment.id,
-        createdByUserId: actingUserId,
-      },
-    });
+    for (const [i, part] of parts.entries()) {
+      if (part.batchId) {
+        const where = { id: part.batchId, remainingQtyBase: { gte: part.qty } };
+        const update = { remainingQtyBase: { decrement: part.qty } };
+        const { count } = finished
+          ? await tx.finishedGoodsBatch.updateMany({ where, data: update })
+          : await tx.rawMaterialBatch.updateMany({ where, data: update });
+        if (count === 0) throw new AppError(409, "batch_qty_changed", `Batch ${part.batchId} no longer has enough remaining quantity`);
+      }
+      await tx.stockMovement.create({
+        data: {
+          itemId: data.itemId,
+          qtyBase: sign * part.qty,
+          unitCostPaise: displayUnitCostPaise(totalPaise, qty),
+          totalCostPaise: sign * values[i]!,
+          source: "ADJUSTMENT",
+          sourceId: adjustment.id,
+          createdByUserId: actingUserId,
+          ...(part.batchId && (finished ? { finishedGoodsBatchId: part.batchId } : { rawMaterialBatchId: part.batchId })),
+        },
+      });
+    }
     await logAudit(tx, {
       userId: actingUserId,
       action: "STOCK_ADJUSTMENT",
@@ -153,6 +177,32 @@ export async function recordAdjustment(data: { itemId: string; qtyBase: number; 
       before: { qtyBase: position.qtyBase },
       after: { qtyBase: newQty, change: data.qtyBase, reason: data.reason },
     });
-    return movement;
+    return { ...adjustment, totalCostPaise: sign * totalPaise };
   });
+}
+
+async function writeOffParts(tx: Prisma.TransactionClient, itemId: string, finished: boolean, qty: number, onHand: number) {
+  const where = { itemId, remainingQtyBase: { gt: 0 } };
+  const batches = finished ? await tx.finishedGoodsBatch.findMany({ where }) : await tx.rawMaterialBatch.findMany({ where });
+  const unusable = (b: (typeof batches)[number]) => b.status === "EXPIRED" || b.status === "QUARANTINED";
+  const byExpiry = (x: (typeof batches)[number], y: (typeof batches)[number]) =>
+    (x.expiryDate?.getTime() ?? Number.MAX_SAFE_INTEGER) - (y.expiryDate?.getTime() ?? Number.MAX_SAFE_INTEGER) ||
+    x.createdAt.getTime() - y.createdAt.getTime();
+  const unbatched = Math.max(0, onHand - batches.reduce((sum, b) => sum + b.remainingQtyBase, 0));
+  const pools: { batchId: string | null; available: number }[] = [
+    ...batches.filter(unusable).sort(byExpiry).map((b) => ({ batchId: b.id, available: b.remainingQtyBase })),
+    { batchId: null, available: unbatched },
+    ...batches.filter((b) => !unusable(b)).sort(byExpiry).map((b) => ({ batchId: b.id, available: b.remainingQtyBase })),
+  ];
+  const parts: { batchId: string | null; qty: number }[] = [];
+  let remaining = qty;
+  for (const pool of pools) {
+    if (remaining <= 0) break;
+    const take = Math.min(pool.available, remaining);
+    if (take > 0) parts.push({ batchId: pool.batchId, qty: take });
+    remaining -= take;
+  }
+  // Batches can't exceed the ledger, but if they ever did the rest is unbatched.
+  if (remaining > 0) parts.push({ batchId: null, qty: remaining });
+  return parts;
 }

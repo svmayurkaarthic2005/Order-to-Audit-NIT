@@ -206,6 +206,34 @@ describe("stock adjustments", () => {
     }
   });
 
+  it("a write-off comes off the batches too, unbatched stock before usable batches, so FEFO can't issue more than the ledger holds", async () => {
+    const cookie = await loginAs("admin@porulottam.test");
+    const itemId = await newItem(cookie);
+    const supplier = await prisma.supplier.findFirstOrThrow();
+    await request(app).post("/inventory/opening-stock").set("Cookie", cookie).send({ itemId, qtyBase: 1_000, totalCostPaise: 5_000 });
+    await request(app).post("/purchases").set("Cookie", cookie).send({ supplierId: supplier.id, items: [{ itemId, qtyBase: 500, rateBasePaise: 5, supplierBatchNo: "LOT-ADJ" }] });
+
+    const res = await request(app).post("/inventory/adjustments").set("Cookie", cookie).send({ itemId, qtyBase: -1_200, reason: "Count shortfall" });
+    expect(res.status).toBe(201);
+
+    const batch = await prisma.rawMaterialBatch.findFirstOrThrow({ where: { itemId } });
+    expect(batch.remainingQtyBase).toBe(300); // all 1,000 unbatched went first, then 200 of the batch
+    const onHand = await prisma.stockMovement.aggregate({ where: { itemId }, _sum: { qtyBase: true } });
+    expect(onHand._sum.qtyBase).toBe(300);
+  });
+
+  it("concurrent write-offs can't together take more than is on hand", async () => {
+    const cookie = await loginAs("admin@porulottam.test");
+    const itemId = await newItem(cookie);
+    await request(app).post("/inventory/opening-stock").set("Cookie", cookie).send({ itemId, qtyBase: 100, totalCostPaise: 1_000 });
+
+    const [a, b] = await Promise.all([
+      request(app).post("/inventory/adjustments").set("Cookie", cookie).send({ itemId, qtyBase: -80, reason: "Race A" }),
+      request(app).post("/inventory/adjustments").set("Cookie", cookie).send({ itemId, qtyBase: -80, reason: "Race B" }),
+    ]);
+    expect([a.status, b.status].sort()).toEqual([201, 409]);
+  });
+
   it("logs the adjustment to the audit trail with who, the reason and the before/after quantity", async () => {
     const cookie = await loginAs("admin@porulottam.test");
     const itemId = await newItem(cookie);
