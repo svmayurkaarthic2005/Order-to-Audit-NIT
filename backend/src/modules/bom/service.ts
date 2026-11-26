@@ -170,6 +170,9 @@ export async function createPackSize(data: {
       throw new AppError(400, "invalid_base_bom", "baseBomId does not refer to an active recipe");
     }
 
+    if (data.packagingLines.length === 0) {
+      throw new AppError(400, "missing_packaging", "Add at least one packaging item for this pack size");
+    }
     const itemIds = data.packagingLines.map((line) => line.itemId);
     if (new Set(itemIds).size !== itemIds.length) {
       throw new AppError(400, "duplicate_line", "A pack size cannot list the same packaging item twice");
@@ -207,6 +210,9 @@ export async function updatePackSize(id: string, data: {
     });
     if (!current) throw new AppError(404, "not_found", "Pack size not found");
 
+    if (data.packagingLines.length === 0) {
+      throw new AppError(400, "missing_packaging", "Add at least one packaging item for this pack size");
+    }
     const itemIds = data.packagingLines.map((line) => line.itemId);
     if (new Set(itemIds).size !== itemIds.length) {
       throw new AppError(400, "duplicate_line", "A pack size cannot list the same packaging item twice");
