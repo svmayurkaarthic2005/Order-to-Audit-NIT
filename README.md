@@ -9,6 +9,7 @@ shortlisting task.
 - **Run it locally:** five commands, below
 - **Re-run the benchmark yourself:** `cd backend && npm run benchmark` (builds a brand-new database
   and replays section 5 end to end; details [below](#the-benchmark-section-5))
+- **Demo video:** [Watch on Google Drive](https://drive.google.com/file/d/1-3wFAKhmzqLsNS2eLupBLTGSrPxM7w8p/view?usp=sharing)
 
 ## Stack, and why
 
