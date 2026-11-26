@@ -19,6 +19,7 @@ type Bom = {
     id: string;
     label: string;
     expectedYieldQty: number;
+    finishedItemId: string;
     finishedItem: { name: string };
     lines: { itemId: string; qtyPerBatch: number; item: { name: string; baseUnit: string } }[];
   }[];
@@ -51,6 +52,7 @@ export default function BOM() {
   const [packItemId, setPackItemId] = useState("");
   const [packExpectedYieldQty, setPackExpectedYieldQty] = useState("");
   const [packLines, setPackLines] = useState<PackLineInput[]>([{ itemId: "", qtyPerBatch: "" }]);
+  const [editingPackSizeId, setEditingPackSizeId] = useState<string | null>(null);
   const [packError, setPackError] = useState<string | null>(null);
 
   const { data: items } = useQuery({
@@ -98,19 +100,23 @@ export default function BOM() {
   const createPackSizeMutation = useMutation({
     mutationFn: () => {
       const bom = boms?.find((b) => b.id === packBomId);
-      return api.post("/pack-sizes", {
-        // The product whose stock a run packed this way goes into. Blank
-        // means the recipe's own product (same item, just a named pack).
-        finishedItemId: packItemId || bom?.finishedItemId,
-        baseBomId: packBomId,
-        // Output quantity is specific to the selected finished pack.
-        multiplier: 1,
-        label: packLabel,
+      const configuration = {
         expectedYieldQty: Number(packExpectedYieldQty),
         lines: packLines.map((line) => ({
           itemId: line.itemId,
           qtyPerBatch: Math.round(Number(line.qtyPerBatch) * unitOf(baseUnitOf(line.itemId)).factor),
         })),
+      };
+      if (editingPackSizeId) {
+        return api.put(`/pack-sizes/${editingPackSizeId}`, configuration);
+      }
+      return api.post("/pack-sizes", {
+        // Blank means use the recipe's own finished-good SKU.
+        finishedItemId: packItemId || bom?.finishedItemId,
+        baseBomId: packBomId,
+        multiplier: 1, // retained for backwards-compatible metadata
+        label: packLabel,
+        ...configuration,
       });
     },
     onSuccess: () => {
@@ -120,6 +126,7 @@ export default function BOM() {
       setPackItemId("");
       setPackExpectedYieldQty("");
       setPackLines([{ itemId: "", qtyPerBatch: "" }]);
+      setEditingPackSizeId(null);
       setShowPackForm(false);
       queryClient.invalidateQueries({ queryKey: ["boms"] });
     },
@@ -151,6 +158,36 @@ export default function BOM() {
     setPackLines((prev) => prev.map((line, i) => (i === index ? { ...line, ...patch } : line)));
   }
 
+  function startEditPackSize(bom: Bom, pack: Bom["packSizes"][number]) {
+    setEditingPackSizeId(pack.id);
+    setPackBomId(bom.id);
+    setPackLabel(pack.label);
+    setPackItemId(pack.finishedItemId);
+    setPackExpectedYieldQty(String(pack.expectedYieldQty));
+    setPackLines(pack.lines.map((line) => ({
+      itemId: line.itemId,
+      qtyPerBatch: String(line.qtyPerBatch / unitOf(line.item.baseUnit).factor),
+    })));
+    setPackError(null);
+    setShowPackForm(true);
+  }
+
+  function openNewPackSizeForm() {
+    setEditingPackSizeId(null);
+    setPackBomId("");
+    setPackLabel("");
+    setPackItemId("");
+    setPackExpectedYieldQty("");
+    setPackLines([{ itemId: "", qtyPerBatch: "" }]);
+    setPackError(null);
+    setShowPackForm(true);
+  }
+
+  function closePackSizeForm() {
+    setEditingPackSizeId(null);
+    setShowPackForm(false);
+  }
+
   return (
     <div className="w-full min-w-0">
       <PageHeader
@@ -159,7 +196,7 @@ export default function BOM() {
         actions={
           canMutate ? (
             <>
-              <Button size="sm" variant="secondary" onClick={() => setShowPackForm((v) => !v)}>
+              <Button size="sm" variant="secondary" onClick={() => (showPackForm ? closePackSizeForm() : openNewPackSizeForm())}>
                 {showPackForm ? "Close" : "New pack size"}
               </Button>
               <Button size="sm" onClick={() => (showRecipeForm ? closeRecipeForm() : setShowRecipeForm(true))}>
@@ -268,7 +305,7 @@ export default function BOM() {
       {canMutate && showPackForm && (
         <Card className="mb-6 overflow-hidden">
           <div className="border-b border-border/60 bg-secondary/30 px-5 py-3.5">
-            <h2 className="text-sm font-semibold text-foreground">New pack size</h2>
+            <h2 className="text-sm font-semibold text-foreground">{editingPackSizeId ? "Edit pack size configuration" : "New pack size"}</h2>
           </div>
           <form
             onSubmit={(e) => {
@@ -280,7 +317,7 @@ export default function BOM() {
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-12">
               <div className="sm:col-span-1 lg:col-span-4">
                 <Field label="Recipe" required>
-                  <Select value={packBomId} required onChange={(e) => setPackBomId(e.target.value)} className="w-full">
+                  <Select value={packBomId} required disabled={editingPackSizeId !== null} onChange={(e) => setPackBomId(e.target.value)} className="w-full">
                     <option value="">Choose a recipe</option>
                     {boms?.map((b) => (
                       <option key={b.id} value={b.id}>
@@ -292,7 +329,7 @@ export default function BOM() {
               </div>
               <div className="sm:col-span-1 lg:col-span-4">
                 <Field label="Stock goes into">
-                  <Select value={packItemId} onChange={(e) => setPackItemId(e.target.value)} className="w-full">
+                  <Select value={packItemId} disabled={editingPackSizeId !== null} onChange={(e) => setPackItemId(e.target.value)} className="w-full">
                     <option value="">Same product as the recipe</option>
                     {finishedGoods.map((it) => (
                       <option key={it.id} value={it.id}>
@@ -304,7 +341,7 @@ export default function BOM() {
               </div>
               <div className="sm:col-span-1 lg:col-span-2">
                 <Field label="Pack label" required>
-                  <Input placeholder="e.g. 500 g" required value={packLabel} onChange={(e) => setPackLabel(e.target.value)} className="w-full" />
+                  <Input placeholder="e.g. 500 g" required disabled={editingPackSizeId !== null} value={packLabel} onChange={(e) => setPackLabel(e.target.value)} className="w-full" />
                 </Field>
               </div>
               <div className="sm:col-span-1 lg:col-span-2">
@@ -361,14 +398,14 @@ export default function BOM() {
                 Add packaging item
               </Button>
               <p className="mt-2 text-xs text-muted-foreground">
-                Raw ingredients remain shared with the recipe. Only the packaging listed here is required for this pack.
-                For example, a 500 g pack might make 80 packets per batch and use 80 pouches.
+                Raw ingredients stay on the shared recipe. This configuration sets the expected good packets and
+                packaging for one batch. Once a production run is planned with this pack size, it can no longer be edited.
               </p>
             </div>
 
             <div className="mt-4 flex justify-end border-t border-border/50 pt-3.5">
               <Button type="submit" disabled={createPackSizeMutation.isPending} className="px-6">
-                {createPackSizeMutation.isPending ? "Saving…" : "Save pack size"}
+                {createPackSizeMutation.isPending ? "Saving…" : editingPackSizeId ? "Save pack configuration" : "Save pack size"}
               </Button>
             </div>
           </form>
@@ -434,12 +471,26 @@ export default function BOM() {
                   </div>
                 )}
                 {b.packSizes.length > 0 && (
-                  <p className="mt-2 border-t border-border pt-2 text-sm text-muted-foreground">
-                    Also packed as: {b.packSizes.map((p) => {
-                      const packaging = p.lines.map((line) => `${line.item.name} ${qty(line.qtyPerBatch, line.item.baseUnit)}`).join(", ");
-                      return `${p.finishedItem.name} (${p.label}: ${p.expectedYieldQty} packets per batch; ${packaging})`;
-                    }).join("; ")}
-                  </p>
+                  <div className="mt-3 border-t border-border pt-3">
+                    <p className="mb-2 text-xs font-medium text-muted-foreground">Pack formats</p>
+                    <ul className="flex flex-col gap-2">
+                      {b.packSizes.map((pack) => (
+                        <li key={pack.id} className="flex flex-col gap-2 rounded-md bg-secondary/40 p-2.5 sm:flex-row sm:items-center sm:justify-between">
+                          <div className="min-w-0 text-sm">
+                            <p className="font-medium text-foreground">{pack.finishedItem.name} · {pack.label}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {pack.expectedYieldQty} packets per batch · {pack.lines.map((line) => `${line.item.name} ${qty(line.qtyPerBatch, line.item.baseUnit)}`).join(", ")}
+                            </p>
+                          </div>
+                          {canMutate && (
+                            <Button size="sm" variant="secondary" onClick={() => startEditPackSize(b, pack)}>
+                              Edit pack
+                            </Button>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 )}
               </Card>
             </li>
