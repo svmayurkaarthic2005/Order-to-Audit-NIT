@@ -613,7 +613,7 @@ export default function ProductionRuns() {
                       {packaging.map((line, i) => (
                         <div key={line.itemId} className="flex items-end gap-2">
                           <div className="flex-1">
-                            <Field label={`${line.name} used`}>
+                            <Field label={`${line.name} good units used`}>
                               <Input
                                 type="number"
                                 min="0"
@@ -625,7 +625,7 @@ export default function ProductionRuns() {
                             </Field>
                           </div>
                           <div className="flex-1">
-                            <Field label="Of those, damaged">
+                            <Field label="Additional damaged">
                               <Input
                                 type="number"
                                 value={line.damagedQty}
