@@ -6,6 +6,30 @@ import { getOnHandQty, getReservedQty } from "../inventory/service.js";
 import { syncAlertsForItems } from "../alerts/service.js";
 import { notify } from "../notifications/service.js";
 
+// Tells the people who act next that an order moved on: the office when a
+// salesman submits one, the salesman when the office decides or ships it.
+export async function notifyOrderUpdate(
+  orderId: string,
+  to: "office" | "salesman",
+  title: string,
+  message: string,
+  stage: string,
+  severity: "INFO" | "WARNING" = "INFO",
+) {
+  const order = await prisma.salesOrder.findUnique({ where: { id: orderId }, select: { salesmanUserId: true } });
+  if (!order) return;
+  await notify({
+    ...(to === "office" ? { recipientRoles: ["OWNER", "ADMIN"] as const } : { recipientUserId: order.salesmanUserId }),
+    type: "ORDER_UPDATE",
+    title,
+    message,
+    severity,
+    sourceType: "SalesOrder",
+    sourceId: orderId,
+    dedupeKeySuffix: `:${stage}`,
+  });
+}
+
 const PAGE_SIZE = 20;
 
 type OrderItemInput = { itemId: string; qtyBase: number; ratePaise: number };
@@ -67,7 +91,15 @@ export async function createOrder(
   }
 
   try {
-    return await createOrderInTransaction(salesmanUserId, data, idempotencyKey);
+    const order = await createOrderInTransaction(salesmanUserId, data, idempotencyKey);
+    await notifyOrderUpdate(
+      order.id,
+      "office",
+      `New order from ${order.customer.name}`,
+      `${(await prisma.user.findUnique({ where: { id: salesmanUserId }, select: { name: true } }))?.name ?? "A salesman"} sent an order. Check it and approve or reject it on the Orders page.`,
+      "submitted",
+    );
+    return order;
   } catch (err) {
     // The pre-check above is a friendly fast path; the database's unique
     // constraint on (salesmanUserId, idempotencyKey) is what actually
@@ -198,6 +230,7 @@ export async function approveOrder(id: string, actingUserId: string) {
     // availability, not on-hand, but low-stock alerts are defined on
     // availability.
     await syncAlertsForItems(result.items.map((i) => i.itemId));
+    await notifyOrderUpdate(id, "salesman", `Order for ${result.customer.name} approved`, "The stock is set aside. It will be invoiced and sent next.", "approved");
     return result;
   });
 }
@@ -289,6 +322,8 @@ export async function rejectOrder(id: string, reason: string, actingUserId: stri
         sourceType: "SalesOrder",
         sourceId: id,
       });
+    } else {
+      await notifyOrderUpdate(id, "salesman", `Order for ${result.customer.name} rejected`, `Reason: ${reason}`, "rejected", "WARNING");
     }
     return result;
   });

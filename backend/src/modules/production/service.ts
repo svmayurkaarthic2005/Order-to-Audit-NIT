@@ -555,7 +555,7 @@ async function afterComplete(result: Awaited<ReturnType<typeof completeInTx>>["r
     if (Math.abs(pctDiff) > 0.03) {
       const pctDisplay = (pctDiff * 100).toFixed(1);
       await notify({
-        recipientRoles: ["OWNER", "PRODUCTION"],
+        recipientRoles: ["OWNER", "ADMIN", "PRODUCTION"],
         type: "PRODUCTION_VARIANCE",
         title: `${result.packSize?.finishedItem.name ?? result.bomHeader.finishedItem.name}: ${actual < expected ? "fewer" : "more"} packets than planned`,
         message: `Expected ${expected} packets, got ${actual} (${pctDiff > 0 ? "+" : ""}${pctDisplay}%). More than 3% off, so it's worth checking what happened.`,
@@ -564,6 +564,30 @@ async function afterComplete(result: Awaited<ReturnType<typeof completeInTx>>["r
         sourceId: result.id,
       });
     }
+  }
+
+
+  // Materials used more than 3% off the recipe (the brief's oil +5%).
+  const offLines = result.materials.filter(
+    (m) => m.actualQtyBase !== null && m.plannedQtyBase > 0 && Math.abs(m.actualQtyBase - m.plannedQtyBase) / m.plannedQtyBase > 0.03,
+  );
+  if (offLines.length > 0) {
+    const product = result.packSize?.finishedItem.name ?? result.bomHeader.finishedItem.name;
+    await notify({
+      recipientRoles: ["OWNER", "ADMIN", "PRODUCTION"],
+      type: "PRODUCTION_VARIANCE",
+      title: `${product}: materials used differ from the recipe`,
+      message: offLines
+        .map((m) => {
+          const pct = ((m.actualQtyBase! - m.plannedQtyBase) / m.plannedQtyBase) * 100;
+          return `${m.item.name} ${formatQty(m.plannedQtyBase, m.item.baseUnit)} planned, ${formatQty(m.actualQtyBase!, m.item.baseUnit)} used (${pct > 0 ? "+" : ""}${pct.toFixed(1)}%)`;
+        })
+        .join("; "),
+      severity: "WARNING",
+      sourceType: "ProductionRun",
+      sourceId: result.id,
+      dedupeKeySuffix: ":materials",
+    });
   }
 
   return result;

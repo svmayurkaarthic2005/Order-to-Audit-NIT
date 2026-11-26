@@ -18,6 +18,7 @@ const STATUS_LABEL: Record<string, string> = {
   REJECTED: "Rejected",
   DISPATCHABLE: "Invoiced",
   DISPATCHED: "Dispatched",
+  CANCELLED: "Cancelled (credit note)",
 };
 
 const STATUS_VARIANT: Record<string, "neutral" | "success" | "warning" | "destructive" | "info"> = {
@@ -26,6 +27,7 @@ const STATUS_VARIANT: Record<string, "neutral" | "success" | "warning" | "destru
   REJECTED: "destructive",
   DISPATCHABLE: "warning",
   DISPATCHED: "success",
+  CANCELLED: "destructive",
 };
 
 export default function OrderHistory() {

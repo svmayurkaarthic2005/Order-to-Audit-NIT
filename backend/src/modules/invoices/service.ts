@@ -5,6 +5,8 @@ import { prisma } from "../../lib/prisma.js";
 import { InvoicePdfNotFoundError, uploadInvoicePdf, urlForInvoicePdf } from "../../lib/storage.js";
 import { calculate } from "../gst/calculate.js";
 import { getOutstandingPaise } from "../payments/service.js";
+import { syncAlertsForItems } from "../alerts/service.js";
+import { notifyOrderUpdate } from "../orders/service.js";
 import { MANUFACTURER_NAME, renderInvoicePdf } from "./pdf.js";
 import { createShareToken, verifyShareToken } from "./share.js";
 
@@ -138,16 +140,38 @@ export async function createCreditNote(invoiceId: string, reason: string, acting
       data: { invoiceId, reason, amountPaise: invoice.totalPaise },
     });
 
+    // Not dispatched yet: the order no longer goes out, so the packets its
+    // approval set aside become free again. (Once dispatched, the goods are
+    // with the customer; a return would be its own stock entry.)
+    const { count: released } = await tx.salesOrder.updateMany({
+      where: { id: invoice.salesOrderId, status: { in: ["APPROVED", "DISPATCHABLE"] } },
+      data: { status: "CANCELLED" },
+    });
+
     await logAudit(tx, {
       userId: actingUserId,
       action: "CREDIT_NOTE",
       entityType: "Invoice",
       entityId: invoiceId,
       before: { status: invoice.status },
-      after: { status: "CANCELLED", reason, amountPaise: invoice.totalPaise },
+      after: { status: "CANCELLED", reason, amountPaise: invoice.totalPaise, orderCancelled: released > 0 },
     });
 
-    return tx.invoice.findUniqueOrThrow({ where: { id: invoiceId }, include: includeClause });
+    return { result: await tx.invoice.findUniqueOrThrow({ where: { id: invoiceId }, include: includeClause }), released: released > 0 };
+  }).then(async ({ result, released }) => {
+    if (released) {
+      const items = await prisma.orderItem.findMany({ where: { salesOrderId: result.salesOrderId }, select: { itemId: true } });
+      await syncAlertsForItems(items.map((i) => i.itemId));
+    }
+    await notifyOrderUpdate(
+      result.salesOrderId,
+      "salesman",
+      `Invoice #${result.invoiceNumber} cancelled`,
+      `A credit note cancelled it. Reason: ${reason}`,
+      "cancelled",
+      "WARNING",
+    );
+    return result;
   });
 }
 

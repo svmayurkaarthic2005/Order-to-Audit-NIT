@@ -4,6 +4,7 @@ import { logAudit } from "../../lib/audit.js";
 import { prisma } from "../../lib/prisma.js";
 import { issueValuePaise, ledgerPosition } from "../../lib/valuation.js";
 import { syncAlertsForItems } from "../alerts/service.js";
+import { notifyOrderUpdate } from "../orders/service.js";
 import {
   issueFromFinishedBatches,
   lockItem,
@@ -70,6 +71,7 @@ export async function createDispatch(invoiceId: string, qty: number, actingUserI
       await syncAlertsForItems([dispatchedItemId]);
       await refreshBatchStatuses();
     }
+    await notifyOrderUpdate(result.invoice.salesOrderId, "salesman", `Order for ${result.invoice.customer.name} dispatched`, `Invoice #${result.invoice.invoiceNumber} has left the factory.`, "dispatched");
     return result;
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {

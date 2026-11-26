@@ -45,7 +45,7 @@ const SECTIONS: Section[] = [
     icon: "M13 10V3L4 14h7v7l9-11h-7z",
     tabs: [
       { to: "/production/runs", label: "Production runs", roles: WITH_PRODUCTION },
-      { to: "/admin/bom", label: "Recipes", roles: BACK_OFFICE },
+      { to: "/admin/bom", label: "Recipes", roles: WITH_PRODUCTION },
     ],
   },
   {

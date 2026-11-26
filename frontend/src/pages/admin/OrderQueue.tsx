@@ -7,7 +7,7 @@ import { Button, Card, EmptyState, ErrorText, Input, Loading, PageHeader, Status
 
 type Order = {
   id: string;
-  status: "SUBMITTED" | "APPROVED" | "REJECTED" | "DISPATCHABLE" | "DISPATCHED";
+  status: "SUBMITTED" | "APPROVED" | "REJECTED" | "DISPATCHABLE" | "DISPATCHED" | "CANCELLED";
   rejectionReason: string | null;
   customer: { name: string };
   salesmanUser: { name: string };
@@ -22,6 +22,7 @@ const STATUS_VARIANT: Record<string, "info" | "success" | "destructive" | "neutr
   REJECTED: "destructive",
   DISPATCHABLE: "warning",
   DISPATCHED: "success",
+  CANCELLED: "destructive",
 } as const;
 
 const STATUS_LABEL: Record<string, string> = {
@@ -30,6 +31,7 @@ const STATUS_LABEL: Record<string, string> = {
   REJECTED: "Rejected",
   DISPATCHABLE: "Invoiced",
   DISPATCHED: "Dispatched",
+  CANCELLED: "Cancelled (credit note)",
 };
 
 const TAB_LABEL: Record<(typeof TABS)[number], string> = {

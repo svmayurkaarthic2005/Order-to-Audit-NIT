@@ -67,6 +67,33 @@ describe("dispatch and payments", () => {
     expect(onHand.body.data.qtyBase).toBe(88);
   });
 
+  it("a credit note before dispatch frees the packets the order held, and each stage tells the right people", async () => {
+    const adminCookie = await loginAs("admin@porulottam.test");
+    const salesmanCookie = await loginAs("salesman@porulottam.test");
+    const { invoiceId, itemId } = await makeIssuedInvoice(adminCookie, salesmanCookie, 100, 30, 1_000);
+    const available = async () =>
+      (await request(app).get("/alerts/stock-status").set("Cookie", adminCookie)).body.data.find((s: { itemId: string }) => s.itemId === itemId)
+        .availableQtyBase as number;
+    expect(await available()).toBe(70); // 30 set aside for the order
+
+    const cn = await request(app).post(`/invoices/${invoiceId}/credit-note`).set("Cookie", adminCookie).send({ reason: "Customer cancelled" });
+    expect(cn.status).toBe(201);
+    const invoice = await prisma.invoice.findUniqueOrThrow({ where: { id: invoiceId }, include: { salesOrder: true } });
+    expect(invoice.salesOrder.status).toBe("CANCELLED");
+    expect(await available()).toBe(100); // free again, and nothing went out
+
+    const titles = async (cookie: string) =>
+      ((await request(app).get("/notifications").set("Cookie", cookie)).body.data.items as { sourceId: string; title: string }[])
+        .filter((n) => n.sourceId === invoice.salesOrderId)
+        .map((n) => n.title);
+    expect((await titles(adminCookie)).some((t) => t.startsWith("New order from"))).toBe(true);
+    const salesman = await titles(salesmanCookie);
+    expect(salesman.some((t) => t.includes("approved"))).toBe(true);
+    expect(salesman.some((t) => t.includes("cancelled"))).toBe(true);
+    // The accountant isn't part of the order hand-offs.
+    expect(await titles(await loginAs("accountant@porulottam.test"))).toEqual([]);
+  });
+
   it("dispatching the same invoice twice is rejected with 409 and stock is unchanged after the second call", async () => {
     const adminCookie = await loginAs("admin@porulottam.test");
     const salesmanCookie = await loginAs("salesman@porulottam.test");

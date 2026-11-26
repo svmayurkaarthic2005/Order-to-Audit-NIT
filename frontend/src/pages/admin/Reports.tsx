@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { api } from "@/lib/api";
 import { Card, DateRangeFilter, Drawer, EmptyState, ErrorText, Loading, PageHeader, StatusBadge, TabBar, Table, Td, Th, THead, buttonClass, money, qty, unitOf } from "@/components/ui";
 
@@ -35,11 +35,14 @@ const STOCK_TYPE_LABEL: Record<string, string> = { RAW_MATERIAL: "Raw material",
 type ProductionRow = {
   runId: string;
   finishedGoodSku: string;
+  finishedGoodName: string;
   status: string;
   plannedYield: number;
   actualYield: number | null;
   yieldVariancePct: number | null;
   damagedQty: number | null;
+  batchSize: number;
+  materials: { sku: string; name: string; planned: string; actual: string; variancePct: number | null }[];
 };
 type CollectionsRow = { customerId: string; customerName: string; outstandingPaise: number; "0-30": number; "31-60": number; "61-90": number; "90+": number };
 type SalesTrendBucket = { key: string; label: string; invoiceCount: number; taxableValuePaise: number; totalPaise: number };
@@ -87,6 +90,10 @@ type Drill =
 const REPORTS = ["Sales Register", "GST Summary", "Purchase Register", "Stock Summary", "Production", "Payments & Collections"] as const;
 
 const clickableCell = "cursor-pointer decoration-dotted underline-offset-2 hover:text-primary hover:underline";
+
+// Same words as the Production runs page. A planned run hasn't been made yet,
+// so it has no actual output or yield variance.
+const RUN_STATUS = { DRAFT: "Planned, not made yet", STARTED: "In progress", COMPLETED: "Done", CANCELLED: "Cancelled" } as const;
 
 export default function Reports() {
   const [tab, setTab] = useState<(typeof REPORTS)[number]>("Sales Register");
@@ -454,36 +461,76 @@ export default function Reports() {
           )}
 
           {/* ── Production ── */}
-          {tab === "Production" && (
-            production.data?.length === 0 ? (
+          {tab === "Production" && (() => {
+            // A production report is about what was made: runs still planned
+            // (or cancelled) have no actuals, so they're listed apart.
+            const made = production.data?.filter((r) => r.status === "COMPLETED" || r.status === "STARTED") ?? [];
+            const notMade = production.data?.filter((r) => r.status === "DRAFT") ?? [];
+            const off = (v: number | null) => v !== null && Math.abs(v) > 0.03;
+            const pctText = (v: number | null) => (v === null ? "—" : `${v >= 0 ? "+" : ""}${(v * 100).toFixed(1)}%`);
+            return made.length === 0 && notMade.length === 0 ? (
               <EmptyState>No production runs in this range.</EmptyState>
             ) : (
-              <Table>
-                <THead>
-                  <tr><Th>Product</Th><Th>Status</Th><Th numeric>Planned</Th><Th numeric>Actual</Th><Th numeric>Yield variance</Th></tr>
-                </THead>
-                <tbody>
-                  {production.data?.map((r) => (
-                    <tr key={r.runId} className="hover:bg-secondary/30">
-                      <Td className="font-medium text-foreground">{r.finishedGoodSku}</Td>
-                      <Td>{r.status.charAt(0) + r.status.slice(1).toLowerCase()}</Td>
-                      <Td numeric>{r.plannedYield}</Td>
-                      <Td
-                        numeric
-                        className={r.status === "COMPLETED" ? clickableCell : ""}
-                        onClick={() => r.status === "COMPLETED" && setDrill({ type: "productionCost", runId: r.runId, sku: r.finishedGoodSku })}
-                      >
-                        {r.actualYield ?? <span className="text-muted-foreground">—</span>}
-                      </Td>
-                      <Td numeric className={r.yieldVariancePct !== null && Math.abs(r.yieldVariancePct) > 0.03 ? "font-semibold text-destructive" : ""}>
-                        {r.yieldVariancePct !== null ? `${(r.yieldVariancePct * 100).toFixed(1)}%` : <span className="text-muted-foreground">—</span>}
-                      </Td>
-                    </tr>
-                  ))}
-                </tbody>
-              </Table>
-            )
-          )}
+              <>
+                {made.length === 0 ? (
+                  <EmptyState>No runs were made in this range.</EmptyState>
+                ) : (
+                  <Table>
+                    <THead>
+                      <tr>
+                        <Th>Product</Th><Th>Status</Th><Th numeric>Batches</Th><Th numeric>Expected packets</Th>
+                        <Th numeric>Good packets</Th><Th numeric>Yield variance</Th><Th numeric>Wastage (damaged packaging)</Th>
+                      </tr>
+                    </THead>
+                    <tbody>
+                      {made.map((r) => (
+                        <Fragment key={r.runId}>
+                          <tr className="hover:bg-secondary/30">
+                            <Td className="font-medium text-foreground">{r.finishedGoodName}</Td>
+                            <Td>{RUN_STATUS[r.status as keyof typeof RUN_STATUS] ?? r.status}</Td>
+                            <Td numeric>{r.batchSize}</Td>
+                            <Td numeric>{r.plannedYield}</Td>
+                            <Td
+                              numeric
+                              className={r.status === "COMPLETED" ? clickableCell : ""}
+                              onClick={() => r.status === "COMPLETED" && setDrill({ type: "productionCost", runId: r.runId, sku: r.finishedGoodSku })}
+                            >
+                              {r.actualYield ?? <span className="text-muted-foreground">—</span>}
+                            </Td>
+                            <Td numeric className={off(r.yieldVariancePct) ? "font-semibold text-destructive" : ""}>
+                              {pctText(r.yieldVariancePct)}{off(r.yieldVariancePct) && " flagged"}
+                            </Td>
+                            <Td numeric>{r.damagedQty ?? 0}</Td>
+                          </tr>
+                          {r.materials.length > 0 && (
+                            <tr>
+                              <td colSpan={7} className="border-t border-border/40 bg-secondary/20 px-4 py-2">
+                                <p className="mb-1 text-xs font-medium text-muted-foreground">Planned vs actual consumption</p>
+                                <div className="grid gap-x-6 gap-y-0.5 text-xs sm:grid-cols-2 lg:grid-cols-3">
+                                  {r.materials.map((m) => (
+                                    <span key={m.sku} className={`tabular ${off(m.variancePct) ? "font-semibold text-destructive" : "text-foreground"}`}>
+                                      {m.name}: {m.planned} planned, {m.actual} used ({pctText(m.variancePct)}){off(m.variancePct) && ", flagged"}
+                                    </span>
+                                  ))}
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      ))}
+                    </tbody>
+                  </Table>
+                )}
+                {notMade.length > 0 && (
+                  <p className="mt-3 text-sm text-muted-foreground">
+                    Not made yet, so not in the table:{" "}
+                    {notMade.map((r) => `${r.finishedGoodName} (${r.batchSize} ${r.batchSize === 1 ? "batch" : "batches"})`).join(", ")}.
+                    Record or cancel them on the Production runs page.
+                  </p>
+                )}
+              </>
+            );
+          })()}
 
           {/* ── Payments & Collections ── */}
           {tab === "Payments & Collections" && (

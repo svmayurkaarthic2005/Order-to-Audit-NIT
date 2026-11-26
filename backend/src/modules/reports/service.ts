@@ -259,6 +259,7 @@ export async function productionReport(from?: Date, to?: Date) {
     return {
       runId: r.id,
       finishedGoodSku: r.packSize?.finishedItem.sku ?? r.bomHeader.finishedItem.sku,
+      finishedGoodName: r.packSize?.finishedItem.name ?? r.bomHeader.finishedItem.name,
       status: r.status,
       batchSize: r.batchSize,
       plannedYield,
@@ -269,6 +270,7 @@ export async function productionReport(from?: Date, to?: Date) {
         .filter((m) => m.actualQtyBase !== null)
         .map((m) => ({
           sku: m.item.sku,
+          name: m.item.name,
           plannedQtyBase: m.plannedQtyBase,
           actualQtyBase: m.actualQtyBase,
           planned: formatQty(m.plannedQtyBase, m.item.baseUnit),

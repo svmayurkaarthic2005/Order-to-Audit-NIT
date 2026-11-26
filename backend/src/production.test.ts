@@ -151,6 +151,10 @@ describe("production lifecycle", () => {
 
     const ok = await record(await plan(), 94);
     expect(ok.status).toBe(200);
+    // 1,050 used against 1,000 planned is 5% off: production hears about it.
+    const supervisor = await loginAs("production@porulottam.test");
+    const alerts = (await request(app).get("/notifications").set("Cookie", supervisor)).body.data.items as { sourceId: string; title: string }[];
+    expect(alerts.some((n) => n.sourceId === ok.body.data.id && n.title.includes("materials used differ"))).toBe(true);
     expect(ok.body.data.status).toBe("COMPLETED");
     expect(await onHand(rawId)).toBe(10_000 - 1_050);
     expect(await onHand(packagingId)).toBe(1_000 - 94 - 3);

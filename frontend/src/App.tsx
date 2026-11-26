@@ -64,7 +64,7 @@ export default function App() {
       <Route path="/admin/reconciliation" element={page(<Reconciliation />, ["ADMIN", "OWNER", "ACCOUNTANT"])} />
 
       {/* Production & Inventory */}
-      <Route path="/admin/bom" element={page(<BOM />, ["ADMIN", "OWNER", "ACCOUNTANT"])} />
+      <Route path="/admin/bom" element={page(<BOM />, ["ADMIN", "OWNER", "PRODUCTION", "ACCOUNTANT"])} />
       {/* Opening stock is now a secondary action on Low Stock Alerts. */}
       <Route path="/admin/opening-stock" element={<Navigate to="/admin/stock-data" replace />} />
       {/* Renamed from "Low Stock Alerts" — the page covers all stock, not just low items. */}

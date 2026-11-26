@@ -18,7 +18,7 @@ type StockStatus = {
 type StockValueRow = { valuePaise: number };
 type Order = {
   id: string;
-  status: "SUBMITTED" | "APPROVED" | "REJECTED" | "DISPATCHABLE" | "DISPATCHED";
+  status: "SUBMITTED" | "APPROVED" | "REJECTED" | "DISPATCHABLE" | "DISPATCHED" | "CANCELLED";
   createdAt: string;
   customer: { name: string };
   items: { qtyBase: number; ratePaise: number }[];
@@ -30,6 +30,7 @@ const ORDER_STATUS: Record<Order["status"], { label: string; variant: "warning" 
   APPROVED: { label: "Needs invoice", variant: "info" },
   DISPATCHABLE: { label: "Ready to dispatch", variant: "info" },
   DISPATCHED: { label: "Dispatched", variant: "success" },
+  CANCELLED: { label: "Cancelled", variant: "destructive" },
   REJECTED: { label: "Rejected", variant: "destructive" },
 };
 

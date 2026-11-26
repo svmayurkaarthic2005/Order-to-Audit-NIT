@@ -55,6 +55,7 @@ enum SalesOrderStatus {
   REJECTED
   DISPATCHABLE
   DISPATCHED
+  CANCELLED // invoice credit-noted before dispatch: frees the stock it held
 }
 
 enum InvoiceStatus {
@@ -508,6 +509,7 @@ enum NotificationType {
   ORDER_SHORTAGE
   AUDIT_EXCEPTION
   EXPIRY_WARNING
+  ORDER_UPDATE // an order moved to its next stage (new, approved, rejected, dispatched, cancelled)
 }
 
 enum AlertSeverity {

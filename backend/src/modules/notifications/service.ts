@@ -57,11 +57,11 @@ function visibilityFilter(user: AuthUser) {
     return {
       OR: [
         {
-          type: { in: ["LOW_STOCK", "STOCK_REPLENISHED", "ORDER_SHORTAGE", "EXPIRY_WARNING"] as NotificationType[] },
+          type: { in: ["LOW_STOCK", "STOCK_REPLENISHED", "ORDER_SHORTAGE", "EXPIRY_WARNING", "ORDER_UPDATE", "PRODUCTION_VARIANCE"] as NotificationType[] },
           recipientUserId: null,
         },
         {
-          type: { in: ["LOW_STOCK", "STOCK_REPLENISHED", "ORDER_SHORTAGE", "EXPIRY_WARNING"] as NotificationType[] },
+          type: { in: ["LOW_STOCK", "STOCK_REPLENISHED", "ORDER_SHORTAGE", "EXPIRY_WARNING", "ORDER_UPDATE", "PRODUCTION_VARIANCE"] as NotificationType[] },
           recipientUserId: id,
         },
       ],
@@ -92,9 +92,9 @@ function visibilityFilter(user: AuthUser) {
   }
 
   if (role === "SALESMAN") {
-    // Only ORDER_SHORTAGE addressed directly to them
+    // Only news about their own orders, addressed to them
     return {
-      type: "ORDER_SHORTAGE" as NotificationType,
+      type: { in: ["ORDER_SHORTAGE", "ORDER_UPDATE"] as NotificationType[] },
       recipientUserId: id,
     };
   }
