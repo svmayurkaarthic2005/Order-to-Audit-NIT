@@ -40,7 +40,7 @@ type Run = {
   materials: RunMaterial[];
 };
 // Form quantities are in kg / L / pcs; converted to base units on submit.
-type ConsumptionLine = { itemId: string; name: string; baseUnit: string; quantity: string };
+type ConsumptionLine = { itemId: string; name: string; baseUnit: string; planned: string; quantity: string };
 type PackagingLine = { itemId: string; name: string; baseUnit: string; quantity: string; damagedQty: string };
 type VarianceLine = { itemId: string; planned: number; actual: number; variancePct: number; flagged: boolean };
 type Variance = { materials: VarianceLine[]; yield: VarianceLine | null };
@@ -227,7 +227,7 @@ export default function ProductionRuns() {
     // The run's own recipe version, not whatever is latest.
     const rawLines = run.bomHeader.lines.filter((l) => l.rawItem.type === "RAW_MATERIAL");
     setConsumption(
-      rawLines.map((l) => ({ itemId: l.rawItemId, name: l.rawItem.name, baseUnit: l.rawItem.baseUnit, quantity: fromBase(l.qtyPerBatch * run.batchSize, l.rawItem.baseUnit) })),
+      rawLines.map((l) => ({ itemId: l.rawItemId, name: l.rawItem.name, baseUnit: l.rawItem.baseUnit, planned: fromBase(l.qtyPerBatch * run.batchSize, l.rawItem.baseUnit), quantity: "" })),
     );
   }
 
@@ -575,7 +575,7 @@ export default function ProductionRuns() {
                     }}
                     className="mt-3 flex flex-col gap-2 rounded-md border border-border p-3"
                   >
-                    <p className="text-sm font-medium text-foreground">How much of each material are you using? We've filled in the recipe amounts.</p>
+                    <p className="text-sm font-medium text-foreground">How much of each material did you actually use? Weigh it and enter it; the recipe amount is shown for comparison.</p>
                     <div className="grid gap-2 sm:grid-cols-2">
                       {consumption.map((line, i) => (
                         <Field key={line.itemId} label={`${line.name} (${unitOf(line.baseUnit).label})`} required>
@@ -589,6 +589,7 @@ export default function ProductionRuns() {
                               setConsumption((prev) => prev.map((l, idx) => (idx === i ? { ...l, quantity: e.target.value } : l)))
                             }
                           />
+                          <span className="mt-1 text-xs text-muted-foreground">Recipe: {line.planned} {unitOf(line.baseUnit).label}</span>
                         </Field>
                       ))}
                     </div>
