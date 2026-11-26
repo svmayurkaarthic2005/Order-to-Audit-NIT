@@ -212,7 +212,7 @@ model PackSize {
   finishedItem     Item      @relation(fields: [finishedItemId], references: [id])
   baseBomId        String
   baseBom          BomHeader @relation(fields: [baseBomId], references: [id])
-  expectedOutputQty Int // good packets of this pack size per one recipe batch
+  expectedOutputQty Int      @default(1) // good packets of this pack size per one recipe batch
   label            String
 
   packagingLines   PackSizePackaging[]
@@ -226,12 +226,13 @@ model PackSize {
 model PackSizePackaging {
   id           String   @id @default(uuid())
   packSizeId   String
-  packSize     PackSize @relation(fields: [packSizeId], references: [id])
+  packSize     PackSize @relation(fields: [packSizeId], references: [id], onDelete: Cascade)
   itemId       String
   item         Item     @relation(fields: [itemId], references: [id])
   qtyPerBatch  Int
 
   @@unique([packSizeId, itemId])
+  @@index([itemId])
 }
 
 // ---------- purchases ----------
