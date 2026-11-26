@@ -87,6 +87,9 @@ export async function createProductionRun(data: { bomHeaderId: string; batchSize
     if (packSize && packSize.baseBom.familyId !== bom.familyId) {
       throw new AppError(400, "invalid_pack_size", "Pack size does not belong to this recipe");
     }
+    if (packSize && packSize.packagingLines.length === 0) {
+      throw new AppError(409, "packaging_not_configured", "Edit this pack size on Recipes and add its pouch/carton requirements before planning a run.");
+    }
 
     const rawLines = bom.lines.filter((line) => line.rawItem.type === "RAW_MATERIAL");
     const packagingLines = packSize
