@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { AppError } from "../../lib/AppError.js";
 import { prisma } from "../../lib/prisma.js";
+import { displayUnitCostPaise } from "../../lib/valuation.js";
 
 type TxClient = Prisma.TransactionClient;
 
@@ -94,9 +95,9 @@ export async function getProductionRunCostBreakdown(runId: string) {
   // already does on ProductionRunMaterial.actualQtyBase.
   const packagingLines = linesFor(packagingItemIds, ["PRODUCTION_PACKAGING", "PRODUCTION_DAMAGE"]);
 
-  const outputMovement = movements.find((m) => m.source === "PRODUCTION_OUTPUT");
-  const totalCostPaise = outputMovement?.totalCostPaise ?? 0;
-  const costPerGoodUnitPaise = outputMovement?.unitCostPaise ?? 0;
+  // The output row plus any cost-only rows from running costs added later.
+  const totalCostPaise = movements.filter((m) => m.source === "PRODUCTION_OUTPUT").reduce((sum, m) => sum + m.totalCostPaise, 0);
+  const costPerGoodUnitPaise = displayUnitCostPaise(totalCostPaise, run.actualOutputQty);
 
   const latestInvoiceLine = await prisma.invoiceItem.findFirst({
     where: { itemId: run.packSize?.finishedItemId ?? run.bomHeader.finishedItemId },

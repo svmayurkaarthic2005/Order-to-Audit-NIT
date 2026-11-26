@@ -40,3 +40,9 @@ export const productionRunCompleteSchema = z.object({
 export const productionRunRecordSchema = productionRunCompleteSchema.extend({
   actualConsumption: productionRunStartSchema.shape.actualConsumption,
 });
+
+// Labour and gas/power added to a run after it's done (they're often known only later).
+export const productionRunCostsSchema = z.object({
+  laborCostPaise: z.coerce.number().int().nonnegative().max(1_000_000_000),
+  overheadCostPaise: z.coerce.number().int().nonnegative().max(1_000_000_000),
+});

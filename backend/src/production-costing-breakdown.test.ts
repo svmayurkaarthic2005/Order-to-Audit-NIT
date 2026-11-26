@@ -24,6 +24,82 @@ async function openingStock(cookie: string, itemId: string, qtyBase: number, tot
   await request(app).post("/inventory/opening-stock").set("Cookie", cookie).send({ itemId, qtyBase, totalCostPaise });
 }
 
+async function benchmarkRun(adminCookie: string, costs: { laborCostPaise?: number; overheadCostPaise?: number }) {
+  const flourId = await makeItem(adminCookie, "RAW_MATERIAL", "G");
+  const oilId = await makeItem(adminCookie, "RAW_MATERIAL", "ML");
+  const spiceId = await makeItem(adminCookie, "RAW_MATERIAL", "G");
+  const pouchId = await makeItem(adminCookie, "PACKAGING");
+  const cartonId = await makeItem(adminCookie, "PACKAGING");
+  const finishedId = await makeItem(adminCookie, "FINISHED_GOOD");
+
+  // The brief's own master data, in base units (g, ml, pieces) and paise:
+  // flour 100 kg at ₹42, oil 30 L at ₹140, spice 5 kg at ₹200, pouches 500
+  // at ₹2.50, cartons 30 at ₹15. Then step 1: buy 60 kg of flour at ₹45/kg,
+  // which makes flour's moving average ₹43.125/kg (4.3125 paise per gram).
+  await openingStock(adminCookie, flourId, 100_000, 420_000);
+  await openingStock(adminCookie, oilId, 30_000, 420_000);
+  await openingStock(adminCookie, spiceId, 5_000, 100_000);
+  await openingStock(adminCookie, pouchId, 500, 125_000);
+  await openingStock(adminCookie, cartonId, 30, 45_000);
+  const flourSupplier = await request(app)
+    .post("/suppliers")
+    .set("Cookie", adminCookie)
+    .send({ name: "Cost Test Supplier", state: "Tamil Nadu" });
+  const purchase = await request(app)
+    .post("/purchases")
+    .set("Cookie", adminCookie)
+    .send({ supplierId: flourSupplier.body.data.id, items: [{ itemId: flourId, qtyBase: 60_000, rateBasePaise: 5, totalCostPaise: 270_000 }] });
+  expect(purchase.status).toBe(201);
+
+  // One batch = 200 packets: 40 kg flour, 10 L oil, 1.2 kg spice, 200
+  // pouches, 10 cartons.
+  const bomRes = await request(app).post("/boms").set("Cookie", adminCookie).send({
+    finishedItemId: finishedId,
+    expectedYieldQty: 200,
+    lines: [
+      { rawItemId: flourId, qtyPerBatch: 40_000 },
+      { rawItemId: oilId, qtyPerBatch: 10_000 },
+      { rawItemId: spiceId, qtyPerBatch: 1_200 },
+      { rawItemId: pouchId, qtyPerBatch: 200 },
+      { rawItemId: cartonId, qtyPerBatch: 10 },
+    ],
+  });
+  const bomId = bomRes.body.data.id as string;
+
+  const runRes = await request(app).post("/production-runs").set("Cookie", adminCookie).send({ bomHeaderId: bomId });
+  const runId = runRes.body.data.id as string;
+
+  // Step 2: 40 kg flour, 10.5 L oil (0.5 L over), 1.2 kg spice.
+  const started = await request(app)
+    .post(`/production-runs/${runId}/start`)
+    .set("Cookie", adminCookie)
+    .send({
+      actualConsumption: [
+        { itemId: flourId, qtyBase: 40_000 },
+        { itemId: oilId, qtyBase: 10_500 },
+        { itemId: spiceId, qtyBase: 1_200 },
+      ],
+    });
+  expect(started.status).toBe(200);
+
+  // Steps 3 and 8: 188 good packets, 188 pouches used and 6 damaged, 9
+  // cartons; labour ₹1,200 and gas/power ₹600.
+  const completed = await request(app)
+    .post(`/production-runs/${runId}/complete`)
+    .set("Cookie", adminCookie)
+    .set("Idempotency-Key", `cost-test-${runId}`)
+    .send({
+      actualOutputQty: 188,
+      packagingConsumed: [
+        { itemId: pouchId, qtyBase: 188, damagedQty: 6 },
+        { itemId: cartonId, qtyBase: 9, damagedQty: 0 },
+      ],
+      ...costs,
+    });
+  expect(completed.status).toBe(200);
+  return { runId, finishedId, flourId, oilId, spiceId, pouchId, cartonId };
+}
+
 describe("production run cost breakdown", () => {
   afterAll(async () => {
     const boms = await prisma.bomHeader.findMany({
@@ -61,79 +137,7 @@ describe("production run cost breakdown", () => {
   it("reproduces the brief's ₹5,855 total / ₹31.14 per packet / ₹18.86 margin from the brief's own quantities and rates", async () => {
     const adminCookie = await loginAs("admin@porulottam.test");
 
-    const flourId = await makeItem(adminCookie, "RAW_MATERIAL", "G");
-    const oilId = await makeItem(adminCookie, "RAW_MATERIAL", "ML");
-    const spiceId = await makeItem(adminCookie, "RAW_MATERIAL", "G");
-    const pouchId = await makeItem(adminCookie, "PACKAGING");
-    const cartonId = await makeItem(adminCookie, "PACKAGING");
-    const finishedId = await makeItem(adminCookie, "FINISHED_GOOD");
-
-    // The brief's own master data, in base units (g, ml, pieces) and paise:
-    // flour 100 kg at ₹42, oil 30 L at ₹140, spice 5 kg at ₹200, pouches 500
-    // at ₹2.50, cartons 30 at ₹15. Then step 1: buy 60 kg of flour at ₹45/kg,
-    // which makes flour's moving average ₹43.125/kg (4.3125 paise per gram).
-    await openingStock(adminCookie, flourId, 100_000, 420_000);
-    await openingStock(adminCookie, oilId, 30_000, 420_000);
-    await openingStock(adminCookie, spiceId, 5_000, 100_000);
-    await openingStock(adminCookie, pouchId, 500, 125_000);
-    await openingStock(adminCookie, cartonId, 30, 45_000);
-    const flourSupplier = await request(app)
-      .post("/suppliers")
-      .set("Cookie", adminCookie)
-      .send({ name: "Cost Test Supplier", state: "Tamil Nadu" });
-    const purchase = await request(app)
-      .post("/purchases")
-      .set("Cookie", adminCookie)
-      .send({ supplierId: flourSupplier.body.data.id, items: [{ itemId: flourId, qtyBase: 60_000, rateBasePaise: 5, totalCostPaise: 270_000 }] });
-    expect(purchase.status).toBe(201);
-
-    // One batch = 200 packets: 40 kg flour, 10 L oil, 1.2 kg spice, 200
-    // pouches, 10 cartons.
-    const bomRes = await request(app).post("/boms").set("Cookie", adminCookie).send({
-      finishedItemId: finishedId,
-      expectedYieldQty: 200,
-      lines: [
-        { rawItemId: flourId, qtyPerBatch: 40_000 },
-        { rawItemId: oilId, qtyPerBatch: 10_000 },
-        { rawItemId: spiceId, qtyPerBatch: 1_200 },
-        { rawItemId: pouchId, qtyPerBatch: 200 },
-        { rawItemId: cartonId, qtyPerBatch: 10 },
-      ],
-    });
-    const bomId = bomRes.body.data.id as string;
-
-    const runRes = await request(app).post("/production-runs").set("Cookie", adminCookie).send({ bomHeaderId: bomId });
-    const runId = runRes.body.data.id as string;
-
-    // Step 2: 40 kg flour, 10.5 L oil (0.5 L over), 1.2 kg spice.
-    const started = await request(app)
-      .post(`/production-runs/${runId}/start`)
-      .set("Cookie", adminCookie)
-      .send({
-        actualConsumption: [
-          { itemId: flourId, qtyBase: 40_000 },
-          { itemId: oilId, qtyBase: 10_500 },
-          { itemId: spiceId, qtyBase: 1_200 },
-        ],
-      });
-    expect(started.status).toBe(200);
-
-    // Steps 3 and 8: 188 good packets, 188 pouches used and 6 damaged, 9
-    // cartons; labour ₹1,200 and gas/power ₹600.
-    const completed = await request(app)
-      .post(`/production-runs/${runId}/complete`)
-      .set("Cookie", adminCookie)
-      .set("Idempotency-Key", `cost-test-${runId}`)
-      .send({
-        actualOutputQty: 188,
-        packagingConsumed: [
-          { itemId: pouchId, qtyBase: 188, damagedQty: 6 },
-          { itemId: cartonId, qtyBase: 9, damagedQty: 0 },
-        ],
-        laborCostPaise: 120_000,
-        overheadCostPaise: 60_000,
-      });
-    expect(completed.status).toBe(200);
+    const { runId, finishedId, flourId, oilId, spiceId, pouchId, cartonId } = await benchmarkRun(adminCookie, { laborCostPaise: 120_000, overheadCostPaise: 60_000 });
 
     // A ₹50 selling price for this finished good, as the most recent invoice
     // rate — created directly since the full order→approve→invoice flow
@@ -204,5 +208,64 @@ describe("production run cost breakdown", () => {
     const res2 = await request(app).get(`/production-runs/${runId}/cost-breakdown`).set("Cookie", adminCookie);
     expect(res2.body.data.totalCostPaise).toBe(585_500);
     expect(res2.body.data.costPerGoodUnitPaise).toBe(3_114);
+  });
+
+  it("labour and gas/power added after the run: the cost becomes ₹31.14, and only the difference posts to the ledger", async () => {
+    const adminCookie = await loginAs("admin@porulottam.test");
+    const { runId, finishedId } = await benchmarkRun(adminCookie, {});
+
+    // Left blank when recorded: ₹500 a batch is assumed. ₹4,055 + ₹500 = ₹4,555 over 188.
+    const before = await request(app).get(`/production-runs/${runId}/cost-breakdown`).set("Cookie", adminCookie);
+    expect(before.body.data.totalCostPaise).toBe(455_500);
+    const valueBefore = await prisma.stockMovement.aggregate({ where: { itemId: finishedId }, _sum: { totalCostPaise: true, qtyBase: true } });
+
+    const res = await request(app)
+      .post(`/production-runs/${runId}/running-costs`)
+      .set("Cookie", adminCookie)
+      .send({ laborCostPaise: 120_000, overheadCostPaise: 60_000 });
+    expect(res.status).toBe(200);
+
+    const after = await request(app).get(`/production-runs/${runId}/cost-breakdown`).set("Cookie", adminCookie);
+    expect(after.body.data.laborCostPaise).toBe(120_000);
+    expect(after.body.data.overheadCostPaise).toBe(60_000);
+    expect(after.body.data.totalCostPaise).toBe(585_500);
+    expect(after.body.data.costPerGoodUnitPaise).toBe(3_114);
+
+    // ₹1,800 replaces the assumed ₹500: +₹1,300 of value, no packets.
+    const valueAfter = await prisma.stockMovement.aggregate({ where: { itemId: finishedId }, _sum: { totalCostPaise: true, qtyBase: true } });
+    expect((valueAfter._sum.totalCostPaise ?? 0) - (valueBefore._sum.totalCostPaise ?? 0)).toBe(130_000);
+    expect(valueAfter._sum.qtyBase).toBe(valueBefore._sum.qtyBase);
+
+    // Saving the same figures again changes nothing in the ledger.
+    const rows = await prisma.stockMovement.count({ where: { sourceId: runId } });
+    await request(app).post(`/production-runs/${runId}/running-costs`).set("Cookie", adminCookie).send({ laborCostPaise: 120_000, overheadCostPaise: 60_000 });
+    expect(await prisma.stockMovement.count({ where: { sourceId: runId } })).toBe(rows);
+
+    const audit = await prisma.auditLog.findFirst({ where: { entityId: runId, action: "PRODUCTION_RUN_COSTS_UPDATED" } });
+    expect(JSON.parse(audit!.beforeJson!)).toEqual({ laborCostPaise: 0, overheadCostPaise: 50_000 });
+  });
+
+  it("refuses running costs on a run that isn't done, and for a salesman", async () => {
+    const adminCookie = await loginAs("admin@porulottam.test");
+    const finishedId = await makeItem(adminCookie, "FINISHED_GOOD");
+    const flourId = await makeItem(adminCookie, "RAW_MATERIAL", "G");
+    const bom = await request(app).post("/boms").set("Cookie", adminCookie).send({
+      finishedItemId: finishedId,
+      expectedYieldQty: 10,
+      lines: [{ rawItemId: flourId, qtyPerBatch: 1_000 }],
+    });
+    const run = await request(app).post("/production-runs").set("Cookie", adminCookie).send({ bomHeaderId: bom.body.data.id });
+
+    const planned = await request(app)
+      .post(`/production-runs/${run.body.data.id}/running-costs`)
+      .set("Cookie", adminCookie)
+      .send({ laborCostPaise: 100, overheadCostPaise: 100 });
+    expect(planned.status).toBe(409);
+
+    const salesman = await request(app)
+      .post(`/production-runs/${run.body.data.id}/running-costs`)
+      .set("Cookie", await loginAs("salesman@porulottam.test"))
+      .send({ laborCostPaise: 100, overheadCostPaise: 100 });
+    expect(salesman.status).toBe(403);
   });
 });

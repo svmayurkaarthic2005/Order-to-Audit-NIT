@@ -4,7 +4,7 @@ import { logAudit } from "../../lib/audit.js";
 import { prisma } from "../../lib/prisma.js";
 import { formatQty } from "../../lib/units.js";
 import { displayUnitCostPaise, issueValuePaise, ledgerPosition } from "../../lib/valuation.js";
-import { computeOutputCostPaise } from "./costing.js";
+import { computeOutputCostPaise, OVERHEAD_PAISE_PER_BATCH } from "./costing.js";
 import { syncAlertsForItems } from "../alerts/service.js";
 import { notify } from "../notifications/service.js";
 import {
@@ -56,8 +56,12 @@ export async function getProductionRun(id: string) {
   if (run.status !== "COMPLETED") {
     return { ...run, outputUnitCostPaise: null };
   }
-  const output = await prisma.stockMovement.findFirst({ where: { sourceId: id, source: "PRODUCTION_OUTPUT" } });
-  return { ...run, outputUnitCostPaise: output?.unitCostPaise ?? null };
+  // The output row plus any cost-only rows from running costs added later.
+  const output = await prisma.stockMovement.aggregate({
+    where: { sourceId: id, source: "PRODUCTION_OUTPUT" },
+    _sum: { totalCostPaise: true },
+  });
+  return { ...run, outputUnitCostPaise: displayUnitCostPaise(output._sum.totalCostPaise ?? 0, run.actualOutputQty ?? 0) };
 }
 
 export async function listProductionRuns() {
@@ -617,4 +621,52 @@ export async function recordProductionRun(
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") return getProductionRun(id);
     throw err;
   }
+}
+
+// Labour and gas/power are often known only after the run (the month's
+// wage sheet, the gas bill). Finishing the run valued its packets with
+// whatever was entered then (₹500 a batch if left blank); this replaces
+// that with the real figures and posts the difference to the ledger as a
+// cost-only output row (no packets), so stock value and the run's cost per
+// packet both reflect it. The ledger stays append-only: nothing is edited.
+// ponytail: the difference lands on finished stock still on hand; if every
+// packet is already sold it stays as residual value until a stock count.
+export async function updateRunningCosts(
+  id: string,
+  data: { laborCostPaise: number; overheadCostPaise: number },
+  actingUserId: string,
+) {
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT id FROM "ProductionRun" WHERE id = ${id} FOR UPDATE`;
+    const run = await tx.productionRun.findUnique({ where: { id }, include: includeClause() });
+    if (!run) {
+      throw new AppError(404, "not_found", "Production run not found");
+    }
+    if (run.status !== "COMPLETED") {
+      throw new AppError(409, "invalid_status", "Labour and gas/power can be added once the run is done");
+    }
+    const before = {
+      laborCostPaise: run.laborCostPaise ?? 0,
+      overheadCostPaise: run.overheadCostPaise ?? OVERHEAD_PAISE_PER_BATCH * run.batchSize,
+    };
+    const delta = data.laborCostPaise + data.overheadCostPaise - before.laborCostPaise - before.overheadCostPaise;
+
+    await tx.productionRun.update({ where: { id }, data });
+    if (delta !== 0) {
+      const outputItemId = run.packSize?.finishedItemId ?? run.bomHeader.finishedItemId;
+      await lockItem(tx, outputItemId);
+      await tx.stockMovement.create({
+        data: { itemId: outputItemId, qtyBase: 0, unitCostPaise: 0, totalCostPaise: delta, source: "PRODUCTION_OUTPUT", sourceId: id, createdByUserId: actingUserId },
+      });
+    }
+    await logAudit(tx, {
+      userId: actingUserId,
+      action: "PRODUCTION_RUN_COSTS_UPDATED",
+      entityType: "ProductionRun",
+      entityId: id,
+      before,
+      after: data,
+    });
+    return tx.productionRun.findUniqueOrThrow({ where: { id }, include: includeClause() });
+  });
 }

@@ -98,6 +98,20 @@ export default function ProductionRuns() {
 
   const [varianceRunId, setVarianceRunId] = useState<string | null>(null);
   const [showCostExplanation, setShowCostExplanation] = useState(false);
+  // Labour and gas/power added after the run, often known only later.
+  const [costsForm, setCostsForm] = useState<{ labour: string; gas: string } | null>(null);
+  const costsMutation = useMutation({
+    mutationFn: ({ runId, labour, gas }: { runId: string; labour: string; gas: string }) =>
+      api.post(`/production-runs/${runId}/running-costs`, {
+        laborCostPaise: Math.round(Number(labour) * 100),
+        overheadCostPaise: Math.round(Number(gas) * 100),
+      }),
+    onSuccess: () => {
+      setCostsForm(null);
+      queryClient.invalidateQueries({ queryKey: ["production-run-cost-breakdown"] });
+      queryClient.invalidateQueries({ queryKey: ["production-runs"] });
+    },
+  });
 
   const { data: boms } = useQuery({
     queryKey: ["boms", "production-picker"],
@@ -579,6 +593,47 @@ export default function ProductionRuns() {
                           </tbody>
                         </table>
 
+                        {canMutate && varianceRunId && (
+                          costsForm ? (
+                            <form
+                              onSubmit={(e) => {
+                                e.preventDefault();
+                                costsMutation.mutate({ runId: varianceRunId, ...costsForm });
+                              }}
+                              className="mt-3 flex flex-wrap items-end gap-2 rounded-lg border border-border bg-secondary/30 p-3"
+                            >
+                              <Field label="Labour (₹)">
+                                <Input type="number" min="0" step="0.01" required value={costsForm.labour} onChange={(e) => setCostsForm({ ...costsForm, labour: e.target.value })} className="w-32" />
+                              </Field>
+                              <Field label="Gas, power, other (₹)">
+                                <Input type="number" min="0" step="0.01" required value={costsForm.gas} onChange={(e) => setCostsForm({ ...costsForm, gas: e.target.value })} className="w-32" />
+                              </Field>
+                              <Button type="submit" size="sm" disabled={costsMutation.isPending}>
+                                {costsMutation.isPending ? "Saving…" : "Save costs"}
+                              </Button>
+                              <Button type="button" size="sm" variant="ghost" onClick={() => setCostsForm(null)}>
+                                Cancel
+                              </Button>
+                              {costsMutation.error && <ErrorText>{(costsMutation.error as Error).message}</ErrorText>}
+                            </form>
+                          ) : (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="secondary"
+                              className="mt-3"
+                              onClick={() =>
+                                setCostsForm({
+                                  labour: String(costBreakdown.laborCostPaise / 100),
+                                  gas: String(costBreakdown.overheadCostPaise / 100),
+                                })
+                              }
+                            >
+                              Add labour and gas/power
+                            </Button>
+                          )
+                        )}
+                        <br />
                         <button
                           type="button"
                           onClick={() => setShowCostExplanation((v) => !v)}
@@ -590,7 +645,7 @@ export default function ProductionRuns() {
                           <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
                             Each material is priced at the average you'd paid for it when the run started.
                             Damaged packaging counts too, because you still paid for it. Running costs are
-                            ₹500 per batch unless you entered your own. The total is then split across the
+                            ₹500 per batch until you add the real labour and gas/power, here or when recording the run. The total is then split across the
                             good packets only. These figures are saved when the run finishes, so later
                             price changes don't alter them.
                           </p>

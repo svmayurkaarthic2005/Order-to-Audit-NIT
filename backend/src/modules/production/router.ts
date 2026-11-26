@@ -9,10 +9,12 @@ import {
   listProductionRuns,
   recordProductionRun,
   startProductionRun,
+  updateRunningCosts,
   useLatestRecipe,
 } from "./service.js";
 import {
   productionRunCompleteSchema,
+  productionRunCostsSchema,
   productionRunCreateSchema,
   productionRunRecordSchema,
   productionRunStartSchema,
@@ -96,6 +98,16 @@ productionRouter.post(
       throw new AppError(400, "missing_idempotency_key", "An Idempotency-Key header is required");
     }
     const run = await recordProductionRun(req.params.id as string, idempotencyKey, req.body, req.user!.id);
+    res.json({ data: run });
+  },
+);
+
+productionRouter.post(
+  "/:id/running-costs",
+  canManageRuns,
+  validate("body", productionRunCostsSchema),
+  async (req, res) => {
+    const run = await updateRunningCosts(req.params.id as string, req.body, req.user!.id);
     res.json({ data: run });
   },
 );
