@@ -35,6 +35,17 @@ const env = {
 execSync("npx prisma migrate deploy", { stdio: "inherit", env });
 execSync("npx tsx prisma/seed.ts", { stdio: "inherit", env });
 
+// E2E_EMPTY=1 keeps only the logins and the global unit conversions, like the
+// live database before anyone has entered master data.
+if (process.env.E2E_EMPTY) {
+  const db = new PrismaClient({ datasources: { db: { url: env.DATABASE_URL } } });
+  await db.$executeRawUnsafe(`TRUNCATE "StockMovement", "StockAdjustment", "LowStockAlert", "Notification", "AuditLog", "ReconciliationException"`);
+  for (const table of ["PackSizeLine", "PackSize", "BomLine", "BomHeader"]) await db.$executeRawUnsafe(`DELETE FROM "${table}"`);
+  await db.$executeRawUnsafe(`DELETE FROM "UnitConversion" WHERE "itemId" IS NOT NULL`);
+  for (const table of ["Item", "Customer", "Supplier"]) await db.$executeRawUnsafe(`DELETE FROM "${table}"`);
+  await db.$disconnect();
+}
+
 const server = spawn("npx", ["tsx", "src/index.ts"], { stdio: "inherit", env, shell: true });
 for (const signal of ["SIGINT", "SIGTERM"] as const) process.on(signal, () => server.kill(signal));
 server.on("exit", (code) => process.exit(code ?? 0));
