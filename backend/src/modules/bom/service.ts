@@ -107,7 +107,13 @@ export async function editBom(id: string, data: { expectedYieldQty: number; line
       },
       include: { finishedItem: true, lines: { include: { rawItem: true } } },
     });
-    // Pack sizes belong to the recipe, not to one version.
+    // Pack sizes belong to the recipe, not to one version. The canonical
+    // pack follows the recipe's yield; alternate pack sizes keep their own
+    // independently configured output yield and packaging.
+    await tx.packSize.updateMany({
+      where: { baseBomId: id, finishedItemId: current.finishedItemId },
+      data: { baseBomId: next.id, expectedOutputQty: data.expectedYieldQty },
+    });
     await tx.packSize.updateMany({ where: { baseBomId: id }, data: { baseBomId: next.id } });
 
     const before = readable(current);
@@ -182,6 +188,42 @@ export async function createPackSize(data: {
         expectedOutputQty: data.expectedOutputQty,
         label: data.label,
         packagingLines: { create: data.packagingLines },
+      },
+      include: { finishedItem: true, packagingLines: { include: { item: true } } },
+    });
+  });
+}
+
+ 
+export async function updatePackSize(id: string, data: {
+  expectedOutputQty: number;
+  label: string;
+  packagingLines: { itemId: string; qtyPerBatch: number }[];
+}) {
+  return prisma.$transaction(async (tx) => {
+    const current = await tx.packSize.findUnique({ where: { id }, include: { baseBom: true } });
+    if (!current) throw new AppError(404, "not_found", "Pack size not found");
+
+    const itemIds = data.packagingLines.map((line) => line.itemId);
+    if (new Set(itemIds).size !== itemIds.length) {
+      throw new AppError(400, "duplicate_line", "A pack size cannot list the same packaging item twice");
+    }
+    for (const line of data.packagingLines) {
+      const item = await tx.item.findUnique({ where: { id: line.itemId } });
+      if (!item || !item.active || item.type !== "PACKAGING") {
+        throw new AppError(400, "invalid_packaging_item", `Item ${line.itemId} is not an active packaging item`);
+      }
+    }
+
+    return tx.packSize.update({
+      where: { id },
+      data: {
+        expectedOutputQty: data.expectedOutputQty,
+        label: data.label,
+        packagingLines: {
+          deleteMany: {},
+          create: data.packagingLines,
+        },
       },
       include: { finishedItem: true, packagingLines: { include: { item: true } } },
     });
