@@ -199,9 +199,12 @@ export async function updatePackSize(id: string, data: {
   expectedOutputQty: number;
   label: string;
   packagingLines: { itemId: string; qtyPerBatch: number }[];
-}) {
+}, actingUserId: string) {
   return prisma.$transaction(async (tx) => {
-    const current = await tx.packSize.findUnique({ where: { id }, include: { baseBom: true } });
+    const current = await tx.packSize.findUnique({
+      where: { id },
+      include: { baseBom: true, finishedItem: true, packagingLines: { include: { item: true } } },
+    });
     if (!current) throw new AppError(404, "not_found", "Pack size not found");
 
     const itemIds = data.packagingLines.map((line) => line.itemId);
@@ -215,7 +218,7 @@ export async function updatePackSize(id: string, data: {
       }
     }
 
-    return tx.packSize.update({
+    const updated = await tx.packSize.update({
       where: { id },
       data: {
         expectedOutputQty: data.expectedOutputQty,
@@ -227,5 +230,24 @@ export async function updatePackSize(id: string, data: {
       },
       include: { finishedItem: true, packagingLines: { include: { item: true } } },
     });
+
+    await logAudit(tx, {
+      userId: actingUserId,
+      action: "PACK_SIZE_UPDATED",
+      entityType: "PackSize",
+      entityId: id,
+      before: {
+        label: current.label,
+        expectedOutputQty: current.expectedOutputQty,
+        packagingLines: current.packagingLines.map((line) => ({ item: line.item.sku, qtyPerBatch: line.qtyPerBatch })),
+      },
+      after: {
+        label: updated.label,
+        expectedOutputQty: updated.expectedOutputQty,
+        packagingLines: updated.packagingLines.map((line) => ({ item: line.item.sku, qtyPerBatch: line.qtyPerBatch })),
+      },
+    });
+
+    return updated;
   });
 }
