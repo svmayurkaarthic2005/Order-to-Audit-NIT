@@ -377,7 +377,8 @@ export default function BOM() {
                       </Select>
                       <Input
                         type="number"
-                        min="0"
+                        min="1"
+                        required={i === 0}
                         step="any"
                         placeholder={item ? "Quantity (" + unitOf(item.baseUnit).label + ")" : "Quantity per batch"}
                         value={line.qtyPerBatch}
