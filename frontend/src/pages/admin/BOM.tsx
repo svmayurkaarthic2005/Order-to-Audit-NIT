@@ -369,7 +369,7 @@ export default function BOM() {
                   const item = packagingItems.find((candidate) => candidate.id === line.itemId);
                   return (
                     <div key={i} className="flex flex-col gap-2 sm:flex-row">
-                      <Select value={line.itemId} onChange={(e) => updatePackLine(i, { itemId: e.target.value })} className="min-w-0 flex-1">
+                      <Select value={line.itemId} required={i === 0} onChange={(e) => updatePackLine(i, { itemId: e.target.value })} className="min-w-0 flex-1">
                         <option value="">Choose packaging item</option>
                         {packagingItems.map((it) => (
                           <option key={it.id} value={it.id}>{it.name}</option>
