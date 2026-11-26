@@ -154,6 +154,14 @@ describe("pack-size costing — shared recipe, per-pack packaging and output", (
     expect(variance500.body.data.yield.actual).toBe(40);
     expect(variance500.body.data.yield.variancePct).toBe(0);
 
+    const productionReport = await request(app).get("/reports/production").set("Cookie", adminCookie);
+    const report500 = productionReport.body.data.find((row: { runId: string }) => row.runId === run500.body.data.id);
+    const finished500 = await prisma.item.findUniqueOrThrow({ where: { id: finished500Id } });
+    expect(report500.finishedGoodSku).toBe(finished500.sku);
+    expect(report500.plannedYield).toBe(40);
+    expect(report500.actualYield).toBe(40);
+    expect(report500.yieldVariancePct).toBe(0);
+
     // Each run's output landed under its OWN finished-good SKU, not the
     // BOM's shared canonical one.
     const movement200 = await prisma.stockMovement.findFirst({ where: { sourceId: run200.body.data.id, source: "PRODUCTION_OUTPUT" } });
