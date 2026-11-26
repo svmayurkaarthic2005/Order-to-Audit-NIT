@@ -323,39 +323,47 @@ async function completeProductionRunInTransaction(
           .map((line) => ({ itemId: line.rawItemId }));
     const packagingLineIds = new Set(requiredPackagingLines.map((line) => line.itemId));
 
-    // Only this pack size's packaging is required, exactly once.
-    requireEachLineOnce(packagingLineIds, data.packagingConsumed.map((l) => l.itemId), "packaging item");
+    // Lock every packaging SKU before reading stock or WAC; sorted order
+    // keeps concurrent multi-packaging completions from deadlocking.
+    for (const itemId of [...new Set(data.packagingConsumed.map((line) => line.itemId))].sort()) {
+      await lockItem(tx, itemId);
+    }
 
+    // Check and consume the used and damaged quantities against usable FEFO
+    // batches. Both categories are separate ledger rows but together consume
+    // the actual number of pouches/cartons taken from stock.
     for (const line of data.packagingConsumed) {
-      // Value used + damaged together, then split, so the two rows add up
-      // to exactly what the combined quantity is worth.
       const position = await ledgerPosition(tx, line.itemId);
       const usedValue = issueValuePaise(line.qtyBase, position);
       const damagedValue = issueValuePaise(line.qtyBase + line.damagedQty, position) - usedValue;
 
       if (line.qtyBase > 0) {
-        await tx.stockMovement.create({
-          data: {
-            itemId: line.itemId,
-            qtyBase: -line.qtyBase,
-            unitCostPaise: displayUnitCostPaise(usedValue, line.qtyBase),
-            totalCostPaise: -usedValue,
-            source: "PRODUCTION_PACKAGING",
-            sourceId: id,
-          },
-        });
+        const usedSelections = await selectRawBatchesFEFO(line.itemId, line.qtyBase, tx);
+        await issueFromRawBatches(
+          tx,
+          usedSelections,
+          line.itemId,
+          id,
+          line.qtyBase,
+          usedValue,
+          null,
+          undefined,
+          "PRODUCTION_PACKAGING",
+        );
       }
       if (line.damagedQty > 0) {
-        await tx.stockMovement.create({
-          data: {
-            itemId: line.itemId,
-            qtyBase: -line.damagedQty,
-            unitCostPaise: displayUnitCostPaise(damagedValue, line.damagedQty),
-            totalCostPaise: -damagedValue,
-            source: "PRODUCTION_DAMAGE",
-            sourceId: id,
-          },
-        });
+        const damagedSelections = await selectRawBatchesFEFO(line.itemId, line.damagedQty, tx);
+        await issueFromRawBatches(
+          tx,
+          damagedSelections,
+          line.itemId,
+          id,
+          line.damagedQty,
+          damagedValue,
+          null,
+          undefined,
+          "PRODUCTION_DAMAGE",
+        );
       }
       await tx.productionRunMaterial.updateMany({
         where: { productionRunId: id, itemId: line.itemId },
