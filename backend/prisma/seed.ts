@@ -157,7 +157,19 @@ async function main() {
   await prisma.packSize.upsert({
     where: { finishedItemId_label: { finishedItemId: murukku200g.id, label: "200g" } },
     update: {},
-    create: { finishedItemId: murukku200g.id, baseBomId: bom.id, multiplier: 1, label: "200g" },
+    create: {
+      finishedItemId: murukku200g.id,
+      baseBomId: bom.id,
+      multiplier: 1, // retained for backwards-compatible metadata
+      label: "200g",
+      expectedYieldQty: 200,
+      lines: {
+        create: [
+          { itemId: pouches.id, qtyPerBatch: 200 },
+          { itemId: cartons.id, qtyPerBatch: 10 },
+        ],
+      },
+    },
   });
 
   console.log("Seed complete.", {
