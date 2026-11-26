@@ -221,6 +221,8 @@ export async function editPackSize(
   actingUserId: string,
 ) {
   return prisma.$transaction(async (tx) => {
+    // Pair with the row lock taken when a production run is planned.
+    await tx.$queryRaw<Array<{ id: string }>>`SELECT "id" FROM "PackSize" WHERE "id" = ${id} FOR UPDATE`;
     const current = await tx.packSize.findUnique({
       where: { id },
       include: { baseBom: true, finishedItem: true, lines: { include: { item: true } } },
