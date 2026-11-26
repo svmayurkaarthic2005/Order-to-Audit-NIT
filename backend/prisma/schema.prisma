@@ -126,6 +126,7 @@ model Item {
   bomsAsFinished       BomHeader[]             @relation("BomFinishedItem")
   bomLinesAsRaw        BomLine[]
   packSizesFinished    PackSize[]
+  packSizePackaging    PackSizePackaging[]
   runMaterials         ProductionRunMaterial[]
   orderItems           OrderItem[]
   invoiceItems         InvoiceItem[]
@@ -206,15 +207,31 @@ model BomLine {
 }
 
 model PackSize {
-  id              String    @id @default(uuid())
-  finishedItemId  String
-  finishedItem    Item      @relation(fields: [finishedItemId], references: [id])
-  baseBomId       String
-  baseBom         BomHeader @relation(fields: [baseBomId], references: [id])
-  multiplier      Int       @default(1)
-  label           String
+  id               String    @id @default(uuid())
+  finishedItemId   String
+  finishedItem     Item      @relation(fields: [finishedItemId], references: [id])
+  baseBomId        String
+  baseBom          BomHeader @relation(fields: [baseBomId], references: [id])
+  expectedOutputQty Int // good packets of this pack size per one recipe batch
+  label            String
+
+  packagingLines   PackSizePackaging[]
+  productionRuns   ProductionRun[]
 
   @@unique([finishedItemId, label])
+}
+
+// Packaging belongs to a pack size, not to the shared raw-material recipe.
+// qtyPerBatch is the expected number of this packaging item per recipe batch.
+model PackSizePackaging {
+  id           String   @id @default(uuid())
+  packSizeId   String
+  packSize     PackSize @relation(fields: [packSizeId], references: [id])
+  itemId       String
+  item         Item     @relation(fields: [itemId], references: [id])
+  qtyPerBatch  Int
+
+  @@unique([packSizeId, itemId])
 }
 
 // ---------- purchases ----------
@@ -278,6 +295,9 @@ model ProductionRun {
   bomHeaderId   String
   bomHeader     BomHeader           @relation(fields: [bomHeaderId], references: [id])
   batchSize     Int                 @default(1)
+  packSizeId    String?
+  packSize      PackSize?           @relation(fields: [packSizeId], references: [id])
+  expectedOutputQty Int? // per-batch pack output snapshot, frozen when planned
   status        ProductionRunStatus @default(DRAFT)
   actualOutputQty Int?
   damagedQty    Int?
