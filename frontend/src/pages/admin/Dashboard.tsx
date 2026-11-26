@@ -217,6 +217,9 @@ export default function Dashboard() {
               </li>
             ))}
           </ul>
+          {stock?.length === 0 && (
+            <p className="py-6 text-center text-sm text-muted-foreground">No items yet. Add them in Setup, then record opening stock.</p>
+          )}
         </Card>
 
         <Card className="p-4">

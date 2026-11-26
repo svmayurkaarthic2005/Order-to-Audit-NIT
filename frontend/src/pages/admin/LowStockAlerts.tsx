@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Button, Card, ErrorText, Field, Input, Loading, PageHeader, Select, StatusBadge, Table, Td, Th, THead, qty, unitOf } from "@/components/ui";
+import { Button, Card, EmptyState, ErrorText, Field, Input, Loading, PageHeader, Select, StatusBadge, Table, Td, Th, THead, qty, unitOf } from "@/components/ui";
 
 type StockStatusRow = {
   itemId: string;
@@ -204,6 +204,7 @@ export default function LowStockAlerts() {
         <OpeningStockForm onDone={() => setShowOpeningStockForm(false)} />
       )}
 
+      {!isLoading && !error && data?.length !== 0 && (
       <Card className="mb-4 flex items-center gap-3 p-4">
         <StatusBadge variant={lowCount > 0 ? "warning" : "success"}>
           {lowCount > 0 ? `${lowCount} item${lowCount > 1 ? "s" : ""} running low` : "Nothing is running low"}
@@ -212,11 +213,14 @@ export default function LowStockAlerts() {
           Available leaves out stock already promised to approved orders.
         </span>
       </Card>
+      )}
 
       {isLoading ? (
         <Loading />
       ) : error ? (
         <ErrorText>{(error as Error).message}</ErrorText>
+      ) : data?.length === 0 ? (
+        <EmptyState>No items yet. Add your materials and products in Setup, Products &amp; materials, then record their opening stock here.</EmptyState>
       ) : (
         <Table>
           <THead>

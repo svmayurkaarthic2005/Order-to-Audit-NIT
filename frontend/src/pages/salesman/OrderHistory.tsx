@@ -71,7 +71,7 @@ export default function OrderHistory() {
         </div>
       ) : !data || data.items.length === 0 ? (
         <div className="mt-4">
-          <EmptyState>No orders yet. Submit your first one above.</EmptyState>
+          <EmptyState>No orders yet. Tap New order to take your first one.</EmptyState>
         </div>
       ) : (
         <>

@@ -154,6 +154,12 @@ export default function OrderEntry() {
     <div className="mx-auto max-w-lg">
       <PageHeader title="New order" description="Pick the customer, then add what they want." />
 
+      {(customers?.items.length === 0 || items?.items.length === 0) && (
+        <p className="mb-4 rounded-lg border border-warning/30 bg-warning-bg px-4 py-3 text-sm text-foreground">
+          {customers?.items.length === 0 ? "No customers yet" : "No products yet"}. The office adds them in Setup; once they do, they appear here.
+        </p>
+      )}
+
       <form onSubmit={handleSubmit} className="flex flex-col gap-5">
         {/* Customer */}
         <Card className="p-4">

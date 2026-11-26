@@ -249,7 +249,7 @@ export default function Reports() {
               {salesTrend.isLoading ? (
                 <Loading />
               ) : !salesTrend.data || salesTrend.data.buckets.every((b) => b.totalPaise === 0) ? (
-                <EmptyState>No sales in this period.</EmptyState>
+                <p className="py-6 text-center text-sm text-muted-foreground">The chart fills in as invoices are raised.</p>
               ) : (
                 <SalesTrendBars buckets={salesTrend.data.buckets} />
               )}
@@ -258,7 +258,7 @@ export default function Reports() {
 
           {tab === "Sales Register" && salesRegister.data && (
             salesRegister.data.customerWise.length === 0 ? (
-              <EmptyState>No sales in this range.</EmptyState>
+              <EmptyState>No invoices in this range, so no sales yet.</EmptyState>
             ) : (
               <>
                 <Table>
@@ -320,7 +320,10 @@ export default function Reports() {
           )}
 
           {/* ── GST Summary ── */}
-          {tab === "GST Summary" && gstSummary.data && (
+          {tab === "GST Summary" && gstSummary.data?.invoiceCount === 0 && (
+            <EmptyState>No invoices in this range, so no GST to report yet.</EmptyState>
+          )}
+          {tab === "GST Summary" && gstSummary.data && gstSummary.data.invoiceCount > 0 && (
             <div className="flex flex-col gap-4">
               <Card className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-5">
                 {[
