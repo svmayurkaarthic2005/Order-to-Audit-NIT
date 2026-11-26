@@ -154,11 +154,18 @@ async function main() {
     });
   }
 
-  await prisma.packSize.upsert({
+  const canonicalPack = await prisma.packSize.upsert({
     where: { finishedItemId_label: { finishedItemId: murukku200g.id, label: "200g" } },
-    update: {},
-    create: { finishedItemId: murukku200g.id, baseBomId: bom.id, multiplier: 1, label: "200g" },
+    update: { baseBomId: bom.id, expectedOutputQty: 200 },
+    create: { finishedItemId: murukku200g.id, baseBomId: bom.id, expectedOutputQty: 200, label: "200g" },
   });
+  for (const [itemId, qtyPerBatch] of [[pouches.id, 200], [cartons.id, 10]] as const) {
+    await prisma.packSizePackaging.upsert({
+      where: { packSizeId_itemId: { packSizeId: canonicalPack.id, itemId } },
+      update: { qtyPerBatch },
+      create: { packSizeId: canonicalPack.id, itemId, qtyPerBatch },
+    });
+  }
 
   console.log("Seed complete.", {
     users: 6,
