@@ -244,17 +244,21 @@ export async function stockLedger(itemId: string, from?: Date, to?: Date) {
 export async function productionReport(from?: Date, to?: Date) {
   const runs = await prisma.productionRun.findMany({
     where: { createdAt: dateRange(from, to) },
-    include: { bomHeader: { include: { finishedItem: true } }, materials: { include: { item: true } } },
+    include: {
+      bomHeader: { include: { finishedItem: true } },
+      packSize: { include: { finishedItem: true } },
+      materials: { include: { item: true } },
+    },
   });
 
   return runs.map((r) => {
-    const plannedYield = r.bomHeader.expectedYieldQty * r.batchSize;
+    const plannedYield = (r.packSize?.expectedYieldQty ?? r.bomHeader.expectedYieldQty) * r.batchSize;
     const actualYield = r.actualOutputQty;
     const yieldVariancePct = actualYield !== null && plannedYield > 0 ? (actualYield - plannedYield) / plannedYield : null;
 
     return {
       runId: r.id,
-      finishedGoodSku: r.bomHeader.finishedItem.sku,
+      finishedGoodSku: r.packSize?.finishedItem.sku ?? r.bomHeader.finishedItem.sku,
       status: r.status,
       batchSize: r.batchSize,
       plannedYield,
