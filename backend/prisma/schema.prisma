@@ -219,7 +219,7 @@ model PackSize {
   lines           PackSizeLine[]
   productionRuns  ProductionRun[]
 
-  @@unique([finishedItemId, label])
+  @@unique([baseBomId, finishedItemId, label])
 }
 
 model PackSizeLine {
