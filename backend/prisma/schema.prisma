@@ -294,7 +294,7 @@ model ProductionRun {
   bomHeaderId   String
   bomHeader     BomHeader           @relation(fields: [bomHeaderId], references: [id])
   packSizeId    String?
-  packSize      PackSize?           @relation(fields: [packSizeId], references: [id])
+  packSize      PackSize?           @relation(fields: [packSizeId], references: [id], onDelete: Restrict)
   batchSize     Int                 @default(1)
   status        ProductionRunStatus @default(DRAFT)
   actualOutputQty Int?
