@@ -27,3 +27,15 @@ export const packSizeCreateSchema = z.object({
     }),
   ).default([]),
 });
+
+
+export const packSizeUpdateSchema = z.object({
+  expectedOutputQty: z.coerce.number().int().positive(),
+  label: z.string().trim().min(1),
+  packagingLines: z.array(
+    z.object({
+      itemId: z.string().min(1),
+      qtyPerBatch: z.coerce.number().int().positive(),
+    }),
+  ).default([]),
+});
