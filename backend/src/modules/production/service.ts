@@ -64,31 +64,40 @@ export async function listProductionRuns() {
 }
 
 export async function createProductionRun(data: { bomHeaderId: string; batchSize: number; packSizeId?: string }) {
-  const bom = await prisma.bomHeader.findUnique({ where: { id: data.bomHeaderId } });
-  if (!bom) {
-    throw new AppError(404, "not_found", "BOM not found");
-  }
-  // New plans always use the latest version.
-  if (!bom.active) {
-    throw new AppError(409, "recipe_retired", "This recipe has been changed since. Reload and plan with the latest version.");
-  }
+  return prisma.$transaction(async (tx) => {
+    // Serialize planning against pack-size edits. Either the edit commits
+    // first and this run uses the new configuration, or the run commits
+    // first and the edit sees that the pack is now in use.
+    if (data.packSizeId) {
+      await tx.$queryRaw<Array<{ id: string }>>`SELECT "id" FROM "PackSize" WHERE "id" = ${data.packSizeId} FOR UPDATE`;
+    }
 
-  if (data.packSizeId) {
-    const packSize = await prisma.packSize.findUnique({
-      where: { id: data.packSizeId },
-      include: { baseBom: true },
+    const bom = await tx.bomHeader.findUnique({ where: { id: data.bomHeaderId } });
+    if (!bom) {
+      throw new AppError(404, "not_found", "BOM not found");
+    }
+    // New plans always use the latest version.
+    if (!bom.active) {
+      throw new AppError(409, "recipe_retired", "This recipe has been changed since. Reload and plan with the latest version.");
+    }
+
+    if (data.packSizeId) {
+      const packSize = await tx.packSize.findUnique({
+        where: { id: data.packSizeId },
+        include: { baseBom: true },
+      });
+      if (!packSize || packSize.baseBom.familyId !== bom.familyId) {
+        throw new AppError(400, "invalid_pack_size", "packSizeId does not belong to this recipe");
+      }
+      if (packSize.baseBomId !== bom.id) {
+        throw new AppError(409, "stale_pack_size", "This pack size is attached to a newer recipe version. Reload and plan again.");
+      }
+    }
+
+    return tx.productionRun.create({
+      data: { bomHeaderId: data.bomHeaderId, batchSize: data.batchSize, packSizeId: data.packSizeId ?? null },
+      include: includeClause(),
     });
-    if (!packSize || packSize.baseBom.familyId !== bom.familyId) {
-      throw new AppError(400, "invalid_pack_size", "packSizeId does not belong to this recipe");
-    }
-    if (packSize.baseBomId !== bom.id) {
-      throw new AppError(409, "stale_pack_size", "This pack size is attached to a newer recipe version. Reload and plan again.");
-    }
-  }
-
-  return prisma.productionRun.create({
-    data: { bomHeaderId: data.bomHeaderId, batchSize: data.batchSize, packSizeId: data.packSizeId ?? null },
-    include: includeClause(),
   });
 }
 
