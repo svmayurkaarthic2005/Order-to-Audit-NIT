@@ -160,11 +160,18 @@ describe("BOM management", () => {
   it("rejects a pack size with no base BOM, with a clear error", async () => {
     const cookie = await loginAs("admin@porulottam.test");
     const finishedId = await makeTestItem(cookie, "FINISHED_GOOD");
+    const packagingId = await makeTestItem(cookie, "PACKAGING");
 
     const res = await request(app)
       .post("/pack-sizes")
       .set("Cookie", cookie)
-      .send({ finishedItemId: finishedId, baseBomId: "00000000-0000-0000-0000-000000000000", expectedOutputQty: 100, label: "test-nope", packagingLines: [] });
+      .send({
+        finishedItemId: finishedId,
+        baseBomId: "00000000-0000-0000-0000-000000000000",
+        expectedOutputQty: 100,
+        label: "test-nope",
+        packagingLines: [{ itemId: packagingId, qtyPerBatch: 1 }],
+      });
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe("invalid_base_bom");
   });
