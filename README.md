@@ -137,16 +137,22 @@ prices never change an earlier run's cost.
 **Must have:** all done.
 
 - Login with five roles (salesman, admin, production, accountant, owner)
-- Product, raw-material, packaging, customer and supplier masters; recipes (BOM) with pack sizes.
-  Recipes are versioned: an edit saves the next version and retires the old one, which is never
-  changed or deleted. New plans use the latest version; a run already planned keeps its version
-  until someone presses "Use latest recipe", and started or finished runs never change. The
-  activity log records who changed which amounts
+- Product, raw-material, packaging, customer and supplier masters; versioned recipes (BOM)
+  with independent pack formats. Shared raw-material requirements stay on the recipe; each pack
+  format has its own expected packets per batch, finished-good SKU and packaging lines. For
+  example, the same 40 kg flour recipe can produce 200 x 200 g packs or 80 x 500 g packs without
+  mixing pouch stock or yield calculations. Pack format is selected when planning, and its
+  configuration is locked once a run references it. Recipes are versioned: an edit saves the next
+  version and retires the old one, which is never changed or deleted. New plans use the latest
+  version; a run already planned keeps its version until someone presses "Use latest recipe", and
+  started or finished runs never change. The activity log records who changed which amounts.
 - Phone-friendly order entry; admin approve, edit or reject, with a stock check before approval
 - GST invoice PDF: GSTIN, HSN, taxable value, CGST+SGST or IGST by place of supply, numbering per
   financial year
-- Production runs that move raw-material, packaging and finished-goods stock automatically
-- Planned against actual consumption and yield, with variance shown and flagged beyond ±3%
+- Production runs that move raw-material, pack-specific packaging and finished-goods stock
+  automatically; packaging issues and damage are checked against usable stock and FEFO batches
+- Planned against actual consumption and pack-specific expected yield, with variance shown and
+  flagged beyond ±3%
 - Stock summary and per-item stock ledger
 - All six section 4.6 reports (sales register by customer and by product, GST summary,
   purchase register, stock summary and ledger, production, payments with ageing), each
@@ -234,8 +240,9 @@ npm run benchmark   # section 5 on a brand-new database, 15 checks
 
 The tests cover the full order-to-cash and production flows and the unhappy paths: wrong
 password, every role boundary (403s), insufficient stock, duplicate order lines, incomplete
-production input, duplicate dispatch, double completion, concurrent approval and start races,
-cancellation reversals (including batch quantities), the append-only triggers, exact
+production input, per-pack yield and packaging selection, immutable pack configuration after
+planning, insufficient packaging stock at finish, duplicate dispatch, double completion,
+concurrent approval and start races, cancellation reversals (including batch quantities), the append-only triggers, exact
 moving-average valuation, offline order replay, invoice email and share links, and every report.
 CI runs all of it, plus the benchmark, on a fresh database on every push.
 
