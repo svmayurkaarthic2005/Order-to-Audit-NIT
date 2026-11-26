@@ -6,6 +6,7 @@ import { Button, Card, EmptyState, ErrorText, Field, Input, Loading, PageHeader,
 
 type Item = { id: string; sku: string; name: string; type: string; baseUnit: string };
 type BomLineInput = { rawItemId: string; qtyPerBatch: string };
+type PackLineInput = { itemId: string; qtyPerBatch: string };
 type Bom = {
   id: string;
   finishedItemId: string;
@@ -14,7 +15,13 @@ type Bom = {
   createdAt: string;
   finishedItem: { name: string; sku: string };
   lines: { rawItemId: string; rawItem: { sku: string; name: string; baseUnit: string }; qtyPerBatch: number }[];
-  packSizes: { id: string; label: string; multiplier: number; finishedItem: { name: string } }[];
+  packSizes: {
+    id: string;
+    label: string;
+    expectedYieldQty: number;
+    finishedItem: { name: string };
+    lines: { itemId: string; qtyPerBatch: number; item: { name: string; baseUnit: string } }[];
+  }[];
 };
 
 const emptyLine: BomLineInput = { rawItemId: "", qtyPerBatch: "" };
@@ -42,7 +49,8 @@ export default function BOM() {
   const [packBomId, setPackBomId] = useState("");
   const [packLabel, setPackLabel] = useState("");
   const [packItemId, setPackItemId] = useState("");
-  const [packMultiplier, setPackMultiplier] = useState("1");
+  const [packExpectedYieldQty, setPackExpectedYieldQty] = useState("");
+  const [packLines, setPackLines] = useState<PackLineInput[]>([{ itemId: "", qtyPerBatch: "" }]);
   const [packError, setPackError] = useState<string | null>(null);
 
   const { data: items } = useQuery({
@@ -56,6 +64,7 @@ export default function BOM() {
 
   const finishedGoods = items?.items.filter((i) => i.type === "FINISHED_GOOD") ?? [];
   const rawAndPackagingItems = items?.items.filter((i) => i.type !== "FINISHED_GOOD") ?? [];
+  const packagingItems = items?.items.filter((i) => i.type === "PACKAGING") ?? [];
   const baseUnitOf = (itemId: string) => items?.items.find((i) => i.id === itemId)?.baseUnit ?? "PIECE";
 
   const { data: versions } = useQuery({
@@ -94,8 +103,14 @@ export default function BOM() {
         // means the recipe's own product (same item, just a named pack).
         finishedItemId: packItemId || bom?.finishedItemId,
         baseBomId: packBomId,
-        multiplier: Number(packMultiplier),
+        // Output quantity is specific to the selected finished pack.
+        multiplier: 1,
         label: packLabel,
+        expectedYieldQty: Number(packExpectedYieldQty),
+        lines: packLines.map((line) => ({
+          itemId: line.itemId,
+          qtyPerBatch: Math.round(Number(line.qtyPerBatch) * unitOf(baseUnitOf(line.itemId)).factor),
+        })),
       });
     },
     onSuccess: () => {
@@ -103,7 +118,8 @@ export default function BOM() {
       setPackBomId("");
       setPackLabel("");
       setPackItemId("");
-      setPackMultiplier("1");
+      setPackExpectedYieldQty("");
+      setPackLines([{ itemId: "", qtyPerBatch: "" }]);
       setShowPackForm(false);
       queryClient.invalidateQueries({ queryKey: ["boms"] });
     },
@@ -129,6 +145,10 @@ export default function BOM() {
 
   function updateLine(index: number, patch: Partial<BomLineInput>) {
     setLines((prev) => prev.map((l, i) => (i === index ? { ...l, ...patch } : l)));
+  }
+
+  function updatePackLine(index: number, patch: Partial<PackLineInput>) {
+    setPackLines((prev) => prev.map((line, i) => (i === index ? { ...line, ...patch } : line)));
   }
 
   return (
@@ -271,9 +291,9 @@ export default function BOM() {
                 </Field>
               </div>
               <div className="sm:col-span-1 lg:col-span-4">
-                <Field label="Stock goes into">
-                  <Select value={packItemId} onChange={(e) => setPackItemId(e.target.value)} className="w-full">
-                    <option value="">Same product as the recipe</option>
+                <Field label="Stock goes into" required>
+                  <Select value={packItemId} required onChange={(e) => setPackItemId(e.target.value)} className="w-full">
+                    <option value="">Choose finished product</option>
                     {finishedGoods.map((it) => (
                       <option key={it.id} value={it.id}>
                         {it.name}
@@ -283,23 +303,71 @@ export default function BOM() {
                 </Field>
               </div>
               <div className="sm:col-span-1 lg:col-span-2">
-                <Field label="Name" required>
-                  <Input placeholder="e.g. 500 g pouch" required value={packLabel} onChange={(e) => setPackLabel(e.target.value)} className="w-full" />
+                <Field label="Pack label" required>
+                  <Input placeholder="e.g. 500 g" required value={packLabel} onChange={(e) => setPackLabel(e.target.value)} className="w-full" />
                 </Field>
               </div>
               <div className="sm:col-span-1 lg:col-span-2">
-                <Field label="Packets in one pack" required>
-                  <Input type="number" required value={packMultiplier} onChange={(e) => setPackMultiplier(e.target.value)} className="w-full" />
+                <Field label="Expected packets per batch" required>
+                  <Input type="number" min="1" step="1" required value={packExpectedYieldQty} onChange={(e) => setPackExpectedYieldQty(e.target.value)} className="w-full" />
                 </Field>
               </div>
             </div>
 
-            <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-t border-border/50 pt-3.5">
-              <p className="text-xs text-muted-foreground">
-                Pack the same recipe as another product, such as a 500 g pouch. Add that product under Items first;
-                when you finish a run you choose which one you packed.
+            <div className="mt-4 border-t border-border/50 pt-3.5">
+              <p className="mb-2 text-sm font-medium text-foreground">Packaging required for this pack, per batch</p>
+              <div className="flex flex-col gap-2">
+                {packLines.map((line, i) => (
+                  <div key={i} className="flex flex-col items-center gap-2 sm:flex-row">
+                    <Select
+                      value={line.itemId}
+                      required
+                      onChange={(e) => updatePackLine(i, { itemId: e.target.value })}
+                      className="w-full flex-1"
+                    >
+                      <option value="">Choose packaging item</option>
+                      {packagingItems.map((item) => (
+                        <option key={item.id} value={item.id}>{item.name}</option>
+                      ))}
+                    </Select>
+                    <Input
+                      type="number"
+                      min="0.001"
+                      step="any"
+                      required
+                      placeholder={`Amount (${unitOf(baseUnitOf(line.itemId)).label})`}
+                      aria-label={`Packaging amount per batch in ${unitOf(baseUnitOf(line.itemId)).label}`}
+                      value={line.qtyPerBatch}
+                      onChange={(e) => updatePackLine(i, { qtyPerBatch: e.target.value })}
+                      className="w-full sm:w-44"
+                    />
+                    {packLines.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => setPackLines((prev) => prev.filter((_, index) => index !== i))}
+                        className="rounded-lg p-2 text-muted-foreground hover:bg-destructive-bg hover:text-destructive"
+                        aria-label="Remove packaging line"
+                        title="Remove packaging line"
+                      >
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M18 6L6 18M6 6l12 12" />
+                        </svg>
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <Button type="button" variant="secondary" size="sm" className="mt-2" onClick={() => setPackLines((prev) => [...prev, { itemId: "", qtyPerBatch: "" }])}>
+                Add packaging item
+              </Button>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Raw ingredients remain shared with the recipe. Only the packaging listed here is required for this pack.
+                For example, a 500 g pack might make 80 packets per batch and use 80 pouches.
               </p>
-              <Button type="submit" disabled={createPackSizeMutation.isPending} className="self-end sm:self-auto px-6">
+            </div>
+
+            <div className="mt-4 flex justify-end border-t border-border/50 pt-3.5">
+              <Button type="submit" disabled={createPackSizeMutation.isPending} className="px-6">
                 {createPackSizeMutation.isPending ? "Saving…" : "Save pack size"}
               </Button>
             </div>
@@ -367,7 +435,10 @@ export default function BOM() {
                 )}
                 {b.packSizes.length > 0 && (
                   <p className="mt-2 border-t border-border pt-2 text-sm text-muted-foreground">
-                    Also packed as: {b.packSizes.map((p) => `${p.finishedItem.name} (${p.label}, ${p.multiplier} ${p.multiplier === 1 ? "packet" : "packets"})`).join(", ")}
+                    Also packed as: {b.packSizes.map((p) => {
+                      const packaging = p.lines.map((line) => `${line.item.name} ${qty(line.qtyPerBatch, line.item.baseUnit)}`).join(", ");
+                      return `${p.finishedItem.name} (${p.label}: ${p.expectedYieldQty} packets per batch; ${packaging})`;
+                    }).join("; ")}
                   </p>
                 )}
               </Card>
