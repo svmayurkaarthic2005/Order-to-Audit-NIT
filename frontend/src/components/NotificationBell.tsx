@@ -164,7 +164,7 @@ export function NotificationBell() {
           />
 
           <div
-            className="absolute right-0 z-50 mt-2 w-80 sm:w-96 origin-top-right rounded-xl border border-border bg-white shadow-xl ring-1 ring-black/5 focus:outline-none"
+            className="fixed inset-x-3 top-16 z-50 sm:absolute sm:inset-x-auto sm:right-0 sm:top-auto sm:mt-2 sm:w-96 origin-top-right rounded-xl border border-border bg-white shadow-xl ring-1 ring-black/5 focus:outline-none"
             role="dialog"
             aria-label="Notifications"
           >

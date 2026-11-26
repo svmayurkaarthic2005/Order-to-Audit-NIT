@@ -34,7 +34,7 @@ export async function computeOutputCostPaise(
   return materialCostPaise + overheadPaise + (laborCostPaise ?? 0);
 }
 
-type CostLine = { itemId: string; sku: string; name: string; qtyBase: number; unitCostPaise: number; totalCostPaise: number };
+type CostLine = { itemId: string; sku: string; name: string; baseUnit: string; qtyBase: number; unitCostPaise: number; totalCostPaise: number };
 
 // Every number here comes from StockMovement rows already posted when the
 // run completed (each carrying the moving-average cost in effect at that
@@ -69,7 +69,7 @@ export async function getProductionRunCostBreakdown(runId: string) {
   );
 
   function linesFor(itemIds: Set<string>, sources: string[]): CostLine[] {
-    const byItem = new Map<string, { qtyBase: number; totalCostPaise: number; item: { id: string; sku: string; name: string } }>();
+    const byItem = new Map<string, { qtyBase: number; totalCostPaise: number; item: { id: string; sku: string; name: string; baseUnit: string } }>();
     for (const m of movements) {
       if (!itemIds.has(m.itemId) || !sources.includes(m.source)) continue;
       const entry = byItem.get(m.itemId) ?? { qtyBase: 0, totalCostPaise: 0, item: m.item };
@@ -81,6 +81,7 @@ export async function getProductionRunCostBreakdown(runId: string) {
       itemId: e.item.id,
       sku: e.item.sku,
       name: e.item.name,
+      baseUnit: e.item.baseUnit,
       qtyBase: e.qtyBase,
       unitCostPaise: e.qtyBase > 0 ? Math.round(e.totalCostPaise / e.qtyBase) : 0,
       totalCostPaise: e.totalCostPaise,

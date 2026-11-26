@@ -44,7 +44,16 @@ type ConsumptionLine = { itemId: string; name: string; baseUnit: string; planned
 type PackagingLine = { itemId: string; name: string; baseUnit: string; planned: string; quantity: string; damagedQty: string };
 type VarianceLine = { itemId: string; planned: number; actual: number; variancePct: number; flagged: boolean };
 type Variance = { materials: VarianceLine[]; yield: VarianceLine | null };
-type CostLine = { itemId: string; sku: string; name: string; qtyBase: number; unitCostPaise: number; totalCostPaise: number };
+type CostLine = { itemId: string; sku: string; name: string; baseUnit: string; qtyBase: number; unitCostPaise: number; totalCostPaise: number };
+
+// The moving-average rate a line was costed at, per display unit, worked out
+// from its exact total (flour: ₹1,725 for 40 kg is ₹43.125/kg, not a rounded
+// per-gram rate). Up to three decimals, as averages often need.
+function costRate(l: CostLine) {
+  const { label, factor } = unitOf(l.baseUnit);
+  const rupees = l.qtyBase > 0 ? (l.totalCostPaise / l.qtyBase) * factor / 100 : 0;
+  return `${qty(l.qtyBase, l.baseUnit)} × ₹${rupees.toLocaleString("en-IN", { maximumFractionDigits: 3 })}/${label}`;
+}
 type CostBreakdown = {
   materialLines: CostLine[];
   packagingLines: CostLine[];
@@ -519,18 +528,20 @@ export default function ProductionRuns() {
                       <div className="mt-3 border-t border-border pt-3">
                         <table className="w-full text-sm">
                           <tbody>
-                            {costBreakdown.materialLines.map((l) => (
+                            {[...costBreakdown.materialLines, ...costBreakdown.packagingLines].map((l) => (
                               <tr key={l.itemId}>
-                                <td className="py-0.5 text-muted-foreground">{l.name}</td>
+                                <td className="py-0.5 text-muted-foreground">
+                                  {l.name} <span className="tabular text-xs">({costRate(l)})</span>
+                                </td>
                                 <td className="py-0.5 text-right tabular text-foreground">{money(l.totalCostPaise)}</td>
                               </tr>
                             ))}
-                            {costBreakdown.packagingLines.map((l) => (
-                              <tr key={l.itemId}>
-                                <td className="py-0.5 text-muted-foreground">{l.name}</td>
-                                <td className="py-0.5 text-right tabular text-foreground">{money(l.totalCostPaise)}</td>
-                              </tr>
-                            ))}
+                            <tr>
+                              <td className="py-0.5 font-medium text-foreground">Materials and packaging</td>
+                              <td className="py-0.5 text-right tabular font-medium text-foreground">
+                                {money([...costBreakdown.materialLines, ...costBreakdown.packagingLines].reduce((sum, l) => sum + l.totalCostPaise, 0))}
+                              </td>
+                            </tr>
                             <tr>
                               <td className="py-0.5 text-muted-foreground">Labour</td>
                               <td className="py-0.5 text-right tabular text-foreground">{money(costBreakdown.laborCostPaise)}</td>
@@ -554,7 +565,7 @@ export default function ProductionRuns() {
                                   <td className="py-0.5 text-right tabular text-foreground">{money(costBreakdown.sellingPricePaise)}</td>
                                 </tr>
                                 <tr>
-                                  <td className="py-0.5 font-medium text-foreground">Profit per packet</td>
+                                  <td className="py-0.5 font-medium text-foreground">Profit per packet (at {money(costBreakdown.sellingPricePaise)})</td>
                                   <td
                                     className={`py-0.5 text-right tabular font-semibold ${
                                       (costBreakdown.marginPaise ?? 0) >= 0 ? "text-success" : "text-destructive"

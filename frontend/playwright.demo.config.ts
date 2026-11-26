@@ -20,7 +20,6 @@ export default defineConfig({
     headless: !!process.env.DEMO_DRY,
     viewport: { width: 1280, height: 720 },
     video: { mode: process.env.DEMO_DRY ? "off" : "on", size: { width: 1280, height: 720 } },
-    launchOptions: { slowMo: process.env.DEMO_DRY ? 0 : 200 },
     actionTimeout: 30_000,
   },
   projects: [{ name: "demo" }],

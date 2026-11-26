@@ -24,6 +24,8 @@ type Order = {
   items: { qtyBase: number; ratePaise: number }[];
 };
 type OrderPage = { items: Order[]; total: number };
+type Run = { id: string; status: string; bomHeader: { finishedItem: { name: string } }; packSize: { finishedItem: { name: string } } | null };
+type RunCost = { costPerGoodUnitPaise: number; sellingPricePaise: number | null; marginPaise: number | null } | null;
 
 const ORDER_STATUS: Record<Order["status"], { label: string; variant: "warning" | "info" | "success" | "destructive" | "neutral" }> = {
   SUBMITTED: { label: "Waiting for approval", variant: "warning" },
@@ -59,6 +61,14 @@ export default function Dashboard() {
     queryFn: () => api.get<unknown[]>("/reconciliation/exceptions?status=OPEN"),
   });
   const { data: recent } = useQuery({ queryKey: ["orders", "recent"], queryFn: () => api.get<OrderPage>("/orders") });
+  // Cost per packet from the latest finished run: the owner's figure in the brief.
+  const { data: runs } = useQuery({ queryKey: ["production-runs"], queryFn: () => api.get<Run[]>("/production-runs") });
+  const lastRun = (runs ?? []).find((r) => r.status === "COMPLETED");
+  const { data: lastRunCost } = useQuery({
+    queryKey: ["production-run-cost-breakdown", lastRun?.id],
+    queryFn: () => api.get<RunCost>(`/production-runs/${lastRun!.id}/cost-breakdown`),
+    enabled: !!lastRun,
+  });
   const { data: waiting = 0 } = useQuery(orderCount("SUBMITTED"));
   const { data: needInvoice = 0 } = useQuery(orderCount("APPROVED"));
   const { data: toDispatch = 0 } = useQuery(orderCount("DISPATCHABLE"));
@@ -135,6 +145,17 @@ export default function Dashboard() {
     { label: "Still to collect", value: money(outstandingPaise), sub: outstandingPaise > 0 ? plural(owing.length, "customer", "customers") : "Everyone has paid", to: "/admin/invoices", warn: outstandingPaise > 0 },
     { label: "Packets in stock", value: packets.toLocaleString("en-IN"), sub: "Ready to sell", to: "/admin/stock-data" },
     { label: "Stock value", value: money(stockValuePaise), sub: "At average purchase cost", to: "/admin/reports" },
+    {
+      label: "Cost per packet",
+      value: lastRunCost ? money(lastRunCost.costPerGoodUnitPaise) : "—",
+      sub: !lastRun
+        ? "No finished run yet"
+        : lastRunCost?.marginPaise != null
+          ? `Profit ${money(lastRunCost.marginPaise)} at ${money(lastRunCost.sellingPricePaise ?? 0)}`
+          : `Latest ${(lastRun.packSize ?? lastRun.bomHeader).finishedItem.name} run`,
+      to: "/production/runs",
+      warn: (lastRunCost?.marginPaise ?? 0) < 0,
+    },
   ];
 
   return (
@@ -188,7 +209,7 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-5">
         {figures.map((f) => (
           <Link key={f.label} to={f.to} className="block">
             <Card className="card-hover h-full px-4 py-3">
