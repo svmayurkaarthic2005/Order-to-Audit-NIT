@@ -246,7 +246,7 @@ describe("pack-size costing — shared recipe, per-pack packaging and output", (
       baseBomId: bomB.body.data.id,
       expectedOutputQty: 10,
       label: "foreign",
-      packagingLines: [],
+      packagingLines: [{ itemId: pouchId, qtyPerBatch: 10 }],
     });
 
     const res = await request(app).post("/production-runs").set("Cookie", adminCookie).send({
