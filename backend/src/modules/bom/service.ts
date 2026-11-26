@@ -86,6 +86,19 @@ function readable(bom: RecipeForLog): Record<string, string | number> {
 // planned with; only new plans use the new one.
 export async function editBom(id: string, data: { expectedYieldQty: number; lines: BomLineInput[] }, actingUserId: string) {
   return prisma.$transaction(async (tx) => {
+    // Lock recipe first, then its pack rows in a stable order. This pairs
+    // with createPackSize's recipe lock and editPackSize's pack-row lock,
+    // making the version copy include one complete configuration snapshot.
+    await tx.$queryRaw<Array<{ id: string }>>`SELECT "id" FROM "BomHeader" WHERE "id" = ${id} FOR UPDATE`;
+    const packRows = await tx.packSize.findMany({
+      where: { baseBomId: id },
+      select: { id: true },
+      orderBy: { id: "asc" },
+    });
+    for (const packRow of packRows) {
+      await tx.$queryRaw<Array<{ id: string }>>`SELECT "id" FROM "PackSize" WHERE "id" = ${packRow.id} FOR UPDATE`;
+    }
+
     await checkLines(tx, data.lines);
     // Claiming the retirement first means two edits of the same version
     // can't both succeed: the second finds it already retired.
@@ -197,6 +210,9 @@ export async function createPackSize(
   actingUserId: string | null = null,
 ) {
   return prisma.$transaction(async (tx) => {
+    // Serialize pack creation with recipe retirement/versioning so an edit
+    // cannot miss a pack created against the version being retired.
+    await tx.$queryRaw<Array<{ id: string }>>`SELECT "id" FROM "BomHeader" WHERE "id" = ${data.baseBomId} FOR UPDATE`;
     const [finishedItem, baseBom] = await Promise.all([
       tx.item.findUnique({ where: { id: data.finishedItemId } }),
       tx.bomHeader.findUnique({ where: { id: data.baseBomId } }),
