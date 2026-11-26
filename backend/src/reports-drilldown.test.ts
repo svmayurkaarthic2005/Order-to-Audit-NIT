@@ -16,7 +16,7 @@ async function makeItem(cookie: string, type: "RAW_MATERIAL" | "FINISHED_GOOD") 
   const res = await request(app)
     .post("/items")
     .set("Cookie", cookie)
-    .send({ sku, name: `Drilldown Test ${type}`, type, baseUnit: "G" });
+    .send({ sku, name: `Drilldown Test ${type}`, type, baseUnit: type === "FINISHED_GOOD" ? "PIECE" : "G" });
   return res.body.data.id as string;
 }
 

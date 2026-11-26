@@ -13,9 +13,13 @@ const itemFields = {
   taxRatePct: z.coerce.number().int().min(0).max(100),
 };
 
-export const itemCreateSchema = z.object(itemFields).extend({
-  taxRatePct: itemFields.taxRatePct.default(0),
-});
+export const itemCreateSchema = z
+  .object(itemFields)
+  .extend({ taxRatePct: itemFields.taxRatePct.default(0) })
+  .refine((i) => i.type !== "FINISHED_GOOD" || i.baseUnit === "PIECE", {
+    message: "A product you sell is counted in packets (pieces)",
+    path: ["baseUnit"],
+  });
 
 export const itemUpdateSchema = z.object(itemFields).partial().omit({ sku: true, baseUnit: true });
 // sku and baseUnit are immutable once created — a wrong sku/unit is fixed by

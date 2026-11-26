@@ -15,7 +15,7 @@ async function makeItem(cookie: string, type: "RAW_MATERIAL" | "PACKAGING" | "FI
   const res = await request(app)
     .post("/items")
     .set("Cookie", cookie)
-    .send({ sku, name: `Production Audit Test ${type}`, type, baseUnit: "G" });
+    .send({ sku, name: `Production Audit Test ${type}`, type, baseUnit: type === "FINISHED_GOOD" ? "PIECE" : "G" });
   return res.body.data.id as string;
 }
 

@@ -19,7 +19,7 @@ shortlisting task.
 | Database | PostgreSQL (Docker locally; Supabase when hosted) |
 | Auth | JWT in an httpOnly cookie, bcrypt, role checks on every route |
 | Invoices | PDFKit; stored in Supabase Storage (private bucket) or local disk |
-| Tests | Vitest + Supertest against a real Postgres: 190 tests, plus the 15-check benchmark replay |
+| Tests | Vitest + Supertest against a real Postgres: 191 tests, plus the 15-check benchmark replay |
 | CI | GitHub Actions: migrate, seed, typecheck, tests, benchmark, frontend build |
 
 One web app serves every role: the salesman gets a phone-sized order screen that keeps working
@@ -248,7 +248,7 @@ e-Invoice/e-Way Bill format, and a Tamil interface for floor staff.
 
 ```bash
 cd backend
-npm test            # 190 tests, real Postgres, about a minute
+npm test            # 191 tests, real Postgres, about a minute
 npm run benchmark   # section 5 on a brand-new database, 15 checks
 ```
 

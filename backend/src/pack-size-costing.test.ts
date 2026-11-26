@@ -16,7 +16,7 @@ const TEST_SKU_PREFIX = "PACKSIZE-TEST-";
 
 async function makeItem(cookie: string, type: "RAW_MATERIAL" | "PACKAGING" | "FINISHED_GOOD", name = `Pack Size Test ${type}`) {
   const sku = `${TEST_SKU_PREFIX}${type}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  const res = await request(app).post("/items").set("Cookie", cookie).send({ sku, name, type, baseUnit: "G" });
+  const res = await request(app).post("/items").set("Cookie", cookie).send({ sku, name, type, baseUnit: type === "FINISHED_GOOD" ? "PIECE" : "G" });
   return res.body.data.id as string;
 }
 

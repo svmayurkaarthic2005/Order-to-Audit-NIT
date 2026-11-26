@@ -93,7 +93,7 @@ with a reason, and it posts as its own `ADJUSTMENT` movement — backed by a `St
 that carries the reason, who and when — valued at the item's current moving-average rate so the
 correction true-ups the quantity without distorting the cost history around it.
 
-**Checked three ways.** 190 backend tests against a real Postgres, the section 5 benchmark
+**Checked three ways.** 191 backend tests against a real Postgres, the section 5 benchmark
 replayed on a brand-new database (15 checks), and browser tests that click through the whole
 story as each role. CI runs all three on every push.
 

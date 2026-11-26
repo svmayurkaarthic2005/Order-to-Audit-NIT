@@ -53,6 +53,15 @@ describe("master data: customers", () => {
 });
 
 describe("master data: items", () => {
+  it("refuses a product we sell measured by weight: it's counted in packets", async () => {
+    const cookie = await loginAs("admin@porulottam.test");
+    const res = await request(app)
+      .post("/items")
+      .set("Cookie", cookie)
+      .send({ sku: `FG-BY-WEIGHT-${Date.now()}`, name: "Murukku by weight", type: "FINISHED_GOOD", baseUnit: "G", hsnCode: "19059090", taxRatePct: 5 });
+    expect(res.status).toBe(400);
+  });
+
   it("rejects a duplicate SKU with 409", async () => {
     const cookie = await loginAs("admin@porulottam.test");
     const res = await request(app)

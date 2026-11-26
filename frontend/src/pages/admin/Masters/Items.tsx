@@ -166,7 +166,11 @@ export default function Items() {
                 </label>
                 <Select
                   value={form.type}
-                  onChange={(e) => setForm({ ...form, type: e.target.value as Item["type"] })}
+                  onChange={(e) => {
+                    const type = e.target.value as Item["type"];
+                    // A product we sell is counted in packets, never by weight.
+                    setForm({ ...form, type, baseUnit: type === "FINISHED_GOOD" ? "PIECE" : form.baseUnit });
+                  }}
                   className="w-full"
                 >
                   {TYPES.map((t) => (
@@ -185,6 +189,7 @@ export default function Items() {
                 <Select
                   value={form.baseUnit}
                   onChange={(e) => setForm({ ...form, baseUnit: e.target.value as Item["baseUnit"] })}
+                  disabled={form.type === "FINISHED_GOOD"}
                   className="w-full"
                 >
                   {UNITS.map((u) => (
