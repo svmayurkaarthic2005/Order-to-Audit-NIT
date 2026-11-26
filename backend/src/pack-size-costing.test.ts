@@ -171,6 +171,42 @@ describe("pack-size costing — shared recipe, per-pack packaging and output", (
     expect(breakdown500.body.data.packagingLines[0].totalCostPaise).toBe(360); // 40 * 9 paise
 
     expect(breakdown200.body.data.costPerGoodUnitPaise).not.toBe(breakdown500.body.data.costPerGoodUnitPaise);
+
+    // A pack-specific pouch shortage must roll back the finish transition and
+    // every movement. It must never create negative packaging stock.
+    const pouchNoStockId = await makeItem(adminCookie, "PACKAGING", "500g pouch (no stock)");
+    const finishedNoStockId = await makeItem(adminCookie, "FINISHED_GOOD", "Test Snack 500g no stock pouch");
+    const packNoStock = await request(app).post("/pack-sizes").set("Cookie", adminCookie).send({
+      finishedItemId: finishedNoStockId,
+      baseBomId: bomId,
+      multiplier: 1,
+      label: "500g-no-stock",
+      expectedYieldQty: 40,
+      lines: [{ itemId: pouchNoStockId, qtyPerBatch: 1 }],
+    });
+    expect(packNoStock.status).toBe(201);
+
+    const noStockRun = await request(app).post("/production-runs").set("Cookie", adminCookie)
+      .send({ bomHeaderId: bomId, packSizeId: packNoStock.body.data.id });
+    await request(app).post(`/production-runs/${noStockRun.body.data.id}/start`).set("Cookie", adminCookie)
+      .send({ actualConsumption: [{ itemId: flourId, qtyBase: 10_000 }] });
+    const noStockFinish = await request(app)
+      .post(`/production-runs/${noStockRun.body.data.id}/complete`)
+      .set("Cookie", adminCookie)
+      .set("Idempotency-Key", `packsize-no-stock-${noStockRun.body.data.id}`)
+      .send({ actualOutputQty: 40, packagingConsumed: [{ itemId: pouchNoStockId, qtyBase: 1, damagedQty: 0 }] });
+
+    expect(noStockFinish.status).toBe(409);
+    expect(noStockFinish.body.error.code).toBe("insufficient_batch_stock");
+    const stillStarted = await prisma.productionRun.findUnique({ where: { id: noStockRun.body.data.id } });
+    expect(stillStarted?.status).toBe("STARTED");
+    const failedFinishMovements = await prisma.stockMovement.findMany({
+      where: {
+        sourceId: noStockRun.body.data.id,
+        source: { in: ["PRODUCTION_PACKAGING", "PRODUCTION_DAMAGE", "PRODUCTION_OUTPUT"] },
+      },
+    });
+    expect(failedFinishMovements).toHaveLength(0);
   });
 
   it("rejects a packSizeId that belongs to a different BOM during planning", async () => {
