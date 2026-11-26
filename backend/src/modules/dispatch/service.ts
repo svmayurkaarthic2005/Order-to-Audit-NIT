@@ -39,7 +39,7 @@ export async function createDispatch(invoiceId: string, qty: number, actingUserI
       dispatchedItemId = itemId;
       const valuePaise = issueValuePaise(qty, await ledgerPosition(tx, itemId));
 
-      const selections = await selectFinishedBatchesFEFO(itemId, qty);
+      const selections = await selectFinishedBatchesFEFO(itemId, qty, tx);
       await issueFromFinishedBatches(
         tx,
         dispatch.id,

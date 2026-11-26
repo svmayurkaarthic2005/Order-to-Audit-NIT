@@ -129,7 +129,7 @@ export async function startProductionRun(
       const valuePaise = issueValuePaise(consumed.qtyBase, await ledgerPosition(tx, consumed.itemId));
 
       // FEFO selection — select eligible batches in expiry order
-      const selections = await selectRawBatchesFEFO(consumed.itemId, consumed.qtyBase);
+      const selections = await selectRawBatchesFEFO(consumed.itemId, consumed.qtyBase, tx);
       await issueFromRawBatches(
         tx,
         selections,

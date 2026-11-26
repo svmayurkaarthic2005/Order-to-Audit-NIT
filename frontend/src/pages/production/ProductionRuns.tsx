@@ -9,6 +9,7 @@ type Bom = {
   expectedYieldQty: number;
   finishedItem: { name: string; sku: string };
   lines: { rawItemId: string; qtyPerBatch: number; rawItem: { sku: string; name: string; type: string; baseUnit: string } }[];
+  packSizes: { id: string; label: string; finishedItem: { name: string; sku: string } }[];
 };
 type RunMaterial = { itemId: string; plannedQtyBase: number; actualQtyBase: number | null; item: { sku: string; name: string; baseUnit: string } };
 type Run = {
@@ -55,12 +56,15 @@ export default function ProductionRuns() {
   const [bomId, setBomId] = useState("");
   const [batchSize, setBatchSize] = useState("1");
   const [error, setError] = useState<string | null>(null);
+  // Start/finish/cancel errors belong to one run and show on its card.
+  const [runError, setRunError] = useState<{ runId: string; message: string } | null>(null);
 
   const [startingRunId, setStartingRunId] = useState<string | null>(null);
   const [consumption, setConsumption] = useState<ConsumptionLine[]>([]);
 
   const [completingRunId, setCompletingRunId] = useState<string | null>(null);
   const [actualOutputQty, setActualOutputQty] = useState("");
+  const [packSizeId, setPackSizeId] = useState("");
   const [packaging, setPackaging] = useState<PackagingLine[]>([]);
   const [laborCostPaise, setLaborCostPaise] = useState("");
   const [overheadCostPaise, setOverheadCostPaise] = useState("");
@@ -87,9 +91,27 @@ export default function ProductionRuns() {
     enabled: varianceRunId !== null,
   });
 
+  const { data: stock } = useQuery({
+    queryKey: ["alerts", "stock-status"],
+    queryFn: () => api.get<{ itemId: string; availableQtyBase: number }[]>("/alerts/stock-status"),
+  });
+  const inStock = (itemId: string) => stock?.find((s) => s.itemId === itemId)?.availableQtyBase ?? 0;
+
   const selectedBom = boms?.find((b) => b.id === bomId);
+  const plannedBatches = Math.max(1, Number(batchSize) || 1);
+  // How many batches today's stock covers: the scarcest ingredient decides.
+  const maxBatches = selectedBom
+    ? Math.min(...selectedBom.lines.filter((l) => l.qtyPerBatch > 0).map((l) => Math.floor(inStock(l.rawItemId) / l.qtyPerBatch)))
+    : null;
+  // Raw materials leave stock when a run starts; packaging only when it finishes.
+  const shortLines = stock && selectedBom ? selectedBom.lines.filter((l) => inStock(l.rawItemId) < l.qtyPerBatch * plannedBatches) : [];
+  const rawShort = shortLines.some((l) => l.rawItem.type === "RAW_MATERIAL");
+  const packShort = shortLines.some((l) => l.rawItem.type === "PACKAGING");
   const startingRun = runs?.find((r) => r.id === startingRunId);
   const completingRun = runs?.find((r) => r.id === completingRunId);
+  const completingBom = boms?.find((b) => b.finishedItem.sku === completingRun?.bomHeader.finishedItem.sku);
+  // Pack sizes that put the output into a different product than the recipe's own.
+  const otherPacks = completingBom?.packSizes.filter((p) => p.finishedItem.sku !== completingBom.finishedItem.sku) ?? [];
 
   const createMutation = useMutation({
     mutationFn: () => api.post("/production-runs", { bomHeaderId: bomId, batchSize: Number(batchSize) }),
@@ -108,12 +130,12 @@ export default function ProductionRuns() {
         actualConsumption: consumption.map((c) => ({ itemId: c.itemId, qtyBase: toBase(c.quantity, c.baseUnit) })),
       }),
     onSuccess: () => {
-      setError(null);
+      setRunError(null);
       setStartingRunId(null);
       setConsumption([]);
       queryClient.invalidateQueries({ queryKey: ["production-runs"] });
     },
-    onError: (err) => setError(err instanceof ApiError ? err.message : "Couldn't start the run. There may not be enough of a material in stock."),
+    onError: (err, runId) => setRunError({ runId, message: err instanceof ApiError ? err.message : "Couldn't start the run. There may not be enough of a material in stock." }),
   });
 
   const completeMutation = useMutation({
@@ -122,6 +144,7 @@ export default function ProductionRuns() {
         `/production-runs/${runId}/complete`,
         {
           actualOutputQty: Number(actualOutputQty),
+          ...(packSizeId ? { packSizeId } : {}),
           packagingConsumed: packaging.map((p) => ({
             itemId: p.itemId,
             qtyBase: toBase(p.quantity, p.baseUnit),
@@ -133,21 +156,25 @@ export default function ProductionRuns() {
         { "Idempotency-Key": `${runId}-${Date.now()}` },
       ),
     onSuccess: () => {
-      setError(null);
+      setRunError(null);
       setCompletingRunId(null);
       setActualOutputQty("");
+      setPackSizeId("");
       setPackaging([]);
       setLaborCostPaise("");
       setOverheadCostPaise("");
       queryClient.invalidateQueries({ queryKey: ["production-runs"] });
     },
-    onError: (err) => setError(err instanceof ApiError ? err.message : "Couldn't finish the run."),
+    onError: (err, runId) => setRunError({ runId, message: err instanceof ApiError ? err.message : "Couldn't finish the run." }),
   });
 
   const cancelMutation = useMutation({
     mutationFn: (runId: string) => api.post(`/production-runs/${runId}/cancel`, {}),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["production-runs"] }),
-    onError: (err) => setError(err instanceof ApiError ? err.message : "Couldn't cancel the run."),
+    onSuccess: () => {
+      setRunError(null);
+      queryClient.invalidateQueries({ queryKey: ["production-runs"] });
+    },
+    onError: (err, runId) => setRunError({ runId, message: err instanceof ApiError ? err.message : "Couldn't cancel the run." }),
   });
 
   function openStartForm(run: Run) {
@@ -163,6 +190,7 @@ export default function ProductionRuns() {
   function openCompleteForm(run: Run) {
     setCompletingRunId(run.id);
     setStartingRunId(null);
+    setPackSizeId("");
     const bom = boms?.find((b) => b.finishedItem.sku === run.bomHeader.finishedItem.sku);
     const packagingLines = bom?.lines.filter((l) => l.rawItem.type === "PACKAGING") ?? [];
     setActualOutputQty(String(bom ? bom.expectedYieldQty * run.batchSize : ""));
@@ -217,7 +245,10 @@ export default function ProductionRuns() {
               <p className="text-xs text-muted-foreground">
                 {selectedBom ? (
                   <>
-                    You should get about <span className="tabular font-semibold text-foreground">{selectedBom.expectedYieldQty * Number(batchSize || 1)}</span> packets
+                    You should get about <span className="tabular font-semibold text-foreground">{selectedBom.expectedYieldQty * plannedBatches}</span> packets
+                    {maxBatches !== null && stock && (
+                      <> · stock today covers {maxBatches} {maxBatches === 1 ? "batch" : "batches"}</>
+                    )}
                   </>
                 ) : (
                   "Pick a product to see how many packets to expect."
@@ -227,6 +258,42 @@ export default function ProductionRuns() {
                 {createMutation.isPending ? "Saving…" : "Plan run"}
               </Button>
             </div>
+            {selectedBom && (
+              <table className="mt-4 w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs text-muted-foreground">
+                    <th className="pb-1.5 font-medium">This run needs</th>
+                    <th className="pb-1.5 text-right font-medium">Needed</th>
+                    <th className="pb-1.5 text-right font-medium">In stock</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {selectedBom.lines.map((l) => {
+                    const need = l.qtyPerBatch * plannedBatches;
+                    const have = inStock(l.rawItemId);
+                    const short = stock !== undefined && have < need;
+                    return (
+                      <tr key={l.rawItemId} className="border-t border-border/50">
+                        <td className="py-1.5">{l.rawItem.name}</td>
+                        <td className="py-1.5 text-right tabular">{qty(need, l.rawItem.baseUnit)}</td>
+                        <td className={`py-1.5 text-right tabular ${short ? "font-medium text-destructive" : "text-muted-foreground"}`}>
+                          {stock ? qty(have, l.rawItem.baseUnit) : "…"}
+                          {short && " (short)"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+            {(rawShort || packShort) && (
+              <p className="mt-3 text-xs text-muted-foreground">
+                You can still plan this run.{" "}
+                {rawShort
+                  ? "It can't start until the short ingredients are bought."
+                  : "It can start now, but buy the short packaging before you finish it."}
+              </p>
+            )}
           </form>
           {error && <div className="p-4 pt-0"><ErrorText>{error}</ErrorText></div>}
         </Card>
@@ -272,6 +339,11 @@ export default function ProductionRuns() {
                   </p>
                 )}
 
+                {runError?.runId === run.id && (
+                  <div className="mt-2">
+                    <ErrorText>{runError.message}</ErrorText>
+                  </div>
+                )}
                 <div className="mt-3 flex gap-2">
                   {canMutate && run.status === "DRAFT" && (
                     <Button size="sm" onClick={() => openStartForm(run)}>
@@ -442,6 +514,18 @@ export default function ProductionRuns() {
                     }}
                     className="mt-3 flex flex-col gap-2 rounded-md border border-border p-3"
                   >
+                    {completingBom && otherPacks.length > 0 && (
+                      <Field label="Packed as">
+                        <Select value={packSizeId} onChange={(e) => setPackSizeId(e.target.value)}>
+                          <option value="">{completingBom.finishedItem.name}</option>
+                          {otherPacks.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.finishedItem.name} ({p.label})
+                            </option>
+                          ))}
+                        </Select>
+                      </Field>
+                    )}
                     <Field label="Good packets made" required>
                       <Input type="number" required value={actualOutputQty} onChange={(e) => setActualOutputQty(e.target.value)} />
                     </Field>

@@ -40,7 +40,7 @@ function orderCount(status: Order["status"]) {
   };
 }
 
-type TodoRow = { count: number; text: string; to: string; action: string };
+type TodoRow = { count: number; title: string; detail: string; to: string; action: string; warn?: boolean };
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -70,24 +70,47 @@ export default function Dashboard() {
 
   const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
   const todo: TodoRow[] = [
-    { count: waiting, text: `${plural(waiting, "order is", "orders are")} waiting for approval`, to: "/admin/orders", action: canAct ? "Approve" : "View" },
-    { count: needInvoice, text: `${plural(needInvoice, "approved order needs", "approved orders need")} an invoice`, to: "/admin/orders", action: canAct ? "Invoice" : "View" },
-    { count: toDispatch, text: `${plural(toDispatch, "order is", "orders are")} invoiced and ready to send out`, to: "/admin/dispatch", action: canAct ? "Dispatch" : "View" },
+    {
+      count: waiting,
+      title: `${plural(waiting, "order", "orders")} waiting for approval`,
+      detail: "Check the quantities and approve, so the packets are set aside for the customer.",
+      to: "/admin/orders",
+      action: canAct ? "Approve" : "View",
+    },
+    {
+      count: needInvoice,
+      title: `${plural(needInvoice, "approved order needs", "approved orders need")} an invoice`,
+      detail: "Make the GST invoice. The order can be sent out once it's invoiced.",
+      to: "/admin/orders",
+      action: canAct ? "Invoice" : "View",
+    },
+    {
+      count: toDispatch,
+      title: `${plural(toDispatch, "order", "orders")} ready to send out`,
+      detail: "Invoiced and waiting to leave. Stock goes down when you mark it dispatched.",
+      to: "/admin/dispatch",
+      action: canAct ? "Dispatch" : "View",
+    },
     {
       count: lowItems.length,
-      text: `Running low: ${lowItems.map((i) => i.name).join(", ")}`,
+      title: `${plural(lowItems.length, "item is", "items are")} running low`,
+      detail: lowItems.map((i) => `${i.name} (${qty(i.availableQtyBase, i.unit)} left)`).join(", "),
       to: "/admin/stock-data",
-      action: "Check stock",
+      action: canAct ? "Reorder" : "Check stock",
+      warn: true,
     },
     {
       count: owing.length,
-      text: `${money(outstandingPaise)} still to collect from ${owing.map((c) => c.customerName).join(", ")}`,
+      title: `${money(outstandingPaise)} still to collect`,
+      detail: owing.map((c) => `${c.customerName} ${money(c.outstandingPaise)}`).join(", "),
       to: "/admin/invoices",
       action: canAct ? "Record payment" : "View",
+      warn: true,
     },
     {
       count: openChecks?.length ?? 0,
-      text: `${plural(openChecks?.length ?? 0, "number doesn't", "numbers don't")} add up and need a look`,
+      title: `${plural(openChecks?.length ?? 0, "figure doesn't", "figures don't")} add up`,
+      detail: "A stock count, invoice or payment differs from what the books expect.",
       to: "/admin/reconciliation",
       action: "Review",
     },
@@ -117,16 +140,29 @@ export default function Dashboard() {
     <div className="w-full min-w-0">
       <PageHeader title={`Hello, ${user?.name.split(" ")[0] ?? ""}`} description="Here's what needs doing today and how the business stands." />
 
-      <div className="grid gap-5 lg:grid-cols-3">
+      <div className="grid items-start gap-5 lg:grid-cols-3">
         <Card className="p-5 lg:col-span-2">
-          <h2 className="mb-3 text-base font-semibold text-foreground">To do</h2>
+          <div className="mb-1 flex items-baseline justify-between">
+            <h2 className="text-base font-semibold text-foreground">To do</h2>
+            {todo.length > 0 && <span className="text-xs text-muted-foreground">{plural(todo.length, "thing", "things")} need you</span>}
+          </div>
           {todo.length === 0 ? (
             <p className="py-6 text-center text-sm text-muted-foreground">Nothing is waiting on you right now.</p>
           ) : (
             <ul className="divide-y divide-border">
               {todo.map((row) => (
-                <li key={row.text} className="flex items-center justify-between gap-4 py-3">
-                  <span className="text-sm text-foreground">{row.text}</span>
+                <li key={row.title} className="flex items-center gap-3 py-3">
+                  <span
+                    className={`tabular flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold ${
+                      row.warn ? "bg-warning-bg text-warning" : "bg-primary/10 text-primary"
+                    }`}
+                  >
+                    {row.count}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-medium text-foreground">{row.title}</span>
+                    <span className="line-clamp-2 text-xs text-muted-foreground" title={row.detail}>{row.detail}</span>
+                  </span>
                   <Link
                     to={row.to}
                     className="shrink-0 rounded-md border border-border px-3 py-1.5 text-sm font-medium text-primary hover:bg-secondary"

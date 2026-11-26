@@ -84,7 +84,7 @@ export default function Purchases() {
 
   return (
     <div className="w-full min-w-0">
-      <PageHeader title="Purchases" description="Record materials and packaging when they arrive from a supplier. Stock goes up as soon as you save." />
+      <PageHeader title="Purchases" description="Record materials and packaging when they arrive from a supplier. Stock goes up as soon as you save. Products such as Murukku aren't listed: you make them in a production run, not buy them." />
 
       {/* Record form */}
       {canMutate && (

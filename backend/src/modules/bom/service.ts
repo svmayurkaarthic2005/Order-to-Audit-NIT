@@ -6,7 +6,7 @@ type BomLineInput = { rawItemId: string; qtyPerBatch: number };
 export async function listBoms() {
   return prisma.bomHeader.findMany({
     where: { active: true },
-    include: { finishedItem: true, lines: { include: { rawItem: true } }, packSizes: true },
+    include: { finishedItem: true, lines: { include: { rawItem: true } }, packSizes: { include: { finishedItem: true } } },
     orderBy: { createdAt: "desc" },
   });
 }
@@ -14,7 +14,7 @@ export async function listBoms() {
 export async function getBom(id: string) {
   const bom = await prisma.bomHeader.findUnique({
     where: { id },
-    include: { finishedItem: true, lines: { include: { rawItem: true } }, packSizes: true },
+    include: { finishedItem: true, lines: { include: { rawItem: true } }, packSizes: { include: { finishedItem: true } } },
   });
   if (!bom || !bom.active) {
     throw new AppError(404, "not_found", "BOM not found");

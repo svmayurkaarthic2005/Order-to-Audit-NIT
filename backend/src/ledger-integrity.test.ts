@@ -2,6 +2,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import request from "supertest";
 import { app } from "./index.js";
 import { prisma } from "./lib/prisma.js";
+import { selectFinishedBatchesFEFO } from "./modules/batches/service.js";
 
 async function loginAs(email: string) {
   const res = await request(app).post("/auth/login").send({ email, password: "password123" });
@@ -206,5 +207,50 @@ describe("stock and cost integrity", () => {
     await expect(attempt((tx) => tx.auditLog.delete({ where: { id: entry.id } }))).rejects.toThrow(/append-only/);
 
     expect((await prisma.stockMovement.findUniqueOrThrow({ where: { id: movement.id } })).qtyBase).toBe(1_000);
+  });
+  it("won't issue more raw material than the ledger holds when the item has no batches", async () => {
+    const admin = await loginAs("admin@porulottam.test");
+    const flour = await makeItem(admin, "RAW_MATERIAL");
+    const finished = await makeItem(admin, "FINISHED_GOOD", "PIECE");
+    await request(app).post("/inventory/opening-stock").set("Cookie", admin).send({ itemId: flour, qtyBase: 100_000, totalCostPaise: 420_000 });
+    const bom = await request(app).post("/boms").set("Cookie", admin).send({
+      finishedItemId: finished,
+      expectedYieldQty: 200,
+      lines: [{ rawItemId: flour, qtyPerBatch: 40_000 }],
+    });
+    bomIds.push(bom.body.data.id);
+    const run = await request(app).post("/production-runs").set("Cookie", admin).send({ bomHeaderId: bom.body.data.id, batchSize: 155 });
+    const res = await request(app)
+      .post(`/production-runs/${run.body.data.id}/start`)
+      .set("Cookie", admin)
+      .send({ actualConsumption: [{ itemId: flour, qtyBase: 6_200_000 }] });
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe("insufficient_batch_stock");
+    const onHand = await prisma.stockMovement.aggregate({ where: { itemId: flour }, _sum: { qtyBase: true } });
+    expect(onHand._sum.qtyBase).toBe(100_000); // nothing was taken
+  });
+
+  it("uses unbatched stock (like opening stock) together with batches, never more than both", async () => {
+    const admin = await loginAs("admin@porulottam.test");
+    const murukku = await makeItem(admin, "FINISHED_GOOD", "PIECE");
+    // 50 opening packets with no batch, plus a production batch of 188.
+    await request(app).post("/inventory/opening-stock").set("Cookie", admin).send({ itemId: murukku, qtyBase: 50, totalCostPaise: 0 });
+    const bom = await prisma.bomHeader.create({ data: { finishedItemId: murukku, expectedYieldQty: 200 } });
+    bomIds.push(bom.id);
+    const run = await prisma.productionRun.create({ data: { bomHeaderId: bom.id, batchSize: 1, status: "COMPLETED" } });
+    const batch = await prisma.finishedGoodsBatch.create({
+      data: { itemId: murukku, internalBatchNo: `FG-${run.id.slice(0, 8)}`, productionRunId: run.id, manufactureDate: new Date(), producedQtyBase: 188, remainingQtyBase: 188 },
+    });
+    await prisma.stockMovement.create({
+      data: { itemId: murukku, qtyBase: 188, unitCostPaise: 0, totalCostPaise: 0, source: "PRODUCTION_OUTPUT", sourceId: run.id, finishedGoodsBatchId: batch.id },
+    });
+
+    // 200 is more than the batch alone holds, but the ledger has 238.
+    const selections = await selectFinishedBatchesFEFO(murukku, 200);
+    expect(selections).toEqual([
+      { batchId: null, qty: 50, batchType: "finished" },
+      { batchId: batch.id, qty: 150, batchType: "finished" },
+    ]);
+    await expect(selectFinishedBatchesFEFO(murukku, 239)).rejects.toMatchObject({ code: "insufficient_batch_stock" });
   });
 });

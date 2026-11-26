@@ -12,7 +12,7 @@ type Bom = {
   expectedYieldQty: number;
   finishedItem: { name: string; sku: string };
   lines: { rawItem: { sku: string; name: string; baseUnit: string }; qtyPerBatch: number }[];
-  packSizes: { id: string; label: string; multiplier: number }[];
+  packSizes: { id: string; label: string; multiplier: number; finishedItem: { name: string } }[];
 };
 
 const emptyLine: BomLineInput = { rawItemId: "", qtyPerBatch: "" };
@@ -30,6 +30,7 @@ export default function BOM() {
 
   const [packBomId, setPackBomId] = useState("");
   const [packLabel, setPackLabel] = useState("");
+  const [packItemId, setPackItemId] = useState("");
   const [packMultiplier, setPackMultiplier] = useState("1");
   const [packError, setPackError] = useState<string | null>(null);
 
@@ -68,7 +69,9 @@ export default function BOM() {
     mutationFn: () => {
       const bom = boms?.find((b) => b.id === packBomId);
       return api.post("/pack-sizes", {
-        finishedItemId: bom?.finishedItemId,
+        // The product whose stock a run packed this way goes into. Blank
+        // means the recipe's own product (same item, just a named pack).
+        finishedItemId: packItemId || bom?.finishedItemId,
         baseBomId: packBomId,
         multiplier: Number(packMultiplier),
         label: packLabel,
@@ -78,6 +81,7 @@ export default function BOM() {
       setPackError(null);
       setPackBomId("");
       setPackLabel("");
+      setPackItemId("");
       setPackMultiplier("1");
       setShowPackForm(false);
       queryClient.invalidateQueries({ queryKey: ["boms"] });
@@ -207,7 +211,7 @@ export default function BOM() {
             className="p-5"
           >
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-12">
-              <div className="sm:col-span-2 lg:col-span-6">
+              <div className="sm:col-span-1 lg:col-span-4">
                 <Field label="Recipe" required>
                   <Select value={packBomId} required onChange={(e) => setPackBomId(e.target.value)} className="w-full">
                     <option value="">Choose a recipe</option>
@@ -219,12 +223,24 @@ export default function BOM() {
                   </Select>
                 </Field>
               </div>
-              <div className="sm:col-span-1 lg:col-span-3">
+              <div className="sm:col-span-1 lg:col-span-4">
+                <Field label="Stock goes into">
+                  <Select value={packItemId} onChange={(e) => setPackItemId(e.target.value)} className="w-full">
+                    <option value="">Same product as the recipe</option>
+                    {finishedGoods.map((it) => (
+                      <option key={it.id} value={it.id}>
+                        {it.name}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              </div>
+              <div className="sm:col-span-1 lg:col-span-2">
                 <Field label="Name" required>
                   <Input placeholder="e.g. 500 g pouch" required value={packLabel} onChange={(e) => setPackLabel(e.target.value)} className="w-full" />
                 </Field>
               </div>
-              <div className="sm:col-span-1 lg:col-span-3">
+              <div className="sm:col-span-1 lg:col-span-2">
                 <Field label="Packets in one pack" required>
                   <Input type="number" required value={packMultiplier} onChange={(e) => setPackMultiplier(e.target.value)} className="w-full" />
                 </Field>
@@ -233,7 +249,8 @@ export default function BOM() {
 
             <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-t border-border/50 pt-3.5">
               <p className="text-xs text-muted-foreground">
-                Sell several packets together as one pack, using the same recipe.
+                Pack the same recipe as another product, such as a 500 g pouch. Add that product under Items first;
+                when you finish a run you choose which one you packed.
               </p>
               <Button type="submit" disabled={createPackSizeMutation.isPending} className="self-end sm:self-auto px-6">
                 {createPackSizeMutation.isPending ? "Saving…" : "Save pack size"}
@@ -269,7 +286,7 @@ export default function BOM() {
                 </ul>
                 {b.packSizes.length > 0 && (
                   <p className="mt-2 border-t border-border pt-2 text-sm text-muted-foreground">
-                    Sold as: {b.packSizes.map((p) => `${p.label} (${p.multiplier} ${p.multiplier === 1 ? "packet" : "packets"})`).join(", ")}
+                    Also packed as: {b.packSizes.map((p) => `${p.finishedItem.name} (${p.label}, ${p.multiplier} ${p.multiplier === 1 ? "packet" : "packets"})`).join(", ")}
                   </p>
                 )}
               </Card>

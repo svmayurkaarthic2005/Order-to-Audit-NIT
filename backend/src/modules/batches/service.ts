@@ -3,6 +3,8 @@ import { AppError } from "../../lib/AppError.js";
 import { logAudit } from "../../lib/audit.js";
 import { prisma } from "../../lib/prisma.js";
 import { displayUnitCostPaise, splitValue } from "../../lib/valuation.js";
+import { getOnHandQty } from "../inventory/service.js";
+import { formatQty } from "../../lib/units.js";
 import { notify } from "../notifications/service.js";
 
 type TxClient = Prisma.TransactionClient;
@@ -50,53 +52,72 @@ export async function createRawBatchForPurchaseLine(
 
 // ── FEFO selection ────────────────────────────────────────────────────────
 
-export type BatchSelection = { batchId: string; qty: number; batchType: "raw" | "finished" };
+// batchId null is the "unbatched" part of on-hand: stock that has no batch
+// record, such as opening stock or a purchase entered without lot details.
+export type BatchSelection = { batchId: string | null; qty: number; batchType: "raw" | "finished" };
 
-/** Returns FEFO-ordered selections of raw-material batches for `qtyNeeded`.
- *  Excludes EXPIRED and QUARANTINED lots. If tracked batches exist but eligible
- *  stock is insufficient, throws 409. If no batches exist for this item (legacy unbatched stock),
- *  returns [] to allow unbatched issuance. */
-export async function selectRawBatchesFEFO(
+type DbClient = Prisma.TransactionClient | typeof prisma;
+type BatchRow = { id: string; remainingQtyBase: number; status: string; expiryDate: Date | null; createdAt: Date };
+
+// Chooses where an issue comes from, and refuses if the ledger doesn't hold
+// enough. Unbatched stock goes first (it's the oldest: it predates batch
+// tracking), then batches by earliest expiry, skipping expired and on-hold
+// ones. The ledger's on-hand is the limit in every case, so an item with no
+// batches at all can't be driven negative, and an item with a mix of both
+// can use all of its usable stock.
+async function selectFEFO(
+  db: DbClient,
   itemId: string,
   qtyNeeded: number,
+  batchType: "raw" | "finished",
+  batches: BatchRow[],
 ): Promise<BatchSelection[]> {
-  const totalBatches = await prisma.rawMaterialBatch.count({ where: { itemId } });
-  if (totalBatches === 0) {
-    return [];
+  const onHand = await getOnHandQty(db, itemId);
+  const batchedTotal = batches.reduce((sum, b) => sum + b.remainingQtyBase, 0);
+  const unbatched = Math.max(0, onHand - batchedTotal);
+
+  const selections: BatchSelection[] = [];
+  let remaining = qtyNeeded;
+  if (unbatched > 0 && remaining > 0) {
+    const take = Math.min(unbatched, remaining);
+    selections.push({ batchId: null, qty: take, batchType });
+    remaining -= take;
   }
 
-  const batches = await prisma.rawMaterialBatch.findMany({
-    where: {
-      itemId,
-      status: { notIn: ["EXPIRED", "QUARANTINED"] },
-      remainingQtyBase: { gt: 0 },
-    },
-    orderBy: [{ expiryDate: "asc" }, { createdAt: "asc" }],
-  });
+  const usable = batches
+    .filter((b) => b.status !== "EXPIRED" && b.status !== "QUARANTINED" && b.remainingQtyBase > 0)
+    .sort(
+      (x, y) =>
+        (x.expiryDate?.getTime() ?? Number.MAX_SAFE_INTEGER) - (y.expiryDate?.getTime() ?? Number.MAX_SAFE_INTEGER) ||
+        x.createdAt.getTime() - y.createdAt.getTime(),
+    );
+  for (const batch of usable) {
+    if (remaining <= 0) break;
+    const take = Math.min(batch.remainingQtyBase, remaining);
+    selections.push({ batchId: batch.id, qty: take, batchType });
+    remaining -= take;
+  }
 
-  return allocateFromBatches(batches, qtyNeeded, "raw");
+  if (remaining > 0) {
+    const item = await db.item.findUnique({ where: { id: itemId } });
+    throw new AppError(
+      409,
+      "insufficient_batch_stock",
+      `Not enough ${item?.name ?? "stock"}: ${formatQty(qtyNeeded - remaining, item?.baseUnit ?? "PIECE")} usable, ${formatQty(qtyNeeded, item?.baseUnit ?? "PIECE")} needed. Buy more, or lower the amount. (Expired or on-hold batches don't count.)`,
+      { itemId, available: qtyNeeded - remaining, needed: qtyNeeded },
+    );
+  }
+  return selections;
 }
 
-/** Returns FEFO-ordered selections of finished-goods batches for `qtyNeeded`. */
-export async function selectFinishedBatchesFEFO(
-  itemId: string,
-  qtyNeeded: number,
-): Promise<BatchSelection[]> {
-  const totalBatches = await prisma.finishedGoodsBatch.count({ where: { itemId } });
-  if (totalBatches === 0) {
-    return [];
-  }
+export async function selectRawBatchesFEFO(itemId: string, qtyNeeded: number, db: DbClient = prisma): Promise<BatchSelection[]> {
+  const batches = await db.rawMaterialBatch.findMany({ where: { itemId } });
+  return selectFEFO(db, itemId, qtyNeeded, "raw", batches);
+}
 
-  const batches = await prisma.finishedGoodsBatch.findMany({
-    where: {
-      itemId,
-      status: { notIn: ["EXPIRED", "QUARANTINED"] },
-      remainingQtyBase: { gt: 0 },
-    },
-    orderBy: [{ expiryDate: "asc" }, { createdAt: "asc" }],
-  });
-
-  return allocateFromBatches(batches, qtyNeeded, "finished");
+export async function selectFinishedBatchesFEFO(itemId: string, qtyNeeded: number, db: DbClient = prisma): Promise<BatchSelection[]> {
+  const batches = await db.finishedGoodsBatch.findMany({ where: { itemId } });
+  return selectFEFO(db, itemId, qtyNeeded, "finished", batches);
 }
 
 export async function selectBatchesFEFO(
@@ -108,32 +129,6 @@ export async function selectBatchesFEFO(
     return selectRawBatchesFEFO(itemId, qtyNeeded);
   }
   return selectFinishedBatchesFEFO(itemId, qtyNeeded);
-}
-
-function allocateFromBatches(
-  batches: { id: string; remainingQtyBase: number }[],
-  qtyNeeded: number,
-  batchType: "raw" | "finished",
-): BatchSelection[] {
-  const selections: BatchSelection[] = [];
-  let remaining = qtyNeeded;
-
-  for (const batch of batches) {
-    if (remaining <= 0) break;
-    const take = Math.min(batch.remainingQtyBase, remaining);
-    selections.push({ batchId: batch.id, qty: take, batchType });
-    remaining -= take;
-  }
-
-  if (remaining > 0) {
-    throw new AppError(
-      409,
-      "insufficient_batch_stock",
-      `Only ${qtyNeeded - remaining} units available across eligible batches; need ${qtyNeeded}`,
-    );
-  }
-
-  return selections;
 }
 
 // ── Issue from raw-material batches ──────────────────────────────────────
@@ -165,6 +160,19 @@ export async function issueFromRawBatches(
 
   const values = splitValue(issueValuePaise, selections.map((sel) => sel.qty));
   for (const [i, sel] of selections.entries()) {
+    if (sel.batchId === null) {
+      await tx.stockMovement.create({
+        data: {
+          itemId,
+          qtyBase: -sel.qty,
+          unitCostPaise,
+          totalCostPaise: -values[i]!,
+          source: "PRODUCTION_ISSUE",
+          sourceId: productionRunId,
+        },
+      });
+      continue;
+    }
     // Decrement remainingQtyBase atomically
     const updated = await tx.rawMaterialBatch.updateMany({
       where: { id: sel.batchId, remainingQtyBase: { gte: sel.qty } },
@@ -228,6 +236,19 @@ export async function issueFromFinishedBatches(
 
   const values = splitValue(issueValuePaise, selections.map((sel) => sel.qty));
   for (const [i, sel] of selections.entries()) {
+    if (sel.batchId === null) {
+      await tx.stockMovement.create({
+        data: {
+          itemId,
+          qtyBase: -sel.qty,
+          unitCostPaise,
+          totalCostPaise: -values[i]!,
+          source: "DISPATCH",
+          sourceId: invoiceId,
+        },
+      });
+      continue;
+    }
     const updated = await tx.finishedGoodsBatch.updateMany({
       where: { id: sel.batchId, remainingQtyBase: { gte: sel.qty } },
       data: { remainingQtyBase: { decrement: sel.qty } },

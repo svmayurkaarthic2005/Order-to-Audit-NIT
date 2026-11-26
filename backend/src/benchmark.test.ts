@@ -193,9 +193,17 @@ describe("benchmark scenario (section 5), replayed on a fresh database", () => {
     expect(retailerA).toMatchObject({ qtyBase: 150, taxableValuePaise: 750_000 });
   });
 
-  it("stock ledger for Murukku: opening stock, the run's output, then the dispatch", async () => {
+  it("stock ledger for Murukku: 50 opening + 188 made - 150 dispatched (opening packets go out first)", async () => {
     const res = await request(app).get(`/reports/stock-ledger?itemId=${await itemId("FG-MURUKKU-200G")}`).set("Cookie", admin);
-    expect(res.body.data.map((m: { source: string }) => m.source)).toEqual(["OPENING_STOCK", "PRODUCTION_OUTPUT", "DISPATCH"]);
+    const rows = res.body.data as { source: string; qtyBase: number }[];
+    const total = (source: string) => rows.filter((m) => m.source === source).reduce((s, m) => s + m.qtyBase, 0);
+    expect(total("OPENING_STOCK")).toBe(50);
+    expect(total("PRODUCTION_OUTPUT")).toBe(188);
+    expect(total("DISPATCH")).toBe(-150);
+    // The unbatched opening 50 went first, then 100 from the run's batch.
+    expect(rows.filter((m) => m.source === "DISPATCH").map((m) => m.qtyBase)).toEqual([-50, -100]);
+    const batch = await prisma.finishedGoodsBatch.findFirstOrThrow({ where: { productionRunId: runId } });
+    expect(batch.remainingQtyBase).toBe(88);
   });
 
   it("production report: the run's -6% yield variance", async () => {
