@@ -10,6 +10,7 @@ import {
   issueFromRawBatches,
   recordProductionOutput,
   refreshBatchStatuses,
+  lockItem,
   selectRawBatchesFEFO,
 } from "../batches/service.js";
 
@@ -125,6 +126,9 @@ export async function startProductionRun(
 
     requireEachLineOnce(rawMaterialLineIds, actualConsumption.map((c) => c.itemId), "raw material");
 
+    for (const itemId of [...new Set(actualConsumption.map((c) => c.itemId))].sort()) {
+      await lockItem(tx, itemId);
+    }
     for (const consumed of actualConsumption) {
       const valuePaise = issueValuePaise(consumed.qtyBase, await ledgerPosition(tx, consumed.itemId));
 

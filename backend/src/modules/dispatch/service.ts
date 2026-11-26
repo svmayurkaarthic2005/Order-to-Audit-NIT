@@ -6,6 +6,7 @@ import { issueValuePaise, ledgerPosition } from "../../lib/valuation.js";
 import { syncAlertsForItems } from "../alerts/service.js";
 import {
   issueFromFinishedBatches,
+  lockItem,
   refreshBatchStatuses,
   selectFinishedBatchesFEFO,
 } from "../batches/service.js";
@@ -37,6 +38,7 @@ export async function createDispatch(invoiceId: string, qty: number, actingUserI
 
       const itemId = invoice.items[0]!.itemId;
       dispatchedItemId = itemId;
+      await lockItem(tx, itemId);
       const valuePaise = issueValuePaise(qty, await ledgerPosition(tx, itemId));
 
       const selections = await selectFinishedBatchesFEFO(itemId, qty, tx);

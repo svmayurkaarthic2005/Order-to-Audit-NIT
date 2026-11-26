@@ -59,6 +59,16 @@ export type BatchSelection = { batchId: string | null; qty: number; batchType: "
 type DbClient = Prisma.TransactionClient | typeof prisma;
 type BatchRow = { id: string; remainingQtyBase: number; status: string; expiryDate: Date | null; createdAt: Date };
 
+// Two issues of the same item at once could both read the same on-hand
+// and take the unbatched stock twice. This lock queues them per item until
+// the transaction ends, so take it before any read the issue depends on
+// (on-hand, batches, average cost). Re-taking it in the same transaction is
+// a no-op. Several items: lock them in sorted order so two transactions
+// can't deadlock. Only meaningful inside a transaction.
+export async function lockItem(db: DbClient, itemId: string) {
+  await db.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${itemId}))`;
+}
+
 // Chooses where an issue comes from, and refuses if the ledger doesn't hold
 // enough. Unbatched stock goes first (it's the oldest: it predates batch
 // tracking), then batches by earliest expiry, skipping expired and on-hold
@@ -70,12 +80,10 @@ async function selectFEFO(
   itemId: string,
   qtyNeeded: number,
   batchType: "raw" | "finished",
-  batches: BatchRow[],
+  loadBatches: () => Promise<BatchRow[]>,
 ): Promise<BatchSelection[]> {
-  // Two issues of the same item at once could both read the same on-hand
-  // and take the unbatched stock twice. This lock queues them per item
-  // until the transaction ends.
-  await db.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${itemId}))`;
+  await lockItem(db, itemId);
+  const batches = await loadBatches();
   const onHand = await getOnHandQty(db, itemId);
   const batchedTotal = batches.reduce((sum, b) => sum + b.remainingQtyBase, 0);
   const unbatched = Math.max(0, onHand - batchedTotal);
@@ -115,13 +123,11 @@ async function selectFEFO(
 }
 
 export async function selectRawBatchesFEFO(itemId: string, qtyNeeded: number, db: DbClient = prisma): Promise<BatchSelection[]> {
-  const batches = await db.rawMaterialBatch.findMany({ where: { itemId } });
-  return selectFEFO(db, itemId, qtyNeeded, "raw", batches);
+  return selectFEFO(db, itemId, qtyNeeded, "raw", () => db.rawMaterialBatch.findMany({ where: { itemId } }));
 }
 
 export async function selectFinishedBatchesFEFO(itemId: string, qtyNeeded: number, db: DbClient = prisma): Promise<BatchSelection[]> {
-  const batches = await db.finishedGoodsBatch.findMany({ where: { itemId } });
-  return selectFEFO(db, itemId, qtyNeeded, "finished", batches);
+  return selectFEFO(db, itemId, qtyNeeded, "finished", () => db.finishedGoodsBatch.findMany({ where: { itemId } }));
 }
 
 export async function selectBatchesFEFO(
