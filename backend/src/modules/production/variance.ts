@@ -30,7 +30,7 @@ export async function getProductionRunVariance(id: string) {
 
   let yieldVariance = null;
   if (run.actualOutputQty !== null) {
-    const planned = run.bomHeader.expectedYieldQty * run.batchSize;
+    const planned = (run.expectedOutputQty ?? run.bomHeader.expectedYieldQty) * run.batchSize;
     const actual = run.actualOutputQty;
     const pct = variancePct(planned, actual);
     yieldVariance = { planned, actual, variancePct: pct, flagged: Math.abs(pct) > TOLERANCE_PCT };
