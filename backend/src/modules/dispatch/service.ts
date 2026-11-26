@@ -24,6 +24,9 @@ export async function createDispatch(invoiceId: string, qty: number, actingUserI
   let dispatchedItemId: string | undefined;
   try {
     const result = await prisma.$transaction(async (tx) => {
+      // Lock the invoice row first: a credit note on the same invoice takes
+      // the same lock, so dispatch sees its final status, never a stale one.
+      await tx.$executeRaw`SELECT id FROM "Invoice" WHERE id = ${invoiceId} FOR UPDATE`;
       const invoice = await tx.invoice.findUnique({ where: { id: invoiceId }, include: { items: true } });
       if (!invoice) {
         throw new AppError(404, "not_found", "Invoice not found");
@@ -55,7 +58,13 @@ export async function createDispatch(invoiceId: string, qty: number, actingUserI
         overrideReason,
       );
 
-      await tx.salesOrder.update({ where: { id: invoice.salesOrderId }, data: { status: "DISPATCHED" } });
+      const { count: shipped } = await tx.salesOrder.updateMany({
+        where: { id: invoice.salesOrderId, status: "DISPATCHABLE" },
+        data: { status: "DISPATCHED" },
+      });
+      if (shipped === 0) {
+        throw new AppError(409, "invalid_status", "This order is no longer ready to dispatch");
+      }
 
       await logAudit(tx, {
         userId: actingUserId,

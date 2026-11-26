@@ -94,6 +94,20 @@ describe("dispatch and payments", () => {
     expect(await titles(await loginAs("accountant@porulottam.test"))).toEqual([]);
   });
 
+  it("a dispatch and a credit note at the same moment never ship a cancelled order", async () => {
+    const adminCookie = await loginAs("admin@porulottam.test");
+    const salesmanCookie = await loginAs("salesman@porulottam.test");
+    const { invoiceId, itemId } = await makeIssuedInvoice(adminCookie, salesmanCookie, 100, 30, 1_000);
+    await Promise.allSettled([
+      request(app).post("/dispatches").set("Cookie", adminCookie).send({ invoiceId, qty: 30 }),
+      request(app).post(`/invoices/${invoiceId}/credit-note`).set("Cookie", adminCookie).send({ reason: "Race" }),
+    ]);
+    const order = (await prisma.invoice.findUniqueOrThrow({ where: { id: invoiceId }, include: { salesOrder: true } })).salesOrder;
+    const onHand = (await request(app).get(`/inventory/${itemId}/on-hand`).set("Cookie", adminCookie)).body.data.qtyBase;
+    // Shipped first (then credit-noted): goods left. Cancelled first: nothing left.
+    expect([`${order.status}:${onHand}`]).toContainEqual(order.status === "DISPATCHED" ? "DISPATCHED:70" : "CANCELLED:100");
+  });
+
   it("dispatching the same invoice twice is rejected with 409 and stock is unchanged after the second call", async () => {
     const adminCookie = await loginAs("admin@porulottam.test");
     const salesmanCookie = await loginAs("salesman@porulottam.test");

@@ -123,6 +123,8 @@ export async function createInvoice(orderId: string, actingUserId: string) {
 // CANCELLED so it's visibly superseded, but invoice_items is never mutated.
 export async function createCreditNote(invoiceId: string, reason: string, actingUserId: string) {
   return prisma.$transaction(async (tx) => {
+    // Same lock as dispatch: the two can't interleave on one invoice.
+    await tx.$executeRaw`SELECT id FROM "Invoice" WHERE id = ${invoiceId} FOR UPDATE`;
     const invoice = await tx.invoice.findUnique({ where: { id: invoiceId } });
     if (!invoice) {
       throw new AppError(404, "not_found", "Invoice not found");
