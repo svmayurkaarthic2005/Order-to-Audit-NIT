@@ -10,7 +10,7 @@ type BomLineInput = { rawItemId: string; qtyPerBatch: number };
 export async function listBoms() {
   return prisma.bomHeader.findMany({
     where: { active: true },
-    include: { finishedItem: true, lines: { include: { rawItem: true } }, packSizes: { include: { finishedItem: true } } },
+    include: { finishedItem: true, lines: { include: { rawItem: true } }, packSizes: { include: { finishedItem: true, packagingLines: { include: { item: true } } } } },
     orderBy: { createdAt: "desc" },
   });
 }
@@ -18,7 +18,7 @@ export async function listBoms() {
 export async function getBom(id: string) {
   const bom = await prisma.bomHeader.findUnique({
     where: { id },
-    include: { finishedItem: true, lines: { include: { rawItem: true } }, packSizes: { include: { finishedItem: true } } },
+    include: { finishedItem: true, lines: { include: { rawItem: true } }, packSizes: { include: { finishedItem: true, packagingLines: { include: { item: true } } } } },
   });
   if (!bom || !bom.active) {
     throw new AppError(404, "not_found", "BOM not found");
@@ -126,7 +126,7 @@ export async function editBom(id: string, data: { expectedYieldQty: number; line
 
     return tx.bomHeader.findUniqueOrThrow({
       where: { id: next.id },
-      include: { finishedItem: true, lines: { include: { rawItem: true } }, packSizes: { include: { finishedItem: true } } },
+      include: { finishedItem: true, lines: { include: { rawItem: true } }, packSizes: { include: { finishedItem: true, packagingLines: { include: { item: true } } } } },
     });
   });
 }
@@ -142,25 +142,48 @@ export async function listBomVersions(id: string) {
   });
 }
 
-// A pack size can never be created without a base BOM — it is just that
-// BOM's output scaled by an integer multiplier (e.g. 500 g = 2x the 250 g
-// base BOM), never an independent recipe.
+// A pack size is a specific finished SKU with its own actual output yield
+// and packaging list. It shares the recipe's raw-material BOM, but its pack
+// output is configured explicitly (not inferred from a rounded multiplier).
 export async function createPackSize(data: {
   finishedItemId: string;
   baseBomId: string;
-  multiplier: number;
+  expectedOutputQty: number;
   label: string;
+  packagingLines: { itemId: string; qtyPerBatch: number }[];
 }) {
-  const [finishedItem, baseBom] = await Promise.all([
-    prisma.item.findUnique({ where: { id: data.finishedItemId } }),
-    prisma.bomHeader.findUnique({ where: { id: data.baseBomId } }),
-  ]);
-  if (!finishedItem || !finishedItem.active) {
-    throw new AppError(404, "not_found", "Finished good item not found");
-  }
-  if (!baseBom || !baseBom.active) {
-    throw new AppError(400, "invalid_base_bom", "baseBomId does not refer to an existing BOM");
-  }
+  return prisma.$transaction(async (tx) => {
+    const [finishedItem, baseBom] = await Promise.all([
+      tx.item.findUnique({ where: { id: data.finishedItemId } }),
+      tx.bomHeader.findUnique({ where: { id: data.baseBomId } }),
+    ]);
+    if (!finishedItem || !finishedItem.active || finishedItem.type !== "FINISHED_GOOD") {
+      throw new AppError(404, "not_found", "Active finished-good item not found");
+    }
+    if (!baseBom || !baseBom.active) {
+      throw new AppError(400, "invalid_base_bom", "baseBomId does not refer to an active recipe");
+    }
 
-  return prisma.packSize.create({ data });
+    const itemIds = data.packagingLines.map((line) => line.itemId);
+    if (new Set(itemIds).size !== itemIds.length) {
+      throw new AppError(400, "duplicate_line", "A pack size cannot list the same packaging item twice");
+    }
+    for (const line of data.packagingLines) {
+      const item = await tx.item.findUnique({ where: { id: line.itemId } });
+      if (!item || !item.active || item.type !== "PACKAGING") {
+        throw new AppError(400, "invalid_packaging_item", `Item ${line.itemId} is not an active packaging item`);
+      }
+    }
+
+    return tx.packSize.create({
+      data: {
+        finishedItemId: data.finishedItemId,
+        baseBomId: data.baseBomId,
+        expectedOutputQty: data.expectedOutputQty,
+        label: data.label,
+        packagingLines: { create: data.packagingLines },
+      },
+      include: { finishedItem: true, packagingLines: { include: { item: true } } },
+    });
+  });
 }
