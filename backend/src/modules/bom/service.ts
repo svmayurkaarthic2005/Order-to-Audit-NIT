@@ -210,3 +210,74 @@ export async function createPackSize(
     return packSize;
   });
 }
+
+
+// Existing pack-size records (including those upgraded by the migration)
+// can be configured until the first production run is planned against them.
+// Once referenced by a run, the pack definition is immutable.
+export async function editPackSize(
+  id: string,
+  data: { expectedYieldQty: number; lines: { itemId: string; qtyPerBatch: number }[] },
+  actingUserId: string,
+) {
+  return prisma.$transaction(async (tx) => {
+    const current = await tx.packSize.findUnique({
+      where: { id },
+      include: { baseBom: true, finishedItem: true, lines: { include: { item: true } } },
+    });
+    if (!current) {
+      throw new AppError(404, "not_found", "Pack size not found");
+    }
+    if (!current.baseBom.active) {
+      throw new AppError(409, "recipe_retired", "Edit the pack size from the current recipe version");
+    }
+
+    const plannedRuns = await tx.productionRun.count({ where: { packSizeId: id } });
+    if (plannedRuns > 0) {
+      throw new AppError(409, "pack_size_in_use", "This pack size is already used by a planned or completed run. Create a new pack size configuration instead.");
+    }
+
+    const itemIds = data.lines.map((line) => line.itemId);
+    if (new Set(itemIds).size !== itemIds.length) {
+      throw new AppError(400, "duplicate_line", "A pack size cannot list the same packaging item twice");
+    }
+    const packagingItems = await tx.item.findMany({ where: { id: { in: itemIds }, active: true } });
+    if (packagingItems.length !== itemIds.length) {
+      throw new AppError(404, "not_found", "One or more packaging items were not found or are inactive");
+    }
+    const invalidItem = packagingItems.find((item) => item.type !== "PACKAGING");
+    if (invalidItem) {
+      throw new AppError(400, "invalid_packaging_item", `${invalidItem.name} is not a packaging item`);
+    }
+
+    await tx.packSizeLine.deleteMany({ where: { packSizeId: id } });
+    const updated = await tx.packSize.update({
+      where: { id },
+      data: {
+        expectedYieldQty: data.expectedYieldQty,
+        lines: { create: data.lines },
+      },
+      include: { finishedItem: true, lines: { include: { item: true } } },
+    });
+
+    await logAudit(tx, {
+      userId: actingUserId,
+      action: "PACK_SIZE_EDITED",
+      entityType: "PackSize",
+      entityId: id,
+      before: {
+        label: current.label,
+        finishedItem: current.finishedItem.name,
+        expectedPacketsPerBatch: current.expectedYieldQty,
+        packaging: current.lines.map((line) => ({ item: line.item.name, qtyPerBatch: line.qtyPerBatch })),
+      },
+      after: {
+        label: updated.label,
+        finishedItem: updated.finishedItem.name,
+        expectedPacketsPerBatch: updated.expectedYieldQty,
+        packaging: updated.lines.map((line) => ({ item: line.item.name, qtyPerBatch: line.qtyPerBatch })),
+      },
+    });
+    return updated;
+  });
+}
