@@ -42,6 +42,7 @@ function requireEachLineOnce(lineItemIds: Set<string>, reportedItemIds: string[]
 function includeClause() {
   return {
     bomHeader: { include: { finishedItem: true, lines: { include: { rawItem: true } } } },
+    packSize: { include: { finishedItem: true, lines: { include: { item: true } } } },
     materials: { include: { item: true } },
   } as const;
 }
@@ -62,7 +63,7 @@ export async function listProductionRuns() {
   return prisma.productionRun.findMany({ include: includeClause(), orderBy: { createdAt: "desc" } });
 }
 
-export async function createProductionRun(data: { bomHeaderId: string; batchSize: number }) {
+export async function createProductionRun(data: { bomHeaderId: string; batchSize: number; packSizeId?: string }) {
   const bom = await prisma.bomHeader.findUnique({ where: { id: data.bomHeaderId } });
   if (!bom) {
     throw new AppError(404, "not_found", "BOM not found");
@@ -71,8 +72,22 @@ export async function createProductionRun(data: { bomHeaderId: string; batchSize
   if (!bom.active) {
     throw new AppError(409, "recipe_retired", "This recipe has been changed since. Reload and plan with the latest version.");
   }
+
+  if (data.packSizeId) {
+    const packSize = await prisma.packSize.findUnique({
+      where: { id: data.packSizeId },
+      include: { baseBom: true },
+    });
+    if (!packSize || packSize.baseBom.familyId !== bom.familyId) {
+      throw new AppError(400, "invalid_pack_size", "packSizeId does not belong to this recipe");
+    }
+    if (packSize.baseBomId !== bom.id) {
+      throw new AppError(409, "stale_pack_size", "This pack size is attached to a newer recipe version. Reload and plan again.");
+    }
+  }
+
   return prisma.productionRun.create({
-    data: { bomHeaderId: data.bomHeaderId, batchSize: data.batchSize },
+    data: { bomHeaderId: data.bomHeaderId, batchSize: data.batchSize, packSizeId: data.packSizeId ?? null },
     include: includeClause(),
   });
 }
@@ -120,7 +135,13 @@ export async function startProductionRun(
   actingUserId: string,
 ) {
   return prisma.$transaction(async (tx) => {
-    const run = await tx.productionRun.findUnique({ where: { id }, include: { bomHeader: { include: { lines: { include: { rawItem: true } } } } } });
+    const run = await tx.productionRun.findUnique({
+      where: { id },
+      include: {
+        bomHeader: { include: { lines: { include: { rawItem: true } } } },
+        packSize: { include: { lines: true } },
+      },
+    });
     if (!run) {
       throw new AppError(404, "not_found", "Production run not found");
     }
@@ -147,13 +168,23 @@ export async function startProductionRun(
       after: { status: "STARTED", actualConsumption },
     });
 
-    // Snapshot every BOM line's planned quantity now — the only place
-    // planned/expected quantities are ever recorded (never in stock_movements).
-    for (const line of run.bomHeader.lines) {
+    // Freeze the material plan for the selected pack format. Raw materials
+    // remain shared with the recipe; packaging comes from only the selected
+    // PackSize. Legacy runs without a PackSize still use the BOM lines.
+    const plannedLines = run.packSize
+      ? [
+          ...run.bomHeader.lines
+            .filter((line) => line.rawItem.type === "RAW_MATERIAL")
+            .map((line) => ({ itemId: line.rawItemId, qtyPerBatch: line.qtyPerBatch })),
+          ...run.packSize.lines.map((line) => ({ itemId: line.itemId, qtyPerBatch: line.qtyPerBatch })),
+        ]
+      : run.bomHeader.lines.map((line) => ({ itemId: line.rawItemId, qtyPerBatch: line.qtyPerBatch }));
+
+    for (const line of plannedLines) {
       await tx.productionRunMaterial.create({
         data: {
           productionRunId: id,
-          itemId: line.rawItemId,
+          itemId: line.itemId,
           plannedQtyBase: line.qtyPerBatch * run.batchSize,
         },
       });
@@ -209,7 +240,6 @@ export async function completeProductionRun(
     expiryDate?: Date;
     laborCostPaise?: number;
     overheadCostPaise?: number;
-    packSizeId?: string;
   },
   actingUserId: string,
 ) {
@@ -240,31 +270,24 @@ async function completeProductionRunInTransaction(
     expiryDate?: Date;
     laborCostPaise?: number;
     overheadCostPaise?: number;
-    packSizeId?: string;
   },
   actingUserId: string,
 ) {
-  // Which item actually receives the output/stock movement — the BOM's own
-  // finished item, unless this run packed one of its registered PackSize
-  // variants instead (same shared raw-material recipe, a different
-  // product-specific packaging configuration and output SKU).
+  // The pack format is fixed at planning time, not chosen after production.
   let outputItemId = "";
   return prisma.$transaction(async (tx) => {
-    const run = await tx.productionRun.findUnique({ where: { id }, include: { bomHeader: { include: { lines: { include: { rawItem: true } } } } } });
+    const run = await tx.productionRun.findUnique({
+      where: { id },
+      include: {
+        bomHeader: { include: { lines: { include: { rawItem: true } } } },
+        packSize: { include: { finishedItem: true, lines: { include: { item: true } } } },
+      },
+    });
     if (!run) {
       throw new AppError(404, "not_found", "Production run not found");
     }
 
-    outputItemId = run.bomHeader.finishedItemId;
-    if (data.packSizeId) {
-      // Pack sizes follow the recipe's latest version, and a run may be on
-      // an older one, so they match by recipe rather than by version.
-      const packSize = await tx.packSize.findUnique({ where: { id: data.packSizeId }, include: { baseBom: true } });
-      if (!packSize || packSize.baseBom.familyId !== run.bomHeader.familyId) {
-        throw new AppError(400, "invalid_pack_size", "packSizeId does not belong to this run's BOM");
-      }
-      outputItemId = packSize.finishedItemId;
-    }
+    outputItemId = run.packSize?.finishedItemId ?? run.bomHeader.finishedItemId;
 
     // Same atomic-claim pattern as start: compute totalDamaged from the
     // request body (no DB read needed) so the transition can be claimed
@@ -293,14 +316,15 @@ async function completeProductionRunInTransaction(
       after: { status: "COMPLETED", actualOutputQty: data.actualOutputQty, damagedQty: totalDamagedQty, outputItemId },
     });
 
-    const packagingLineIds = new Set(
-      run.bomHeader.lines.filter((l) => l.rawItem.type === "PACKAGING").map((l) => l.rawItemId),
-    );
+    const requiredPackagingLines = run.packSize
+      ? run.packSize.lines.map((line) => ({ itemId: line.itemId }))
+      : run.bomHeader.lines
+          .filter((line) => line.rawItem.type === "PACKAGING")
+          .map((line) => ({ itemId: line.rawItemId }));
+    const packagingLineIds = new Set(requiredPackagingLines.map((line) => line.itemId));
 
-    // A recipe with several pack sizes lists every pack's packaging, and one
-    // run uses only its own; so with a pack size, each reported line must be
-    // valid and listed once, but unused packs needn't be listed.
-    requireEachLineOnce(packagingLineIds, data.packagingConsumed.map((l) => l.itemId), "packaging item", !data.packSizeId);
+    // Only this pack size's packaging is required, exactly once.
+    requireEachLineOnce(packagingLineIds, data.packagingConsumed.map((l) => l.itemId), "packaging item");
 
     for (const line of data.packagingConsumed) {
       // Value used + damaged together, then split, so the two rows add up
@@ -376,7 +400,7 @@ async function completeProductionRunInTransaction(
     await refreshBatchStatuses();
 
     // Notify on significant yield variance (>3% tolerance)
-    const expected = result.bomHeader.expectedYieldQty * result.batchSize;
+    const expected = (result.packSize?.expectedYieldQty ?? result.bomHeader.expectedYieldQty) * result.batchSize;
     const actual = data.actualOutputQty;
     if (expected > 0) {
       const pctDiff = (actual - expected) / expected; // signed fraction
@@ -385,7 +409,7 @@ async function completeProductionRunInTransaction(
         await notify({
           recipientRoles: ["OWNER", "PRODUCTION"],
           type: "PRODUCTION_VARIANCE",
-          title: `${result.bomHeader.finishedItem.name}: ${actual < expected ? "fewer" : "more"} packets than planned`,
+          title: `${result.packSize?.finishedItem.name ?? result.bomHeader.finishedItem.name}: ${actual < expected ? "fewer" : "more"} packets than planned`,
           message: `Expected ${expected} packets, got ${actual} (${pctDiff > 0 ? "+" : ""}${pctDisplay}%). More than 3% off, so it's worth checking what happened.`,
           severity: Math.abs(pctDiff) > 0.1 ? "CRITICAL" : "WARNING",
           sourceType: "ProductionRun",
