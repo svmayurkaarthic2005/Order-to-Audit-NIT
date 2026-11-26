@@ -228,6 +228,7 @@ describe("pack-size costing — shared recipe, per-pack packaging and output", (
     const flourId = await makeItem(adminCookie, "RAW_MATERIAL");
     const finishedAId = await makeItem(adminCookie, "FINISHED_GOOD");
     const finishedBId = await makeItem(adminCookie, "FINISHED_GOOD");
+    const pouchId = await makeItem(adminCookie, "PACKAGING");
     await openingStock(adminCookie, flourId, 100_000, 100_000 * 10);
 
     const bomA = await request(app).post("/boms").set("Cookie", adminCookie).send({
