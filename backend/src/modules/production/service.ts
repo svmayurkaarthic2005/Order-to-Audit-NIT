@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { AppError } from "../../lib/AppError.js";
 import { logAudit } from "../../lib/audit.js";
 import { prisma } from "../../lib/prisma.js";
+import { formatQty } from "../../lib/units.js";
 import { displayUnitCostPaise, issueValuePaise, ledgerPosition } from "../../lib/valuation.js";
 import { computeOutputCostPaise } from "./costing.js";
 import { syncAlertsForItems } from "../alerts/service.js";
@@ -368,6 +369,10 @@ async function completeProductionRunInTransaction(
           .filter((line) => line.rawItem.type === "PACKAGING")
           .map((line) => ({ itemId: line.rawItemId }));
     const packagingLineIds = new Set(requiredPackagingLines.map((line) => line.itemId));
+    // Exactly this run's packaging, each once: a skipped pouch would never
+    // leave stock (and the cost would be too low), a repeated one would be
+    // taken twice, and anything else isn't packaging for this pack format.
+    requireEachLineOnce(packagingLineIds, data.packagingConsumed.map((l) => l.itemId), "packaging item");
 
     // Lock every packaging SKU before reading stock or WAC; sorted order
     // keeps concurrent multi-packaging completions from deadlocking.
@@ -377,9 +382,20 @@ async function completeProductionRunInTransaction(
 
     // Check and consume the used and damaged quantities against usable FEFO
     // batches. Both categories are separate ledger rows but together consume
-    // the actual number of pouches/cartons taken from stock.
+    // the actual number of pouches/cartons taken from stock. Used + damaged is
+    // checked first against on-hand, so the message names the full amount.
     for (const line of data.packagingConsumed) {
       const position = await ledgerPosition(tx, line.itemId);
+      const taking = line.qtyBase + line.damagedQty;
+      if (taking > position.qtyBase) {
+        const item = await tx.item.findUniqueOrThrow({ where: { id: line.itemId } });
+        throw new AppError(
+          409,
+          "insufficient_batch_stock",
+          `Not enough ${item.name}: ${formatQty(Math.max(position.qtyBase, 0), item.baseUnit)} in stock, ${formatQty(taking, item.baseUnit)} used and damaged. Record the purchase first, or correct the amounts.`,
+          { itemId: line.itemId, available: position.qtyBase, needed: taking },
+        );
+      }
       const usedValue = issueValuePaise(line.qtyBase, position);
       const damagedValue = issueValuePaise(line.qtyBase + line.damagedQty, position) - usedValue;
 
