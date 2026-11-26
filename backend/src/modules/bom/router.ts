@@ -1,8 +1,8 @@
 import { Router } from "express";
 import { requireAuth, requireRole } from "../../middleware/auth.js";
 import { validate } from "../../lib/validate.js";
-import { createBom, createPackSize, editBom, getBom, listBomVersions, listBoms } from "./service.js";
-import { bomCreateSchema, bomEditSchema, packSizeCreateSchema } from "./schema.js";
+import { createBom, createPackSize, editBom, getBom, listBomVersions, listBoms, updatePackSize } from "./service.js";
+import { bomCreateSchema, bomEditSchema, packSizeCreateSchema, packSizeUpdateSchema } from "./schema.js";
 
 export const bomRouter = Router();
 export const packSizesRouter = Router();
@@ -43,4 +43,9 @@ bomRouter.put("/:id", canManageBoms, validate("body", bomEditSchema), async (req
 packSizesRouter.post("/", canManageBoms, validate("body", packSizeCreateSchema), async (req, res) => {
   const packSize = await createPackSize(req.body);
   res.status(201).json({ data: packSize });
+});
+
+packSizesRouter.put("/:id", canManageBoms, validate("body", packSizeUpdateSchema), async (req, res) => {
+  const packSize = await updatePackSize(req.params.id as string, req.body);
+  res.json({ data: packSize });
 });
