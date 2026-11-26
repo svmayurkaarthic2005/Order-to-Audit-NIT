@@ -253,4 +253,21 @@ describe("stock and cost integrity", () => {
     ]);
     await expect(selectFinishedBatchesFEFO(murukku, 239)).rejects.toMatchObject({ code: "insufficient_batch_stock" });
   });
+
+  it("two issues at once can't both take the same unbatched stock", async () => {
+    const admin = await loginAs("admin@porulottam.test");
+    const item = await makeItem(admin, "FINISHED_GOOD", "PIECE");
+    await request(app).post("/inventory/opening-stock").set("Cookie", admin).send({ itemId: item, qtyBase: 50, totalCostPaise: 0 });
+    // Each takes all 50 and posts the movement, as a dispatch does.
+    const issueAll = () =>
+      prisma.$transaction(async (tx) => {
+        const [sel] = await selectFinishedBatchesFEFO(item, 50, tx);
+        await new Promise((r) => setTimeout(r, 200)); // widen the race window
+        await tx.stockMovement.create({ data: { itemId: item, qtyBase: -sel!.qty, unitCostPaise: 0, totalCostPaise: 0, source: "DISPATCH" } });
+      });
+    const results = await Promise.allSettled([issueAll(), issueAll()]);
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    const left = await prisma.stockMovement.aggregate({ where: { itemId: item }, _sum: { qtyBase: true } });
+    expect(left._sum.qtyBase).toBe(0);
+  });
 });

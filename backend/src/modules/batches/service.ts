@@ -72,6 +72,10 @@ async function selectFEFO(
   batchType: "raw" | "finished",
   batches: BatchRow[],
 ): Promise<BatchSelection[]> {
+  // Two issues of the same item at once could both read the same on-hand
+  // and take the unbatched stock twice. This lock queues them per item
+  // until the transaction ends.
+  await db.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${itemId}))`;
   const onHand = await getOnHandQty(db, itemId);
   const batchedTotal = batches.reduce((sum, b) => sum + b.remainingQtyBase, 0);
   const unbatched = Math.max(0, onHand - batchedTotal);
