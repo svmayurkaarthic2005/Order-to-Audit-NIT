@@ -3,10 +3,9 @@ import request from "supertest";
 import { app } from "./index.js";
 import { prisma } from "./lib/prisma.js";
 
-// Verifies the brief's claim that PackSize already models "shared base
-// recipe + product-specific packaging configuration" — and that a
-// ProductionRun can actually be completed *as* one of a BOM's registered
-// pack sizes, not just the BOM's own canonical finished item.
+// Verifies that a run locks its pack size at planning time, shares raw
+// ingredients with the base recipe, uses only the selected pack's packaging,
+// and computes yield variance/cost against that pack format.
 
 async function loginAs(email: string) {
   const res = await request(app).post("/auth/login").send({ email, password: "password123" });
@@ -59,31 +58,30 @@ describe("pack-size costing — shared recipe, per-pack packaging and output", (
     await openingStock(adminCookie, pouch200Id, 10_000, 10_000 * 5); // 5 paise/piece
     await openingStock(adminCookie, pouch500Id, 10_000, 10_000 * 9); // 9 paise/piece
 
-    // One shared BOM: the raw-material recipe (flour) plus BOTH pack sizes'
-    // own packaging lines, so either can be consumed at completion time.
-    // The BOM's own canonical finished item is the 200g pack — PackSize
-    // rows are what let a run instead target the 500g item.
+    // The BOM owns the 200g recipe's default packaging. The 500g variant
+    // carries a separate expected yield and its own pouch requirement.
     const bomRes = await request(app).post("/boms").set("Cookie", adminCookie).send({
       finishedItemId: finished200Id,
       expectedYieldQty: 100,
       lines: [
         { rawItemId: flourId, qtyPerBatch: 10_000 },
         { rawItemId: pouch200Id, qtyPerBatch: 100 },
-        { rawItemId: pouch500Id, qtyPerBatch: 40 },
       ],
     });
     const bomId = bomRes.body.data.id as string;
 
-    const packSize200 = await request(app).post("/pack-sizes").set("Cookie", adminCookie).send({
-      finishedItemId: finished200Id, baseBomId: bomId, multiplier: 1, label: "200g",
-    });
     const packSize500 = await request(app).post("/pack-sizes").set("Cookie", adminCookie).send({
-      finishedItemId: finished500Id, baseBomId: bomId, multiplier: 2, label: "500g",
+      finishedItemId: finished500Id,
+      baseBomId: bomId,
+      multiplier: 1,
+      label: "500g",
+      expectedYieldQty: 40,
+      lines: [{ itemId: pouch500Id, qtyPerBatch: 40 }],
     });
-    expect(packSize200.status).toBe(201);
     expect(packSize500.status).toBe(201);
+    expect(packSize500.body.data.expectedYieldQty).toBe(40);
 
-    // ── Run 1: packed as the 200g pack size ──
+    // ── Run 1: default 200g product and its original BOM packaging ──
     const run200 = await request(app).post("/production-runs").set("Cookie", adminCookie).send({ bomHeaderId: bomId });
     await request(app).post(`/production-runs/${run200.body.data.id}/start`).set("Cookie", adminCookie)
       .send({ actualConsumption: [{ itemId: flourId, qtyBase: 10_000 }] });
@@ -94,13 +92,22 @@ describe("pack-size costing — shared recipe, per-pack packaging and output", (
       .send({
         actualOutputQty: 100,
         packagingConsumed: [{ itemId: pouch200Id, qtyBase: 100, damagedQty: 0 }],
-        packSizeId: packSize200.body.data.id,
       });
 
-    // ── Run 2: same BOM, packed as the 500g pack size instead ──
-    const run500 = await request(app).post("/production-runs").set("Cookie", adminCookie).send({ bomHeaderId: bomId });
+    // ── Run 2: select 500g while planning; finish cannot switch it later ──
+    const run500 = await request(app).post("/production-runs").set("Cookie", adminCookie)
+      .send({ bomHeaderId: bomId, packSizeId: packSize500.body.data.id });
+    expect(run500.status).toBe(201);
+    expect(run500.body.data.packSize.id).toBe(packSize500.body.data.id);
+
     await request(app).post(`/production-runs/${run500.body.data.id}/start`).set("Cookie", adminCookie)
       .send({ actualConsumption: [{ itemId: flourId, qtyBase: 10_000 }] });
+
+    // The start snapshot contains flour + 500g pouches, not 200g pouches.
+    const run500Materials = await prisma.productionRunMaterial.findMany({ where: { productionRunId: run500.body.data.id } });
+    expect(run500Materials.map((line) => line.itemId).sort()).toEqual([flourId, pouch500Id].sort());
+    expect(run500Materials.find((line) => line.itemId === pouch500Id)?.plannedQtyBase).toBe(40);
+
     await request(app)
       .post(`/production-runs/${run500.body.data.id}/complete`)
       .set("Cookie", adminCookie)
@@ -108,8 +115,12 @@ describe("pack-size costing — shared recipe, per-pack packaging and output", (
       .send({
         actualOutputQty: 40,
         packagingConsumed: [{ itemId: pouch500Id, qtyBase: 40, damagedQty: 0 }],
-        packSizeId: packSize500.body.data.id,
       });
+
+    const variance500 = await request(app).get(`/production-runs/${run500.body.data.id}/variance`).set("Cookie", adminCookie);
+    expect(variance500.body.data.yield.planned).toBe(40);
+    expect(variance500.body.data.yield.actual).toBe(40);
+    expect(variance500.body.data.yield.variancePct).toBe(0);
 
     // Each run's output landed under its OWN finished-good SKU, not the
     // BOM's shared canonical one.
@@ -146,7 +157,7 @@ describe("pack-size costing — shared recipe, per-pack packaging and output", (
     expect(breakdown200.body.data.costPerGoodUnitPaise).not.toBe(breakdown500.body.data.costPerGoodUnitPaise);
   });
 
-  it("rejects a packSizeId that belongs to a different BOM", async () => {
+  it("rejects a packSizeId that belongs to a different BOM during planning", async () => {
     const adminCookie = await loginAs("admin@porulottam.test");
     const flourId = await makeItem(adminCookie, "RAW_MATERIAL");
     const finishedAId = await makeItem(adminCookie, "FINISHED_GOOD");
@@ -163,18 +174,20 @@ describe("pack-size costing — shared recipe, per-pack packaging and output", (
       expectedYieldQty: 10,
       lines: [{ rawItemId: flourId, qtyPerBatch: 1_000 }],
     });
+    const pouchId = await makeItem(adminCookie, "PACKAGING", "foreign pack pouch");
     const foreignPackSize = await request(app).post("/pack-sizes").set("Cookie", adminCookie).send({
-      finishedItemId: finishedBId, baseBomId: bomB.body.data.id, multiplier: 1, label: "foreign",
+      finishedItemId: finishedBId,
+      baseBomId: bomB.body.data.id,
+      multiplier: 1,
+      label: "foreign",
+      expectedYieldQty: 10,
+      lines: [{ itemId: pouchId, qtyPerBatch: 10 }],
     });
 
-    const run = await request(app).post("/production-runs").set("Cookie", adminCookie).send({ bomHeaderId: bomA.body.data.id });
-    await request(app).post(`/production-runs/${run.body.data.id}/start`).set("Cookie", adminCookie)
-      .send({ actualConsumption: [{ itemId: flourId, qtyBase: 1_000 }] });
-    const res = await request(app)
-      .post(`/production-runs/${run.body.data.id}/complete`)
-      .set("Cookie", adminCookie)
-      .set("Idempotency-Key", `packsize-foreign-${run.body.data.id}`)
-      .send({ actualOutputQty: 10, packagingConsumed: [], packSizeId: foreignPackSize.body.data.id });
+    const res = await request(app).post("/production-runs").set("Cookie", adminCookie).send({
+      bomHeaderId: bomA.body.data.id,
+      packSizeId: foreignPackSize.body.data.id,
+    });
 
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe("invalid_pack_size");
