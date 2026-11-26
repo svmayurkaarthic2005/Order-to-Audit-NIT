@@ -46,6 +46,12 @@ ADD CONSTRAINT "PackSizeLine_packSizeId_fkey"
 FOREIGN KEY ("packSizeId") REFERENCES "PackSize"("id")
 ON DELETE CASCADE ON UPDATE CASCADE;
 
+-- Pack formats are scoped to a recipe version: an edit creates copies
+-- for the new BOM version while old runs keep the old format definition.
+DROP INDEX "PackSize_finishedItemId_label_key";
+CREATE UNIQUE INDEX "PackSize_baseBomId_finishedItemId_label_key"
+ON "PackSize"("baseBomId", "finishedItemId", "label");
+
 ALTER TABLE "PackSizeLine"
 ADD CONSTRAINT "PackSizeLine_itemId_fkey"
 FOREIGN KEY ("itemId") REFERENCES "Item"("id")
