@@ -81,6 +81,13 @@ describe("pack-size costing — shared recipe, per-pack packaging and output", (
     expect(packSize500.status).toBe(201);
     expect(packSize500.body.data.expectedYieldQty).toBe(40);
 
+    // A migrated pack-size record can be corrected before any run references it.
+    const configuredPack = await request(app).put(`/pack-sizes/${packSize500.body.data.id}`)
+      .set("Cookie", adminCookie)
+      .send({ expectedYieldQty: 40, lines: [{ itemId: pouch500Id, qtyPerBatch: 40 }] });
+    expect(configuredPack.status).toBe(200);
+    expect(configuredPack.body.data.expectedYieldQty).toBe(40);
+
     // ── Run 1: default 200g product and its original BOM packaging ──
     const run200 = await request(app).post("/production-runs").set("Cookie", adminCookie).send({ bomHeaderId: bomId });
     await request(app).post(`/production-runs/${run200.body.data.id}/start`).set("Cookie", adminCookie)
@@ -99,6 +106,15 @@ describe("pack-size costing — shared recipe, per-pack packaging and output", (
       .send({ bomHeaderId: bomId, packSizeId: packSize500.body.data.id });
     expect(run500.status).toBe(201);
     expect(run500.body.data.packSize.id).toBe(packSize500.body.data.id);
+    expect(run500.body.data.packSize.expectedYieldQty).toBe(40);
+
+    // Once planned, changing its yield or packaging would rewrite that run's
+    // plan, so the API rejects the edit.
+    const lockedPackEdit = await request(app).put(`/pack-sizes/${packSize500.body.data.id}`)
+      .set("Cookie", adminCookie)
+      .send({ expectedYieldQty: 41, lines: [{ itemId: pouch500Id, qtyPerBatch: 40 }] });
+    expect(lockedPackEdit.status).toBe(409);
+    expect(lockedPackEdit.body.error.code).toBe("pack_size_in_use");
 
     await request(app).post(`/production-runs/${run500.body.data.id}/start`).set("Cookie", adminCookie)
       .send({ actualConsumption: [{ itemId: flourId, qtyBase: 10_000 }] });
