@@ -113,8 +113,12 @@ from the brief to explain.
 
 Valuation is **moving weighted average**: every issue is valued at (value on hand ÷ quantity on
 hand) at that moment, and only the final paise amount is rounded. Overheads are the run's
-actual labour and gas/power, entered when the run is finished (step 8). If they're left blank
-the system assumes ₹500 per batch, and says so on the run.
+actual labour and gas/power. They can be entered when the run is recorded, or added afterwards
+with "Add labour and gas/power" on the finished run (step 8 of the brief); the difference posts as
+a cost-only ledger row, so nothing earlier is edited. Until they are entered the system assumes
+₹500 per batch and says so on the run. The run's cost screen also shows the weighted-average
+rate behind each line (e.g. ₹43.125/kg), the materials subtotal and the profit per packet, and the
+stock levels screen has an "Average cost" column.
 
 | Cost | Working | Amount |
 |---|---|---|
@@ -228,7 +232,8 @@ e-Invoice/e-Way Bill format, and a Tamil interface for floor staff.
 - Opening finished goods (50 packets) carry no cost, since the brief doesn't give one; this
   doesn't affect the run's cost per packet.
 - Stock is held in grams, millilitres and pieces so quantities stay whole numbers; the screens
-  show kg, litres and pieces.
+  show kg, litres and pieces. Products we sell are always counted in pieces (packets); the item
+  form and the API both enforce it, so a packet can never be stocked in grams.
 - One dispatch per invoice, for the full invoiced quantity or less (partial dispatch and returns
   are optional in the brief and not built).
 - A payment can't be more than the invoice still owes: the extra would otherwise vanish from
@@ -241,7 +246,6 @@ e-Invoice/e-Way Bill format, and a Tamil interface for floor staff.
 - Customer-specific prices and schemes aren't modelled; the salesman enters the price per order
   and the admin can edit it before approval.
 - No user-management screen: the six logins are seeded.
-- The demo video is not recorded yet.
 - The hosted demo runs on free tiers (see below), so the first request after a quiet spell can
   be slow, and Supabase pauses a project after a week with no activity.
 
@@ -323,7 +327,7 @@ connects as the table owner and is unaffected.
 
 - `docs/design-note.md`: architecture, data model, how stock and BOM consumption are computed,
   costing and valuation
-- `docs/er-diagram.md`: entity-relationship diagram of all 29 tables, generated from the schema by `python docs/gen-er-diagram.py`
+- `docs/er-diagram.md`: entity-relationship diagram of all 30 tables, generated from the schema by `python docs/gen-er-diagram.py`
 - `docs/demo-video-script.md`: the demo, scene by scene
 - `docs/phase-20-additional-improvements-plan.md`: the plan the "also built" features came from
 

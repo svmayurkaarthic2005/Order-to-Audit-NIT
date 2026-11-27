@@ -29,16 +29,16 @@ speed it up if time is short.)
 Purchases:** flour supplier, Flour, 60 kg at ₹45. *"Stock goes up on save, and flour's average
 cost becomes ₹43.125/kg: (100 × 42 + 60 × 45) ÷ 160."*
 
-**1:30–3:00 — Steps 2–3 and 8, the run (Production).** **Production → Production runs:** plan one
+**1:30–3:00 — Steps 2–3, the run (Production).** **Production → Production runs:** plan one
 batch of Murukku 200 g, then **Record run**. Enter, against each planned amount:
 
 - flour 40 kg, oil 10.5 L (10 L planned), spice mix 1.2 kg;
 - pouches 194 used, 6 of them damaged; cartons 9;
-- good packets 188, labour ₹1,200, gas/power ₹600.
+- good packets 188; labour and gas/power left blank for now (step 8 adds them).
 
 *"It's all-or-nothing: if any material were short, nothing would leave stock."* Open **How did it
-go?**: oil +5% and yield −6% flagged (cartons −10% too), cost per packet **₹31.14** (₹5,855 ÷
-188). Show the bell: variance warnings, and oil now below its reorder level. **Stock levels:**
+go?**: oil +5% and yield −6% flagged (cartons −10% too). Cost per packet is provisional until
+labour is in; the cost lines show the weighted-average rates (flour ₹43.125/kg). Show the bell: variance warnings, and oil now below its reorder level. **Stock levels:**
 flour 120 kg, oil 19.5 L, pouches 306, Murukku 238.
 
 **3:00–3:30 — Step 4, Salesman A on a phone.** Switch to phone view. Sign in as **Salesman A**.
@@ -52,7 +52,7 @@ admin**.
   invoiced: CGST + SGST". Click **Approve**, then **To invoice → Create invoice**.
 - **Billing:** ₹7,500 before tax + GST ₹375 (half central, half state) = **₹7,875**. **Download
   PDF**: CGST ₹187.50 and SGST ₹187.50 listed separately. It reads "TAX INVOICE (DEMO)" because
-  no real factory GSTIN is configured.
+  no real factory GSTIN is configured. **Email invoice** sends the PDF to the customer's address (WhatsApp link too).
 - **Orders → Dispatch:** 150 packets, **Record dispatch**. Finished stock is now **88**.
 
 **4:45–5:45 — Step 6, the shortage (Salesman B, then Admin).** Sign in as **Salesman B**: order
@@ -63,6 +63,10 @@ owner and the admin are all notified of the 32-packet shortage."*
 
 **5:45–6:15 — Step 7, payment (Admin).** **Billing:** ₹4,000 against Retailer A's invoice. Still
 owed: **₹3,875**. *"A payment larger than what's owed is refused."*
+
+**Step 8, costing (Production).** On the finished run press **Add labour and gas/power**: ₹1,200
+and ₹600. Total **₹5,855 ÷ 188 = ₹31.14** a packet, margin **₹18.86** against ₹50. The dashboard
+and stock levels (Average cost column) show the same figures.
 
 **6:15–7:15 — Step 9, the month's reports (Accountant).** Sign in as **Accountant** (read-only).
 **Reports:** Sales Register (₹7,875), GST Summary (CGST + SGST ₹375, invoice by invoice for

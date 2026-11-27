@@ -99,9 +99,10 @@ story as each role. CI runs all three on every push.
 
 ## Assumptions made where the problem statement was silent
 
-- **Production overhead**: the run's actual labour and gas/power, entered when it's recorded
-  (the benchmark's ₹1,200 + ₹600). If left blank, a flat ₹500 per batch is assumed and the run's
-  cost panel says so. Material cost + labour + overhead, divided by good packets, gives the cost
+- **Production overhead**: the run's actual labour and gas/power, entered when it's recorded or
+  added afterwards (the benchmark's ₹1,200 + ₹600; the late amount posts as a cost-only output
+  row, so history is never edited). If left blank, a flat ₹500 per batch is assumed and the
+  run's cost panel says so. Material cost + labour + overhead, divided by good packets, gives the cost
   per packet: ₹5,855 ÷ 188 = ₹31.14 for the benchmark run. Damaged packaging is part of the
   material cost. Once a run completes, its figure is a historical snapshot; a later purchase
   price or recipe edit never changes it.
