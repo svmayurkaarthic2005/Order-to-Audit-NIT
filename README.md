@@ -9,6 +9,7 @@ shortlisting task.
 - **Run it locally:** five commands, below
 - **Re-run the benchmark yourself:** `cd backend && npm run benchmark` (builds a brand-new database
   and replays section 5 end to end; details [below](#the-benchmark-section-5))
+- **Docs:** [workflow diagram](docs/workflow-diagram.md), [design note](docs/design-note.md), [ER diagram](docs/er-diagram.md), [demo script](docs/demo-video-script.md)
 - **Demo video:** [Watch on Google Drive](https://drive.google.com/file/d/1-3wFAKhmzqLsNS2eLupBLTGSrPxM7w8p/view?usp=sharing)
 
 ## Stack, and why
@@ -325,10 +326,11 @@ connects as the table owner and is unaffected.
 
 ## Documentation
 
-- `docs/design-note.md`: architecture, data model, how stock and BOM consumption are computed,
+- [`docs/workflow-diagram.md`](docs/workflow-diagram.md): order-to-audit flow and order status diagram
+- [`docs/design-note.md`](docs/design-note.md): architecture, data model, how stock and BOM consumption are computed,
   costing and valuation
-- `docs/er-diagram.md`: entity-relationship diagram of all 30 tables, generated from the schema by `python docs/gen-er-diagram.py`
-- `docs/demo-video-script.md`: the demo, scene by scene
+- [`docs/er-diagram.md`](docs/er-diagram.md): entity-relationship diagram of all 30 tables, generated from the schema by `python docs/gen-er-diagram.py`
+- [`docs/demo-video-script.md`](docs/demo-video-script.md): the demo, scene by scene
 - `docs/phase-20-additional-improvements-plan.md`: the plan the "also built" features came from
 
 ## Project structure
